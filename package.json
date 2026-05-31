@@ -1,0 +1,36 @@
+{
+  "name": "ai-share-market-analysis-tool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered analysis tool for the Indian share market (Equity, Stock/Index Futures, Stock/Index Options, Nifty, Bank Nifty, Fin Nifty). Phase 1 foundation monorepo.",
+  "scripts": {
+    "install:all": "npm install --prefix frontend && npm install --prefix backend && echo \"\\nNOTE: ai-engine is Python. Run: cd ai-engine && pip install -r requirements.txt\"",
+    "dev": "concurrently -n FRONTEND,BACKEND -c blue,green \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "npm run dev --prefix backend",
+    "build": "npm run build:frontend && npm run build:backend",
+    "build:frontend": "npm run build --prefix frontend",
+    "build:backend": "npm run build --prefix backend",
+    "start:frontend": "npm run start --prefix frontend",
+    "start:backend": "npm run start --prefix backend"
+  },
+  "keywords": [
+    "indian-stock-market",
+    "nifty",
+    "bank-nifty",
+    "fin-nifty",
+    "options-analysis",
+    "futures-analysis",
+    "technical-analysis",
+    "ai-trading",
+    "trading-dashboard"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  }
+}
