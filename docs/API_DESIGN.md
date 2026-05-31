@@ -3,15 +3,20 @@
 This documents the planned HTTP APIs for the **backend** (Node/Express) and the
 **AI engine** (Python/FastAPI).
 
-> **Phase 1 status:** All endpoints exist but return **placeholder/mock** data.
-> Request/response shapes below are the *intended contracts* and may be refined
-> in later phases. Nothing here connects to live market data or real AI yet.
+> **Phase 2 status:** All endpoints exist and return **mock/demo** data. The
+> backend's `/api/analysis/*` routes now **proxy to the AI engine** and fall back
+> to local mock data if it is unavailable. Nothing connects to live market data
+> or real AI yet.
 
 Conventions:
-- All payloads are JSON (`Content-Type: application/json`).
+- All payloads are JSON (`Content-Type: application/json`), keys are **camelCase**.
 - Money/levels are numbers in INR. Timestamps are ISO-8601 (UTC).
 - `segment` ∈ `equity | stock_future | index_future | stock_option | index_option`.
-- Every analysis response carries a `disclaimer` field.
+- Every analysis response carries:
+  - `disclaimer` — risk/educational notice.
+  - `demo` — `true` while data is mock/demo (Phase 2).
+  - `source` — one of `ai-engine` (from the engine), `mock` (engine's own mock
+    logic), or `mock-fallback` (engine unreachable; backend served local mock).
 
 ---
 
@@ -55,18 +60,21 @@ Placeholder historical candles (OHLCV).
 ```
 
 ### `POST /api/analysis/technical`
-Placeholder technical analysis.
+Proxies to the AI engine `POST /analyse/equity`; mock-fallback on failure.
 ```jsonc
 // Request
 { "symbol": "NIFTY", "segment": "index_future", "interval": "15m" }
 // 200 OK
 {
-  "source": "mock",
+  "source": "ai-engine",
+  "demo": true,
   "symbol": "NIFTY",
+  "segment": "equity",
   "signal": "bullish",
-  "indicators": { "rsi": 58.3, "macd": "bullish_crossover", "ema20": 21450, "ema50": 21320 },
-  "summary": "Placeholder technical read. Replace with real indicator engine.",
-  "disclaimer": "Educational use only. Not investment advice."
+  "score": 0.42,
+  "notes": ["DEMO equity analysis from deterministic mock data — not live analysis."],
+  "metrics": { "rsi": 58.3, "macd": "bullish_crossover", "ema20": 21450, "ema50": 21320 },
+  "disclaimer": "Educational use only. Not investment advice. ..."
 }
 ```
 
@@ -102,18 +110,21 @@ Placeholder options-chain / OI analysis.
 ```
 
 ### `POST /api/analysis/trade-plan`
-Placeholder consolidated trade plan (entry/exit/SL/target/RR).
+Proxies to the AI engine `POST /analyse/trade-plan`; mock-fallback on failure.
+A trade plan **always** includes entry, stop-loss, target and risk-reward.
 ```jsonc
 // Request
 { "symbol": "RELIANCE", "segment": "equity", "capital": 100000, "riskPercent": 1 }
 // 200 OK
 {
-  "source": "mock",
+  "source": "ai-engine",
+  "demo": true,
   "symbol": "RELIANCE", "segment": "equity",
-  "action": "BUY", "signal": "bullish", "confidence": 0.0,
-  "entry": 2945, "stopLoss": 2905, "target": 3025,
-  "riskReward": 2.0, "rationale": ["Placeholder rationale — wire real engine later."],
-  "disclaimer": "Educational use only. Not investment advice. Trading involves risk of loss."
+  "action": "BUY", "signal": "bullish", "confidence": 63,
+  "entry": 2945, "stopLoss": 2905.83, "target": 3033.35,
+  "riskReward": 2.26,
+  "rationale": ["DEMO trade plan from deterministic mock data — no live market data is used."],
+  "disclaimer": "Educational use only. Not investment advice. Trading involves risk of loss. ..."
 }
 ```
 
@@ -134,9 +145,11 @@ Interactive docs auto-generated at **`/docs`** (Swagger) and **`/redoc`**.
 { "symbol": "TCS", "interval": "1d" }
 // 200 OK
 {
+  "source": "mock", "demo": true,
   "symbol": "TCS", "segment": "equity", "signal": "neutral",
-  "score": 0.0, "indicators": {}, "notes": ["placeholder"],
-  "disclaimer": "Educational use only. Not investment advice."
+  "score": 0.33, "metrics": { "rsi": 52.0, "macd": "flat" },
+  "notes": ["DEMO equity analysis from deterministic mock data — not live analysis."],
+  "disclaimer": "Educational use only. Not investment advice. ..."
 }
 ```
 
@@ -162,13 +175,14 @@ Interactive docs auto-generated at **`/docs`** (Swagger) and **`/redoc`**.
 ```jsonc
 // Request
 { "symbol": "NIFTY", "segment": "index_option", "capital": 100000, "riskPercent": 1 }
-// 200 OK
+// 200 OK  (demo plan still includes full risk controls)
 {
+  "source": "mock", "demo": true,
   "symbol": "NIFTY", "segment": "index_option",
-  "action": "HOLD", "signal": "neutral", "confidence": 0.0,
-  "entry": null, "stopLoss": null, "target": null, "riskReward": null,
-  "rationale": ["placeholder — real scoring added in a later phase"],
-  "disclaimer": "Educational use only. Not investment advice. Trading involves risk of loss."
+  "action": "BUY", "signal": "bullish", "confidence": 63,
+  "entry": 1893.5, "stopLoss": 1865.1, "target": 1950.31, "riskReward": 2.0,
+  "rationale": ["DEMO trade plan from deterministic mock data — no live market data is used."],
+  "disclaimer": "Educational use only. Not investment advice. Trading involves risk of loss. ..."
 }
 ```
 
@@ -180,6 +194,19 @@ Interactive docs auto-generated at **`/docs`** (Swagger) and **`/redoc`**.
 // 4xx / 5xx
 { "error": { "message": "Human-readable message", "code": "OPTIONAL_CODE" } }
 ```
+
+## Backend → AI engine mapping (Phase 2)
+
+| Backend route | AI engine route |
+|---|---|
+| `POST /api/analysis/technical` | `POST /analyse/equity` |
+| `POST /api/analysis/futures` | `POST /analyse/futures` |
+| `POST /api/analysis/options` | `POST /analyse/options` |
+| `POST /api/analysis/trade-plan` | `POST /analyse/trade-plan` |
+
+The backend calls the engine via a service layer with a bounded timeout
+(`AI_ENGINE_TIMEOUT_MS`). On timeout/error it returns the same contract shape
+with `source: "mock-fallback"`, so clients always get a valid response.
 
 ## Versioning & Auth (future)
 - Versioning via path prefix (e.g. `/api/v1/...`) once contracts stabilise.

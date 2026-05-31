@@ -9,7 +9,7 @@ is shippable and builds on the previous one. **Work one phase at a time.**
 
 ---
 
-## ✅ Phase 1 — Initial Repository Setup  *(current)*
+## ✅ Phase 1 — Initial Repository Setup  *(done — pushed to `setup-branch`)*
 **Goal:** Clean, scalable, runnable monorepo foundation.
 - [x] Monorepo layout: `frontend`, `backend`, `ai-engine`, `docs`.
 - [x] Frontend dark-mode dashboard with all 10 sections (mock data).
@@ -22,13 +22,18 @@ is shippable and builds on the previous one. **Work one phase at a time.**
 
 ---
 
-## 🔜 Phase 2 — Wire the services together
-**Goal:** Real request/response flow end-to-end (still mock data underneath).
-- [ ] Frontend data layer (typed API client) → backend.
-- [ ] Backend → AI engine calls for each analysis endpoint.
-- [ ] Shared, validated request/response contracts (Zod on Node, Pydantic on Python).
-- [ ] Loading / error / empty states in the UI.
-- [ ] Basic unit tests per service + CI (lint, typecheck, test).
+## 🔧 Phase 2 — Wire the services together  *(in progress)*
+**Goal:** Real request/response flow end-to-end (still mock/demo data underneath).
+- [x] Frontend data layer (typed API client) → backend (`NEXT_PUBLIC_BACKEND_URL`).
+- [x] Backend service layer → AI engine for each analysis endpoint (`AI_ENGINE_URL`),
+      with graceful **mock-fallback** when the engine is unavailable.
+- [x] Shared request/response contracts (TS types ↔ Pydantic models, camelCase JSON,
+      `source` + `demo` flags on every analysis payload).
+- [x] Loading / error / empty states in the UI (`LiveAnalysis` card + state components).
+- [x] Basic tests per service + CI (`.github/workflows/ci.yml`: build FE & BE, import AI engine).
+- [ ] Broaden test coverage and add request validation (Zod) — ongoing.
+
+**Still out of scope (deferred):** real broker APIs, real API keys, live market data.
 
 ## 📊 Phase 3 — Market data integration (authorised)
 **Goal:** Replace mock quotes/candles with real (authorised) data.
@@ -70,3 +75,11 @@ is shippable and builds on the previous one. **Work one phase at a time.**
 - **No secrets in code.** Everything via env vars.
 - **Risk-first output:** no trade plan without stop-loss, target, and R:R.
 - **Respect provider/exchange terms** and regulations at every step.
+
+---
+
+## Branch Policy
+- **`main`** is the stable branch — updated only by the owner merging an approved PR.
+- **`setup-branch`** is the active development branch — all work is committed/pushed here.
+- After a merge to `main`, development continues on `setup-branch` unless a new
+  phase branch is created.

@@ -2,6 +2,8 @@
 
 Field names are snake_case in Python but (de)serialised as camelCase so the
 Node backend and JSON clients see camelCase keys (e.g. ``stopLoss``).
+
+Phase 2: responses are MOCK/DEMO data (``source="mock"``, ``demo=True``).
 """
 
 from typing import Any, Literal, Optional
@@ -11,10 +13,12 @@ from pydantic.alias_generators import to_camel
 
 Signal = Literal["bullish", "bearish", "neutral"]
 Action = Literal["BUY", "SELL", "HOLD"]
+Source = Literal["ai-engine", "mock", "mock-fallback"]
 
 DISCLAIMER = (
     "Educational use only. Not investment advice. "
-    "Trading involves risk of loss. Live data depends on authorised API providers."
+    "Trading involves risk of loss. Live data depends on authorised API providers. "
+    "Data is mock/demo until authorised live market data is integrated."
 )
 
 
@@ -55,6 +59,8 @@ class HealthResponse(CamelModel):
 
 
 class AnalysisResponse(CamelModel):
+    source: Source = "mock"
+    demo: bool = True
     symbol: str
     segment: str
     signal: Signal = "neutral"
@@ -65,6 +71,8 @@ class AnalysisResponse(CamelModel):
 
 
 class TradePlanResponse(CamelModel):
+    source: Source = "mock"
+    demo: bool = True
     symbol: str
     segment: str
     action: Action = "HOLD"

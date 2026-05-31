@@ -1,13 +1,17 @@
 // =====================================================================
-// MOCK DATA BUILDERS — Phase 1 (placeholder responses only)
+// MOCK DATA BUILDERS — Phase 2 (placeholder responses only)
 // ---------------------------------------------------------------------
-// These functions fabricate deterministic sample payloads so the API is
-// fully runnable without any live market data or AI provider. Replace
-// with real provider/AI-engine calls in later phases.
+// Deterministic sample payloads so the API is fully runnable without any
+// live market data or AI provider. Quote/history are simple fixtures;
+// analysis/trade-plan match the shared contracts and act as the backend's
+// fallback when the AI engine is unavailable. Replace with real provider /
+// AI-engine output in later phases.
 // =====================================================================
 
+import type { Action, AnalysisResponse, Signal, TradePlanResponse } from "../types/contracts";
+
 export const DISCLAIMER =
-  "Educational use only. Not investment advice. Trading involves risk of loss. Live data depends on authorised API providers.";
+  "Educational use only. Not investment advice. Trading involves risk of loss. Live data depends on authorised API providers. Data is mock/demo until authorised live market data is integrated.";
 
 export function buildQuote(symbol: string, segment = "equity") {
   return {
@@ -48,59 +52,69 @@ export function buildHistory(symbol: string, interval = "1d", limit = 50) {
   return { symbol: symbol.toUpperCase(), interval, count: candles.length, candles };
 }
 
-export function buildTechnical(symbol: string) {
+// --- Deterministic helpers (stable output per symbol) ---
+function seedFrom(symbol: string): number {
+  let h = 0;
+  for (const ch of symbol.toUpperCase()) h = (h * 31 + ch.charCodeAt(0)) % 100000;
+  return h;
+}
+
+function basePrice(symbol: string): number {
+  return round(500 + (seedFrom(symbol) % 3500) + 0.5);
+}
+
+function signalFrom(symbol: string): Signal {
+  return (["bullish", "bearish", "neutral"] as const)[seedFrom(symbol) % 3];
+}
+
+/** Contract-shaped mock analysis (backend fallback for technical/futures/options). */
+export function mockAnalysis(symbol: string, segment: string): AnalysisResponse {
+  const sym = symbol.toUpperCase();
+  const seed = seedFrom(sym);
+  const signal = signalFrom(sym);
   return {
-    symbol: symbol.toUpperCase(),
-    signal: "bullish",
-    indicators: { rsi: 58.3, macd: "bullish_crossover", ema20: 2941.2, ema50: 2908.7 },
-    summary: "Placeholder technical read — wire the real indicator engine (AI engine) later.",
+    source: "mock",
+    demo: true,
+    symbol: sym,
+    segment,
+    signal,
+    score: round((seed % 100) / 100),
+    notes: ["DEMO analysis from deterministic mock data — not live market analysis."],
+    metrics: { rsi: round(40 + (seed % 30)), trend: signal },
+    disclaimer: DISCLAIMER,
   };
 }
 
-export function buildFutures(symbol: string, expiry?: string) {
+/** Contract-shaped mock trade plan (backend fallback). Always includes risk controls. */
+export function mockTradePlan(input: { symbol: string; segment?: string }): TradePlanResponse {
+  const symbol = input.symbol.toUpperCase();
+  const segment = input.segment ?? "equity";
+  const signal = signalFrom(symbol);
+  const base = basePrice(symbol);
+  const action: Action = signal === "bullish" ? "BUY" : signal === "bearish" ? "SELL" : "HOLD";
+  const longSide = action !== "SELL";
+  const entry = base;
+  const stopLoss = round(longSide ? base * 0.985 : base * 1.015);
+  const target = round(longSide ? base * 1.03 : base * 0.97);
+  const riskReward = round(Math.abs(target - entry) / Math.abs(entry - stopLoss));
+  const confidence = 55 + (seedFrom(symbol) % 25);
   return {
-    symbol: symbol.toUpperCase(),
-    expiry: expiry ?? "2026-01-29",
-    signal: "bullish",
-    futures: { basis: 35.7, oiChangePercent: 5.1, interpretation: "long_buildup" },
-  };
-}
-
-export function buildOptions(symbol: string, expiry?: string) {
-  return {
-    symbol: symbol.toUpperCase(),
-    expiry: expiry ?? "2026-01-29",
-    spot: 21512,
-    pcr: 0.92,
-    maxPain: 21500,
-    support: [21300, 21000],
-    resistance: [21700, 22000],
-    signal: "neutral",
-  };
-}
-
-export function buildTradePlan(input: {
-  symbol: string;
-  segment?: string;
-  capital?: number;
-  riskPercent?: number;
-}) {
-  const entry = 2945;
-  const stopLoss = 2905;
-  const target = 3025;
-  const riskPerUnit = entry - stopLoss;
-  const rewardPerUnit = target - entry;
-  return {
-    symbol: input.symbol.toUpperCase(),
-    segment: input.segment ?? "equity",
-    action: "BUY",
-    signal: "bullish",
-    confidence: 0, // placeholder — real scoring added later
+    source: "mock",
+    demo: true,
+    symbol,
+    segment,
+    action,
+    signal,
+    confidence,
     entry,
     stopLoss,
     target,
-    riskReward: round(rewardPerUnit / riskPerUnit),
-    rationale: ["Placeholder rationale — connect the AI engine in a later phase."],
+    riskReward,
+    rationale: [
+      "DEMO trade plan from deterministic mock data — no live market data is used.",
+      `Derived a ${signal} bias for ${symbol}; position size must respect the stop-loss.`,
+    ],
+    disclaimer: DISCLAIMER,
   };
 }
 

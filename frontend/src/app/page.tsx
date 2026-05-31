@@ -11,6 +11,7 @@ import { TradePlan } from "@/components/dashboard/TradePlan";
 import { RiskManagement } from "@/components/dashboard/RiskManagement";
 import { MarketSentiment } from "@/components/dashboard/MarketSentiment";
 import { ScannerPlaceholder } from "@/components/dashboard/ScannerPlaceholder";
+import { LiveAnalysis } from "@/components/dashboard/LiveAnalysis";
 
 export default function DashboardPage() {
   return (
@@ -36,6 +37,9 @@ export default function DashboardPage() {
               <AITradeRecommendation />
             </div>
 
+            {/* Live analysis — API-wired demo (frontend → backend → AI engine) */}
+            <LiveAnalysis />
+
             {/* Watchlist + Options */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <Watchlist />
@@ -58,8 +62,8 @@ export default function DashboardPage() {
 
           <footer className="mt-8 border-t border-white/5 pt-5 text-center text-[11px] leading-relaxed text-slate-600">
             <p>
-              AI Share Market Analysis Tool · Phase 1 (foundation). All figures are mock/placeholder data for UI
-              demonstration — <span className="text-slate-500">not live market data</span>.
+              AI Share Market Analysis Tool · Phases 1–2 (foundation + service wiring). All figures are
+              mock/demo data for UI demonstration — <span className="text-slate-500">not live market data</span>.
             </p>
             <p className="mt-1">
               ⚠️ Educational use only. Not investment advice. Trading in equities, futures &amp; options involves

@@ -4,10 +4,11 @@ An AI-powered analysis platform for the **Indian share market**. It is being
 built to assist with research and decision-support across multiple market
 segments — **not** to provide guaranteed profit or certified investment advice.
 
-> ⚠️ **Phase 1 (Initial Setup) only.** This repository currently contains a
-> clean, scalable, runnable foundation. There is **no live market data**, **no
-> broker integration**, and **no real AI** wired up yet. All data shown is
-> mock/placeholder data for UI demonstration.
+> ⚠️ **Phases 1–2 (foundation + service wiring).** This repository contains a
+> clean, scalable, runnable foundation **with the three services wired together**
+> (frontend → backend → AI engine). There is still **no live market data**, **no
+> broker integration**, and **no real AI** — all data is **mock/demo** for UI and
+> integration demonstration.
 
 ---
 
@@ -17,7 +18,7 @@ segments — **not** to provide guaranteed profit or certified investment advice
 |---|---|
 | **Goal** | Production-ready monorepo foundation for an AI Indian-market analysis tool |
 | **Target market** | Indian stock market (NSE / BSE) |
-| **Current phase** | Phase 1 — Initial Repository Setup |
+| **Current phase** | Phase 2 — Service Wiring, CI & Stable Foundation (mock/demo data) |
 
 ### Supported segments (planned)
 - Equity (Cash)
@@ -54,6 +55,19 @@ trade-analysis/
 
 See [`docs/PROJECT_ARCHITECTURE.md`](docs/PROJECT_ARCHITECTURE.md) for the full
 breakdown and data-flow diagram.
+
+### Data flow (Phase 2)
+
+```
+Browser ──▶ Frontend (Next.js)
+              │  typed API client (NEXT_PUBLIC_BACKEND_URL)
+              ▼
+            Backend (Express)  ──▶  AI Engine (FastAPI)
+              │   service layer (AI_ENGINE_URL)
+              │   if the engine is unreachable, the backend returns
+              ▼   clearly-marked mock-fallback data so the app still works
+            JSON response (camelCase, carries `source` + `demo` flags + disclaimer)
+```
 
 ---
 
@@ -150,28 +164,56 @@ uvicorn app.main:app --reload --port 8000
 # docs on http://localhost:8000/docs  (try GET http://localhost:8000/health)
 ```
 
+> Tip: run all three for the full flow. The backend works **without** the AI
+> engine too — it returns `source: "mock-fallback"` data when the engine is off.
+
+---
+
+## 🧪 How to Test
+
+Each service has a lightweight check used locally and in CI.
+
+```bash
+# Frontend — type-check (no emit)
+cd frontend && npm run typecheck
+
+# Backend — type-check + unit tests (node:test)
+cd backend && npm run typecheck && npm test
+
+# AI Engine — import check (+ optional pytest suite)
+cd ai-engine && source venv/bin/activate
+python -c "from app.main import app; print('AI engine import OK')"
+pip install -r requirements-dev.txt && pytest      # optional
+```
+
+CI (GitHub Actions, `.github/workflows/ci.yml`) runs on every **push to
+`setup-branch`** and every **pull request to `main`**: it builds the frontend and
+backend and import-checks the AI engine.
+
 ---
 
 ## 🌿 Branch Workflow
 
-- `main` — protected. **No direct commits.**
-- `setup-branch` — Phase 1 foundation work (this branch).
+- `main` — **stable/protected.** No direct commits; updated only by the repo
+  owner merging an approved Pull Request.
+- `setup-branch` — **active development branch.** All current work (Phases 1–2
+  and ongoing) is committed and pushed here.
 
-All work for this phase lives on `setup-branch`. To merge it into `main`, open a
-Pull Request (see **How to Later Merge** in the project notes / final summary).
-Future phases should follow the same pattern: branch → build → PR → review →
-merge.
+Development happens on `setup-branch`. The owner merges `setup-branch` → `main`
+via a Pull Request only after review and testing. Unless a new phase branch is
+created, development continues on `setup-branch` after each merge.
 
 ---
 
 ## 🗺️ Next Phase Plan
 
-**Phase 2 — Core API & UI wiring:** connect the frontend to the backend, replace
-mock JSON with structured contracts, and flesh out the AI-engine placeholder
-logic. See [`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) for the
-full phased plan, and
-[`docs/MARKET_DATA_INTEGRATION.md`](docs/MARKET_DATA_INTEGRATION.md) for how
-authorised data providers (Zerodha Kite Connect, Upstox, Dhan, Angel One
+**Phase 2 (in progress) — Service wiring, CI & stable foundation:** typed
+frontend API client → backend, backend service layer → AI engine (with mock
+fallback), shared response contracts, loading/error/empty UI states, basic tests
+and CI. **Phase 3 next — authorised market-data integration.** See
+[`docs/DEVELOPMENT_ROADMAP.md`](docs/DEVELOPMENT_ROADMAP.md) for the full phased
+plan, and [`docs/MARKET_DATA_INTEGRATION.md`](docs/MARKET_DATA_INTEGRATION.md)
+for how authorised data providers (Zerodha Kite Connect, Upstox, Dhan, Angel One
 SmartAPI, TrueData, etc.) will be integrated later.
 
 ---
