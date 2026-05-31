@@ -75,7 +75,7 @@ export function LiveAnalysis() {
         {plan.isError && (
           <ErrorState
             message={plan.error ?? "Request failed."}
-            hint="Start the backend (cd backend && npm run dev). The AI engine is optional — the backend serves mock data if it's offline."
+            hint="Start the backend (cd backend && npm run dev). In GitHub Codespaces, also forward port 4000 (Ports tab). The AI engine is optional — the backend serves mock data if it's offline."
             onRetry={onAnalyze}
           />
         )}

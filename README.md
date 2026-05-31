@@ -169,6 +169,45 @@ uvicorn app.main:app --reload --port 8000
 
 ---
 
+## ☁️ Running in GitHub Codespaces
+
+In a Codespace each port is exposed at its own forwarded URL like
+`https://<codespace-name>-3000.app.github.dev` — **not** `localhost`. Because
+your browser runs on your own machine, calling `localhost:4000` from the page
+would hit *your* laptop, not the Codespace. The app handles this automatically.
+
+1. **Start the services** (separate terminals):
+   ```bash
+   cd backend  && npm install && npm run dev      # port 4000
+   cd frontend && npm install && npm run dev      # port 3000
+   cd ai-engine && source venv/bin/activate \
+     && pip install -r requirements.txt \
+     && uvicorn app.main:app --reload --port 8000 # port 8000 (optional)
+   ```
+2. **Forward / make ports visible.** In the **Ports** tab, ensure **3000** and
+   **4000** are forwarded. Set **port 4000 to _Public_** (or keep it Private but
+   authenticated in your browser) so the page can reach it.
+3. **Open the frontend** via its forwarded `-3000.app.github.dev` URL and click
+   **Analyze** in *Live Analysis*.
+
+**How URLs resolve (no config needed):**
+- The **frontend calls the backend on port 4000**. If `NEXT_PUBLIC_BACKEND_URL`
+  is unset, it auto-derives the backend URL from the page origin — swapping
+  `-3000.app.github.dev` → `-4000.app.github.dev` in Codespaces, or falling back
+  to `http://localhost:4000` locally.
+- The **backend calls the AI engine on port 8000** server-side. **Port 8000 does
+  not need to be public** for frontend testing — only the backend reaches it.
+- The browser **never** calls port 8000 directly.
+
+**Notes:**
+- To force a specific backend URL, set `NEXT_PUBLIC_BACKEND_URL` in
+  `frontend/.env.local`. Because `NEXT_PUBLIC_*` values are inlined at build
+  time, **restart the frontend dev server after changing `.env.local`**.
+- In development the backend automatically allows `*.app.github.dev` origins
+  (CORS); this wildcard is disabled when `NODE_ENV=production`.
+
+---
+
 ## 🧪 How to Test
 
 Each service has a lightweight check used locally and in CI.

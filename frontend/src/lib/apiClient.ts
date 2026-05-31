@@ -1,5 +1,13 @@
 // Typed frontend API client for the backend.
-// Base URL comes from NEXT_PUBLIC_BACKEND_URL (see .env.local.example).
+//
+// Backend base-URL resolution (in priority order):
+//   1. NEXT_PUBLIC_BACKEND_URL — explicit override (see .env.local.example).
+//   2. GitHub Codespaces auto-detect (browser only): the forwarded frontend URL
+//      https://<name>-3000.app.github.dev  ->  https://<name>-4000.app.github.dev
+//   3. http://localhost:4000 — normal local development.
+//
+// The frontend talks to the BACKEND only. The AI engine stays backend-side
+// (the backend calls it), so the browser never hits port 8000 directly.
 // All data is mock/demo in Phase 2.
 
 import type {
@@ -10,8 +18,35 @@ import type {
   TradePlanResponse,
 } from "@/types/api";
 
-const BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 const DEFAULT_TIMEOUT_MS = 8000;
+
+// GitHub Codespaces forwards each port as a distinct subdomain, e.g.
+// `glorious-train-abc123-3000.app.github.dev`. We swap the frontend port
+// segment (-3000) for the backend port segment (-4000).
+const CODESPACES_FRONTEND_SUFFIX = "-3000.app.github.dev";
+const CODESPACES_BACKEND_SUFFIX = "-4000.app.github.dev";
+
+/**
+ * Resolve the backend base URL for the current environment.
+ * Returns a URL with no trailing slash. Safe to call during SSR (falls back
+ * to localhost when `window` is unavailable).
+ */
+export function getBackendBaseUrl(): string {
+  // 1) Explicit override always wins.
+  const envUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim();
+  if (envUrl) return envUrl.replace(/\/+$/, "");
+
+  // 2) Auto-detect a GitHub Codespaces forwarded URL from the browser origin.
+  if (typeof window !== "undefined") {
+    const origin = window.location.origin;
+    if (origin.includes(CODESPACES_FRONTEND_SUFFIX)) {
+      return origin.replace(CODESPACES_FRONTEND_SUFFIX, CODESPACES_BACKEND_SUFFIX);
+    }
+  }
+
+  // 3) Local development fallback.
+  return "http://localhost:4000";
+}
 
 /** Error thrown for any non-OK response or network/timeout failure. */
 export class ApiError extends Error {
@@ -26,7 +61,8 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = `${BASE_URL}${path}`;
+  const baseUrl = getBackendBaseUrl();
+  const url = `${baseUrl}${path}`;
 
   let res: Response;
   try {
@@ -37,8 +73,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch (err) {
     const timedOut = err instanceof Error && err.name === "TimeoutError";
+    if (timedOut) {
+      throw new ApiError(`The backend at ${baseUrl} did not respond in time. Is it running on port 4000?`);
+    }
     throw new ApiError(
-      timedOut ? "Request timed out." : "Cannot reach the backend. Is it running on " + BASE_URL + "?",
+      `Cannot reach the backend at ${baseUrl}. Make sure it is running on port 4000. ` +
+        `In GitHub Codespaces, also ensure the port 4000 URL is forwarded and reachable.`,
     );
   }
 

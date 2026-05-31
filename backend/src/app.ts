@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import morgan from "morgan";
 import { env } from "./config/env";
+import { corsOptions } from "./config/cors";
 import { router } from "./routes";
 import { notFound } from "./middleware/notFound";
 import { errorHandler } from "./middleware/errorHandler";
@@ -12,7 +13,8 @@ export function createApp() {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  app.use(cors({ origin: env.corsOrigin, credentials: true }));
+  // CORS: configured allow-list + (in dev) GitHub Codespaces origins.
+  app.use(cors(corsOptions));
 
   if (env.nodeEnv !== "test") {
     app.use(morgan("dev"));
