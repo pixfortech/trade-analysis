@@ -13,14 +13,15 @@
 import type {
   AnalysisRequest,
   AnalysisResponse,
+  BatchQuotesResponse,
   HealthResponse,
   InstrumentResolveResponse,
-  InstrumentSearchResponse,
   InstrumentsStatus,
   KiteLoginUrlResponse,
   KiteQuoteResponse,
   KiteStatus,
   LiveTradePlan,
+  SearchResponse,
   TradePlanRequest,
   TradePlanResponse,
 } from "@/types/api";
@@ -142,15 +143,26 @@ export const api = {
     loginUrl: () => request<KiteLoginUrlResponse>("/api/kite/login-url"),
     quote: (instrument: string) =>
       request<KiteQuoteResponse>(`/api/kite/quote?instrument=${encodeURIComponent(instrument)}`),
+    quotes: (instruments: string[]) =>
+      request<BatchQuotesResponse>(`/api/kite/quotes?instruments=${encodeURIComponent(instruments.join(","))}`),
 
-    // Instruments resolver (Phase 3C).
+    // Instruments resolver (Phase 3C/3D).
     instrumentsStatus: () => request<InstrumentsStatus>("/api/kite/instruments/status"),
     instrumentsRefresh: () =>
       request<InstrumentsStatus & { refreshed: boolean }>("/api/kite/instruments/refresh", { method: "POST" }),
-    instrumentsSearch: (filters: { q?: string; segment?: string; instrumentType?: string; underlying?: string; limit?: number }) => {
+    instrumentsSearch: (filters: {
+      q?: string;
+      segment?: string;
+      instrumentType?: string;
+      underlying?: string;
+      expiry?: string;
+      strike?: number | string;
+      optionType?: string;
+      limit?: number;
+    }) => {
       const qs = new URLSearchParams();
       for (const [k, v] of Object.entries(filters)) if (v != null && v !== "") qs.set(k, String(v));
-      return request<InstrumentSearchResponse>(`/api/kite/instruments/search?${qs.toString()}`);
+      return request<SearchResponse>(`/api/kite/instruments/search?${qs.toString()}`);
     },
     instrumentsResolve: (params: ResolveParams) => {
       const qs = new URLSearchParams();

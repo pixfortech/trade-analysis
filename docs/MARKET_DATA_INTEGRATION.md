@@ -113,6 +113,41 @@ guidance to use the resolver. For F&O historical candles, the resolved
 
 Still **read-only**: no order/trade execution anywhere.
 
+### 7c. Cache hardening, grouped search & batch quotes (Phase 3D) ✅
+
+**Cache hardening:**
+- **TTL** (`KITE_INSTRUMENTS_TTL_HOURS`, default **24h**). `ensureLoaded()`
+  auto-refreshes on first use or when expired.
+- **Disk persistence** to `backend/.cache/kite-instruments.json` so the dump
+  survives restarts. `.cache/` is **gitignored** — never commit it.
+- **Graceful fallback:** if a refresh download fails but a (possibly stale)
+  cache exists in memory or on disk, it is kept and used; only a totally empty
+  cache + failed refresh raises an error.
+- `GET /api/kite/instruments/status` now reports `ready`, `loadedAt`,
+  `expiresAt`, `expired`, `ttlHours`, `source` (`kite`|`disk`) and counts.
+
+**Zerodha-like grouped search** — `GET /api/kite/instruments/search`:
+- Free-text queries: `RELIANCE`, `MIDCPNIFTY FUT`, `NIFTY 24500 CE`,
+  `BANKNIFTY PE`. The query is parsed for strike / CE-PE / FUT hints.
+- Results are **grouped** as `{ equity, indices, futures, options }` and ranked
+  (exact/prefix match first; equity & index before derivatives; nearest expiry
+  next). Each result includes `displayName`, `uiSegment`, `instrumentType`
+  (`EQ|INDEX|FUT|CE|PE`), `expiry`, `strike`, `optionType`, `lotSize`,
+  `instrumentToken`. Filters: `segment` (equity|indices|futures|options|all),
+  `underlying`, `instrumentType`, `expiry`, `strike`, `optionType`, `limit`.
+- Indices use the **exact** exchange/symbol from the dump (e.g. `NSE:NIFTY 50`),
+  never a guessed key.
+
+**Batch quotes** — `GET /api/kite/quotes?instruments=NSE:RELIANCE,NFO:MIDCPNIFTY26JUNFUT`:
+returns live quotes for many instruments at once; unknown instruments are listed
+in `missing` rather than failing the call. Used by the watchlist & dashboard.
+
+**Frontend UX:** a reusable **InstrumentSearch** (debounced, grouped, keyboard
+navigable) is used in the Live Trade Plan and Watchlist. The dashboard is
+**customisable** (show/hide + reorder cards, reset) with layout and watchlist
+persisted in `localStorage`. Text sizes were increased for readability. The app
+remains **read-only** — there is no order placement or trade execution.
+
 ---
 
 ## 1. Design Principle: a Provider Abstraction

@@ -7,27 +7,42 @@ import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { num } from "@/lib/format";
 import type { LiveAction, LivePlanSide, LiveTradePlan } from "@/types/api";
-import { InstrumentSelector, type ResolvedSelection } from "./InstrumentSelector";
+import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
 
 const INTERVALS = ["minute", "5minute", "15minute", "30minute", "60minute", "day"];
 const RISK_PROFILES = ["conservative", "balanced", "aggressive"];
 
+interface Selection {
+  instrument: string;
+  instrumentToken: number | null;
+  lotSize: number | null;
+  label: string;
+}
+
 /**
- * Live Trade Plan — READ-ONLY Kite-based analysis (Phase 3B/3C).
- * Uses the instrument selector (Equity/Futures/Options) to resolve an exact
- * Kite symbol, then shows trend, S/R and long/short level plans with a final
- * decision. There are intentionally NO buy/sell or order-placement controls.
+ * Live Trade Plan — READ-ONLY Kite-based analysis (Phase 3B/3C/3D).
+ * Uses the shared Zerodha-like instrument search to resolve an exact Kite
+ * symbol (equity/index/future/option), then shows trend, S/R and long/short
+ * level plans with a final decision. No buy/sell or order-placement controls.
  */
 export function LiveTradePlanCard() {
-  const [selection, setSelection] = useState<ResolvedSelection | null>({
+  const [selection, setSelection] = useState<Selection | null>({
     instrument: "NSE:RELIANCE",
     instrumentToken: null,
     lotSize: null,
-    label: "NSE:RELIANCE",
+    label: "RELIANCE",
   });
   const [interval, setInterval] = useState("5minute");
   const [riskProfile, setRiskProfile] = useState("balanced");
   const plan = useAsync(api.liveTradePlan);
+
+  const onSelect = (ins: SelectedInstrument) =>
+    setSelection({
+      instrument: ins.instrument,
+      instrumentToken: ins.instrumentToken,
+      lotSize: ins.lotSize,
+      label: ins.displayName,
+    });
 
   const run = () => {
     if (!selection) return;
@@ -45,19 +60,20 @@ export function LiveTradePlanCard() {
         </span>
       }
     >
-      {/* Instrument selector (Equity / Futures / Options → exact Kite symbol) */}
-      <InstrumentSelector onResolved={setSelection} />
+      {/* Zerodha-like search (Equity / Indices / Futures / Options → exact symbol) */}
+      <InstrumentSearch onSelect={onSelect} />
 
       {/* Resolved-instrument details + run controls */}
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="flex-1 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2">
-          <p className="text-[11px] text-slate-500">Resolved instrument</p>
+        <div className="flex-1 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
+          <p className="text-xs text-slate-500">Selected instrument</p>
           {selection ? (
-            <p className="num text-sm font-medium text-slate-100">
-              {selection.instrument}
-              <span className="text-slate-500">
+            <p className="text-[15px] font-medium text-slate-100">
+              {selection.label}{" "}
+              <span className="num text-xs text-slate-500">
+                · {selection.instrument}
                 {selection.instrumentToken != null ? ` · token ${selection.instrumentToken}` : ""}
-                {selection.lotSize != null ? ` · lot ${selection.lotSize}` : ""}
+                {selection.lotSize ? ` · lot ${selection.lotSize}` : ""}
               </span>
             </p>
           ) : (
@@ -133,16 +149,16 @@ function PlanView({ plan }: { plan: LiveTradePlan }) {
       {/* Header: price + decision */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-lg font-semibold text-slate-100">{plan.instrument}</p>
-          <p className="num text-sm text-slate-400">
-            {num(plan.currentPrice)} <span className="text-slate-600">· prev {num(plan.previousClose)}</span>
+          <p className="text-xl font-semibold text-slate-100">{plan.instrument}</p>
+          <p className="num text-base text-slate-300">
+            {num(plan.currentPrice)} <span className="text-slate-500">· prev {num(plan.previousClose)}</span>
           </p>
         </div>
         <div className="text-right">
-          <span className={`rounded-full border px-3 py-1 text-sm font-bold ${ACTION_CLS[plan.finalDecision.action]}`}>
+          <span className={`rounded-lg border px-4 py-1.5 text-lg font-bold ${ACTION_CLS[plan.finalDecision.action]}`}>
             {plan.finalDecision.action}
           </span>
-          <p className="mt-1 text-[11px] text-slate-500">confidence: {plan.finalDecision.confidence}</p>
+          <p className="mt-1 text-xs text-slate-400">confidence: {plan.finalDecision.confidence}</p>
         </div>
       </div>
 
@@ -215,38 +231,38 @@ function SidePlan({
 }) {
   const head = tone === "bull" ? "text-bull" : "text-bear";
   return (
-    <div className="rounded-lg border border-white/5 bg-base-800/40 p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <p className={`text-sm font-semibold ${head}`}>{title}</p>
-        <span className="num text-[11px] text-slate-500">R:R {side.riskReward}</span>
+    <div className="rounded-lg border border-white/5 bg-base-800/40 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <p className={`text-base font-semibold ${head}`}>{title}</p>
+        <span className="num text-xs text-slate-400">R:R {side.riskReward}</span>
       </div>
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
         <Row k={entryLabel} v={entry == null ? "—" : num(entry)} />
         <Row k="Stop-loss" v={num(side.stopLoss)} tone="bear" />
         <Row k="Target 1" v={num(side.target1)} tone="bull" />
         <Row k="Target 2" v={num(side.target2)} tone="bull" />
         <Row k="Target 3" v={num(side.target3)} tone="bull" />
       </dl>
-      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">{side.condition}</p>
+      <p className="mt-3 text-xs leading-relaxed text-slate-500">{side.condition}</p>
     </div>
   );
 }
 
 function Row({ k, v, tone }: { k: string; v: string; tone?: "bull" | "bear" }) {
-  const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : "text-slate-200";
+  const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : "text-slate-100";
   return (
     <>
-      <dt className="text-slate-500">{k}</dt>
-      <dd className={`num text-right font-medium ${c}`}>{v}</dd>
+      <dt className="text-slate-400">{k}</dt>
+      <dd className={`num text-right text-[15px] font-semibold ${c}`}>{v}</dd>
     </>
   );
 }
 
 function Tile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2">
-      <p className="text-[11px] text-slate-500">{label}</p>
-      <p className="text-sm font-semibold capitalize text-slate-100">{value}</p>
+    <div className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-[15px] font-semibold capitalize text-slate-100">{value}</p>
     </div>
   );
 }

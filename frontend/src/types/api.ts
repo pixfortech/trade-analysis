@@ -38,6 +38,47 @@ export interface KiteQuoteResponse {
   data: Record<string, unknown>;
 }
 
+// Zerodha-like grouped search (Phase 3D).
+export type UiSegment = "equity" | "indices" | "futures" | "options";
+
+export interface InstrumentResult {
+  instrument: string;
+  instrumentToken: number;
+  exchange: string;
+  tradingsymbol: string;
+  name: string;
+  displayName: string;
+  segment: string;
+  uiSegment: UiSegment;
+  instrumentType: "EQ" | "INDEX" | "FUT" | "CE" | "PE";
+  expiry: string;
+  strike: number;
+  optionType: string;
+  lotSize: number;
+}
+
+export interface SearchResponse {
+  readOnly: true;
+  query: string;
+  cache: { ready: boolean; lastUpdated: string | null; expiresAt: string | null; count: number };
+  groups: {
+    equity: InstrumentResult[];
+    indices: InstrumentResult[];
+    futures: InstrumentResult[];
+    options: InstrumentResult[];
+  };
+  message: string;
+}
+
+export interface BatchQuotesResponse {
+  source: "kite";
+  live: true;
+  readOnly: true;
+  requested: string[];
+  missing: string[];
+  data: Record<string, { last_price?: number; net_change?: number; ohlc?: { close?: number } }>;
+}
+
 // Kite instruments resolver (Phase 3C).
 export interface InstrumentCandidate {
   instrument: string; // EXCHANGE:TRADINGSYMBOL

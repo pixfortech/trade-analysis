@@ -98,6 +98,30 @@ export async function getQuote(req: Request, res: Response) {
   }
 }
 
+/**
+ * GET /api/kite/quotes?instruments=NSE:RELIANCE,NFO:MIDCPNIFTY26JUNFUT
+ * Batch read-only quotes for the watchlist / dashboard cards. Invalid or
+ * unknown instruments are reported in `missing` rather than failing the call.
+ */
+export async function getQuotes(req: Request, res: Response) {
+  try {
+    const raw = String(req.query.instruments ?? "");
+    const requested = raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (requested.length === 0) {
+      res.status(400).json({ error: { message: "Provide ?instruments=EXCH:SYM,EXCH:SYM", code: "KITE_BAD_REQUEST" }, readOnly: true });
+      return;
+    }
+    const data = await kite.getQuotes(requested);
+    const missing = requested.filter((i) => !(i in data));
+    res.json({ source: "kite", live: true, readOnly: true, requested, missing, data });
+  } catch (err) {
+    handleError(res, err);
+  }
+}
+
 // --------------------------- Instruments (Phase 3C) ---------------------------
 
 /** GET /api/kite/instruments/status — cache status & counts (no secrets). */
@@ -116,17 +140,33 @@ export async function refreshInstruments(req: Request, res: Response) {
   }
 }
 
-/** GET /api/kite/instruments/search?q=MIDCPNIFTY&segment=NFO&instrumentType=FUT */
+/**
+ * GET /api/kite/instruments/search — Zerodha-like grouped search.
+ * q can be free text like "NIFTY 24500 CE", "MIDCPNIFTY FUT", "RELIANCE".
+ * Optional filters: segment (equity|indices|futures|options|all), underlying,
+ * instrumentType, expiry, strike, optionType, limit (per group).
+ */
 export async function searchInstruments(req: Request, res: Response) {
   try {
-    const results = await instruments.search({
+    const groups = await instruments.searchGrouped({
       q: req.query.q ? String(req.query.q) : undefined,
       segment: req.query.segment ? String(req.query.segment) : undefined,
-      instrumentType: req.query.instrumentType ? String(req.query.instrumentType) : undefined,
       underlying: req.query.underlying ? String(req.query.underlying) : undefined,
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      instrumentType: req.query.instrumentType ? String(req.query.instrumentType) : undefined,
+      expiry: req.query.expiry ? String(req.query.expiry) : undefined,
+      strike: req.query.strike != null && req.query.strike !== "" ? Number(req.query.strike) : undefined,
+      optionType: req.query.optionType ? String(req.query.optionType) : undefined,
+      limitPerGroup: req.query.limit ? Number(req.query.limit) : undefined,
     });
-    res.json({ readOnly: true, count: results.length, results: results.map(toCandidate) });
+    const status = instruments.getCacheStatus();
+    const total = groups.equity.length + groups.indices.length + groups.futures.length + groups.options.length;
+    res.json({
+      readOnly: true,
+      query: req.query.q ? String(req.query.q) : "",
+      cache: { ready: status.ready, lastUpdated: status.loadedAt, expiresAt: status.expiresAt, count: status.count },
+      groups,
+      message: total === 0 ? "No matches. Refine your search or refresh the instruments cache." : "",
+    });
   } catch (err) {
     handleError(res, err);
   }

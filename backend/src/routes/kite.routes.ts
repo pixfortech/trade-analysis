@@ -4,6 +4,7 @@ import {
   getInstrumentsStatus,
   getLoginUrl,
   getQuote,
+  getQuotes,
   getStatus,
   handleCallback,
   postLogout,
@@ -41,6 +42,9 @@ kiteRouter.get("/instruments/resolve", resolveInstrument);
 
 // GET /api/kite/quote?instrument=NSE:RELIANCE  (or resolver params)
 kiteRouter.get("/quote", getQuote);
+
+// GET /api/kite/quotes?instruments=NSE:RELIANCE,NFO:MIDCPNIFTY26JUNFUT  (batch)
+kiteRouter.get("/quotes", getQuotes);
 
 // GET /api/kite/historical?instrumentToken=...&interval=day&from=...&to=...
 kiteRouter.get("/historical", getHistorical);

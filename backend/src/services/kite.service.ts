@@ -213,6 +213,24 @@ export async function getQuoteData(instrument: string): Promise<KiteQuoteData> {
 }
 
 /**
+ * GET quotes for MULTIPLE instruments in one call. Read-only.
+ * Returns the raw Kite `data` object keyed by "EXCHANGE:TRADINGSYMBOL".
+ * Invalid instruments are simply absent from the response (Kite ignores them),
+ * so callers can detect per-instrument failures by missing keys.
+ */
+export async function getQuotes(instruments: string[]): Promise<Record<string, unknown>> {
+  assertReady();
+  const valid = instruments.map((s) => s.trim()).filter((s) => s.includes(":"));
+  if (valid.length === 0) {
+    throw new KiteError('Provide at least one instrument as EXCHANGE:TRADINGSYMBOL.', 400, "KITE_BAD_INSTRUMENT");
+  }
+  const qs = new URLSearchParams();
+  for (const i of valid) qs.append("i", i);
+  const json = await kiteRequest<{ data?: Record<string, unknown> }>("GET", `/quote?${qs.toString()}`, undefined, true);
+  return json?.data ?? {};
+}
+
+/**
  * GET historical candles for an instrument_token. Read-only.
  * Kite path: /instruments/historical/:token/:interval?from=&to=
  */

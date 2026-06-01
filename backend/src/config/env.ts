@@ -32,6 +32,8 @@ export const env = {
     // Overridable base URLs (handy for tests); default to Kite's real hosts.
     loginBase: process.env.KITE_LOGIN_BASE ?? "https://kite.zerodha.com/connect/login",
     apiBase: process.env.KITE_API_BASE ?? "https://api.kite.trade",
+    // Instruments cache TTL (hours) before an auto-refresh is attempted.
+    instrumentsTtlHours: Number(process.env.KITE_INSTRUMENTS_TTL_HOURS ?? 24),
   },
 } as const;
 

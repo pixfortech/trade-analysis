@@ -11,8 +11,12 @@
 // symbols. No secrets are stored or returned here.
 // =====================================================================
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve as resolvePath } from "node:path";
+import { env } from "../config/env";
 import * as kite from "./kite.service";
 import { KiteError } from "./kite.service";
+import { groupedSearch, type GroupedSearchFilters, type SearchGroups } from "./instrumentSearch";
 
 export interface Instrument {
   instrumentToken: number;
@@ -34,7 +38,7 @@ interface CacheState {
   byKey: Map<string, Instrument>; // "EXCHANGE:TRADINGSYMBOL" -> instrument
   byToken: Map<number, Instrument>;
   loadedAt: string | null;
-  source: "kite" | null;
+  source: "kite" | "disk" | null;
 }
 
 const cache: CacheState = {
@@ -44,6 +48,34 @@ const cache: CacheState = {
   loadedAt: null,
   source: null,
 };
+
+// Persisted to a gitignored local path so the (large) dump survives restarts.
+const CACHE_FILE = resolvePath(process.cwd(), ".cache", "kite-instruments.json");
+const TTL_MS = Math.max(1, env.kite.instrumentsTtlHours) * 60 * 60 * 1000;
+
+interface PersistedCache {
+  version: 1;
+  loadedAt: string;
+  source: "kite";
+  instruments: Instrument[];
+}
+
+/** Epoch ms of when the cache was loaded, or null. */
+function loadedAtMs(): number | null {
+  return cache.loadedAt ? Date.parse(cache.loadedAt) : null;
+}
+
+/** True when the cache is empty or older than the TTL. */
+export function isExpired(now: number = Date.now()): boolean {
+  const at = loadedAtMs();
+  if (at == null) return true;
+  return now - at > TTL_MS;
+}
+
+export function expiresAt(): string | null {
+  const at = loadedAtMs();
+  return at == null ? null : new Date(at + TTL_MS).toISOString();
+}
 
 // --------------------------- CSV parsing (pure) ---------------------------
 
@@ -126,7 +158,7 @@ export function parseInstrumentsCsv(csv: string): Instrument[] {
 
 // --------------------------- cache management ---------------------------
 
-export function setCache(instruments: Instrument[], source: "kite" = "kite"): void {
+export function setCache(instruments: Instrument[], source: "kite" | "disk" = "kite", loadedAt?: string): void {
   cache.instruments = instruments;
   cache.byKey = new Map();
   cache.byToken = new Map();
@@ -134,7 +166,7 @@ export function setCache(instruments: Instrument[], source: "kite" = "kite"): vo
     cache.byKey.set(`${ins.exchange}:${ins.tradingsymbol}`, ins);
     cache.byToken.set(ins.instrumentToken, ins);
   }
-  cache.loadedAt = new Date().toISOString();
+  cache.loadedAt = loadedAt ?? new Date().toISOString();
   cache.source = source;
 }
 
@@ -143,9 +175,13 @@ export function getCacheStatus() {
   const byExchange: Record<string, number> = {};
   for (const ins of cache.instruments) byExchange[ins.exchange] = (byExchange[ins.exchange] ?? 0) + 1;
   return {
-    loaded: cache.loadedAt != null,
+    loaded: cache.loadedAt != null && cache.instruments.length > 0,
+    ready: cache.instruments.length > 0,
     count: cache.instruments.length,
     loadedAt: cache.loadedAt,
+    expiresAt: expiresAt(),
+    expired: isExpired(),
+    ttlHours: env.kite.instrumentsTtlHours,
     source: cache.source,
     byExchange,
     readOnly: true as const,
@@ -156,20 +192,87 @@ export function isLoaded(): boolean {
   return cache.instruments.length > 0;
 }
 
-/** Download + parse + cache the instruments dump. Returns the new count. */
+// --------------------------- disk persistence ---------------------------
+
+/** Write the in-memory cache to the gitignored local file (best-effort). */
+export function persistToDisk(): void {
+  try {
+    mkdirSync(dirname(CACHE_FILE), { recursive: true });
+    const payload: PersistedCache = {
+      version: 1,
+      loadedAt: cache.loadedAt ?? new Date().toISOString(),
+      source: "kite",
+      instruments: cache.instruments,
+    };
+    writeFileSync(CACHE_FILE, JSON.stringify(payload), "utf8");
+  } catch (err) {
+    console.warn(`[instruments] could not persist cache: ${(err as Error).message}`);
+  }
+}
+
+/** Load the cache from disk into memory if present & valid. Returns true on success. */
+export function loadFromDisk(): boolean {
+  try {
+    const raw = readFileSync(CACHE_FILE, "utf8");
+    const parsed = JSON.parse(raw) as PersistedCache;
+    if (parsed?.version === 1 && Array.isArray(parsed.instruments) && parsed.instruments.length > 0) {
+      setCache(parsed.instruments, "disk", parsed.loadedAt);
+      return true;
+    }
+  } catch {
+    // no/invalid disk cache — ignore.
+  }
+  return false;
+}
+
+/**
+ * Download + parse + cache the instruments dump, then persist to disk.
+ * On download failure, keep any existing (possibly stale) cache and rethrow
+ * only if there is nothing usable in memory.
+ */
 export async function refreshCache(segment?: string): Promise<number> {
-  const csv = await kite.getInstrumentsCsv(segment);
+  let csv: string;
+  try {
+    csv = await kite.getInstrumentsCsv(segment);
+  } catch (err) {
+    if (isLoaded()) {
+      console.warn(`[instruments] refresh failed, keeping existing cache: ${(err as Error).message}`);
+      return cache.instruments.length;
+    }
+    throw err;
+  }
   const parsed = parseInstrumentsCsv(csv);
   if (parsed.length === 0) {
+    if (isLoaded()) return cache.instruments.length;
     throw new KiteError("Instruments dump was empty or unparseable.", 502, "KITE_INSTRUMENTS_EMPTY");
   }
   setCache(parsed, "kite");
+  persistToDisk();
   return parsed.length;
 }
 
-/** Ensure the cache is populated, loading it on first use. */
+/**
+ * Ensure the cache is usable. Order of preference:
+ *  1. In-memory & fresh → use it.
+ *  2. Load from disk; if fresh → use it.
+ *  3. Download from Kite (auto-refresh on first use / expiry).
+ *  4. If download fails but a stale disk/memory copy exists → use it (graceful).
+ */
 export async function ensureLoaded(): Promise<void> {
-  if (!isLoaded()) await refreshCache();
+  if (isLoaded() && !isExpired()) return;
+
+  if (!isLoaded()) loadFromDisk();
+  if (isLoaded() && !isExpired()) return;
+
+  try {
+    await refreshCache();
+  } catch (err) {
+    if (isLoaded()) {
+      console.warn(`[instruments] using stale cache after refresh failure: ${(err as Error).message}`);
+      return;
+    }
+    throw err;
+  }
 }
 
 export function lookupByKey(exchangeSymbol: string): Instrument | undefined {
@@ -359,6 +462,12 @@ function sortContracts(list: Instrument[]): Instrument[] {
 export async function search(filters: SearchFilters): Promise<Instrument[]> {
   await ensureLoaded();
   return searchInstruments(cache.instruments, filters);
+}
+
+/** Zerodha-like grouped search (equity / indices / futures / options). */
+export async function searchGrouped(filters: GroupedSearchFilters): Promise<SearchGroups> {
+  await ensureLoaded();
+  return groupedSearch(cache.instruments, filters);
 }
 
 export async function resolve(params: ResolveParams): Promise<ResolveResult> {

@@ -245,6 +245,25 @@ Zerodha Kite”** card:
 See [`docs/MARKET_DATA_INTEGRATION.md`](docs/MARKET_DATA_INTEGRATION.md) §7 for
 endpoints and the security model.
 
+### Instrument search, F&O resolver & dashboard customisation (Phase 3C–3D)
+
+Once Kite is authorised, **refresh the instruments cache** (Live Data card, or
+`POST /api/kite/instruments/refresh`). Then:
+
+- **Search like Zerodha** in the Live Trade Plan / Watchlist search box — type
+  `RELIANCE`, `MIDCPNIFTY FUT`, or `NIFTY 24500 CE` and pick from grouped
+  results (Equity / Indices / Futures / Options). You never need to know exact
+  symbols like `NFO:MIDCPNIFTY26JUNFUT`.
+- **Watchlist:** add/remove instruments; live LTP shows when Kite is authorised
+  (via the batch-quote endpoint). Saved in your browser (`localStorage`).
+- **Customise the dashboard:** click **Customise** to show/hide and reorder
+  cards, or reset to default. Your layout persists in `localStorage`.
+
+**Instruments cache is local:** it is written to `backend/.cache/` (gitignored)
+with a **24h TTL** (`KITE_INSTRUMENTS_TTL_HOURS`) and auto-refreshes when stale.
+**Do not commit `backend/.cache/`.** Everything here is **read-only** — there is
+no order placement or trade execution anywhere in the app.
+
 ---
 
 ## 🧪 How to Test
