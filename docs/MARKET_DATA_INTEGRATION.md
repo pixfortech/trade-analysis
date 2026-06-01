@@ -2,10 +2,55 @@
 
 How the tool will (later) connect to **authorised** Indian market-data sources.
 
-> ⚠️ **Not implemented in Phase 1.** No provider is connected and no keys exist.
-> This is a planning document. When implemented, integration must comply with
-> each provider's API terms, exchange (NSE/BSE) rules, and SEBI regulations.
-> Do **not** scrape websites or use unauthorised/leaked feeds.
+> ⚠️ **Mostly a planning document.** Phase 3A adds an **optional, read-only**
+> Zerodha Kite Connect integration (see section 7); everything else below
+> remains future work. Integration must comply with each provider's API terms,
+> exchange (NSE/BSE) rules, and SEBI regulations. Do **not** scrape websites or
+> use unauthorised/leaked feeds.
+
+---
+
+## 7. Phase 3A — Zerodha Kite Connect (READ-ONLY) ✅ scaffolded
+
+A first, **read-only** provider integration lives in the backend. It is
+**disabled by default** and makes no external calls until you opt in with your
+own authorised Kite developer credentials.
+
+**Scope (intentionally limited):**
+- ✅ Connection status, hosted login (session token), live **quotes**, **historical** candles.
+- ❌ **No** order placement / modification / cancellation, **no** GTT, **no**
+  baskets, **no** trade execution. This app is analysis-only.
+
+**Security model:**
+- `KITE_API_SECRET` and the access token are **server-side only** — never sent
+  to the frontend and never logged. The login checksum
+  (`SHA-256(api_key + request_token + api_secret)`) is computed in the backend.
+- The frontend status endpoint returns **booleans only** (`liveDataEnabled`,
+  `configured`, `authenticated`) plus a human message — no secrets.
+- The access token is held **in memory** in the backend process (not persisted
+  to the repo). Restarting the backend requires logging in again.
+
+**Master switch:** `KITE_ENABLE_LIVE_DATA=false` (default). While false, all Kite
+endpoints return a clear "disabled" message and **no network call is made**.
+
+**Backend endpoints (all under `/api/kite`):**
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/kite/status` | Secret-free status for the UI |
+| GET | `/api/kite/login-url` | Hosted Kite login URL (public `api_key` only) |
+| GET | `/api/kite/callback?request_token=…` | Exchanges request token → access token (server-side) |
+| POST | `/api/kite/logout` | Clears the in-memory session (not a trade action) |
+| GET | `/api/kite/quote?instrument=NSE:RELIANCE` | Live read-only quote |
+| GET | `/api/kite/historical?instrumentToken=…&interval=day&from=…&to=…` | Read-only candles |
+
+**Local setup:** see the README "Live Data (Zerodha Kite, read-only)" section.
+Get credentials from your own account at <https://developers.kite.trade/>.
+Register the redirect URL (e.g. `http://localhost:4000/api/kite/callback`) in
+your Kite app. Respect Kite's API terms and SEBI regulations.
+
+> When the full **provider abstraction** (section 1) is built, this Kite service
+> becomes the first concrete `MarketDataProvider` implementation.
 
 ---
 

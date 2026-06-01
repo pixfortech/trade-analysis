@@ -208,6 +208,45 @@ would hit *your* laptop, not the Codespace. The app handles this automatically.
 
 ---
 
+## 📡 Live Data (Zerodha Kite, read-only · Phase 3A)
+
+An **optional, read-only** Zerodha Kite Connect integration is included. It is
+**disabled by default** and makes no external calls until you opt in with your
+**own authorised** Kite developer credentials. It provides connection status,
+login, live quotes and historical candles — and **nothing else**: there is **no**
+order placement, modification, cancellation, GTT, basket or trade execution.
+
+**1. Get credentials** from your own account at <https://developers.kite.trade/>
+and register a redirect URL (e.g. `http://localhost:4000/api/kite/callback`).
+
+**2. Configure the backend** (`backend/.env` — never commit it):
+```bash
+KITE_ENABLE_LIVE_DATA=true
+KITE_API_KEY=your_api_key            # public (appears in the login URL)
+KITE_API_SECRET=your_api_secret      # SERVER-SIDE ONLY — never exposed/committed
+KITE_REDIRECT_URL=http://localhost:4000/api/kite/callback
+```
+
+**3. Run backend + frontend**, open the dashboard, and use the **“Live Data —
+Zerodha Kite”** card:
+- Click **Connect Kite** → authorise in Zerodha’s official login (new tab).
+- You’re redirected to `/api/kite/callback`; the backend exchanges the
+  `request_token` for an access token **stored server-side only**.
+- Return to the dashboard, refresh status, and use the **read-only quote test**
+  (e.g. `NSE:RELIANCE`).
+
+**Security notes:**
+- `KITE_API_SECRET` and the access token **never** reach the browser and are
+  **never logged**. The `/api/kite/status` endpoint returns booleans only.
+- The access token lives **in memory** in the backend; restarting it requires
+  logging in again. Tokens are not written to the repo.
+- Keep `KITE_ENABLE_LIVE_DATA=false` to run fully on mock data.
+
+See [`docs/MARKET_DATA_INTEGRATION.md`](docs/MARKET_DATA_INTEGRATION.md) §7 for
+endpoints and the security model.
+
+---
+
 ## 🧪 How to Test
 
 Each service has a lightweight check used locally and in CI.

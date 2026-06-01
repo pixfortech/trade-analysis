@@ -14,6 +14,9 @@ import type {
   AnalysisRequest,
   AnalysisResponse,
   HealthResponse,
+  KiteLoginUrlResponse,
+  KiteQuoteResponse,
+  KiteStatus,
   TradePlanRequest,
   TradePlanResponse,
 } from "@/types/api";
@@ -119,4 +122,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  // Zerodha Kite Connect — read-only (Phase 3A).
+  kite: {
+    status: () => request<KiteStatus>("/api/kite/status"),
+    loginUrl: () => request<KiteLoginUrlResponse>("/api/kite/login-url"),
+    quote: (instrument: string) =>
+      request<KiteQuoteResponse>(`/api/kite/quote?instrument=${encodeURIComponent(instrument)}`),
+  },
 };

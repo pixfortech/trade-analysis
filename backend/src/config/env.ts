@@ -16,6 +16,23 @@ export const env = {
   aiEngineUrl: process.env.AI_ENGINE_URL ?? "http://localhost:8000",
   aiEngineTimeoutMs: Number(process.env.AI_ENGINE_TIMEOUT_MS ?? 4000),
   marketDataProvider: process.env.MARKET_DATA_PROVIDER ?? "mock",
+
+  /**
+   * Zerodha Kite Connect (Phase 3A — READ-ONLY live market data).
+   * apiSecret and accessToken are SERVER-SIDE ONLY and must never be sent to
+   * the frontend or logged. apiKey is public (it appears in the login URL).
+   */
+  kite: {
+    apiKey: process.env.KITE_API_KEY ?? "",
+    apiSecret: process.env.KITE_API_SECRET ?? "",
+    // Optional: a pre-obtained access token (otherwise set via the login flow).
+    accessToken: process.env.KITE_ACCESS_TOKEN ?? "",
+    redirectUrl: process.env.KITE_REDIRECT_URL ?? "",
+    enableLiveData: (process.env.KITE_ENABLE_LIVE_DATA ?? "false").toLowerCase() === "true",
+    // Overridable base URLs (handy for tests); default to Kite's real hosts.
+    loginBase: process.env.KITE_LOGIN_BASE ?? "https://kite.zerodha.com/connect/login",
+    apiBase: process.env.KITE_API_BASE ?? "https://api.kite.trade",
+  },
 } as const;
 
 export const isProd = env.nodeEnv === "production";

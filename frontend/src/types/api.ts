@@ -13,6 +13,31 @@ export interface HealthResponse {
   timestamp?: string;
 }
 
+// Zerodha Kite Connect — Phase 3A (read-only). Status is secret-free.
+export interface KiteStatus {
+  provider: "zerodha-kite";
+  liveDataEnabled: boolean;
+  configured: boolean;
+  authenticated: boolean;
+  readOnly: true;
+  mode: "live" | "disabled";
+  message: string;
+  notice?: string;
+}
+
+export interface KiteLoginUrlResponse {
+  loginUrl: string;
+  readOnly: true;
+}
+
+export interface KiteQuoteResponse {
+  source: "kite";
+  live: true;
+  readOnly: true;
+  instrument: string;
+  data: Record<string, unknown>;
+}
+
 export interface TradePlanRequest {
   symbol: string;
   segment?: string;

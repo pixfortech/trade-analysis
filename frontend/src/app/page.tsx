@@ -12,6 +12,7 @@ import { RiskManagement } from "@/components/dashboard/RiskManagement";
 import { MarketSentiment } from "@/components/dashboard/MarketSentiment";
 import { ScannerPlaceholder } from "@/components/dashboard/ScannerPlaceholder";
 import { LiveAnalysis } from "@/components/dashboard/LiveAnalysis";
+import { KiteStatusCard } from "@/components/dashboard/KiteStatusCard";
 
 export default function DashboardPage() {
   return (
@@ -37,8 +38,11 @@ export default function DashboardPage() {
               <AITradeRecommendation />
             </div>
 
-            {/* Live analysis — API-wired demo (frontend → backend → AI engine) */}
-            <LiveAnalysis />
+            {/* Live analysis + read-only Kite status */}
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <LiveAnalysis />
+              <KiteStatusCard />
+            </div>
 
             {/* Watchlist + Options */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
