@@ -76,6 +76,43 @@ OHLC only, marks `dataQuality: "live-quote-only"`, caps confidence (never
 **not** place, modify or cancel orders, and every response carries the risk
 disclaimer. No profit is guaranteed.
 
+### 7b. Instruments resolver for F&O (Phase 3C) ✅
+
+Kite requires the **exact** `exchange:tradingsymbol`. Equity is simple
+(`NSE:RELIANCE`), but futures/options use the **NFO** exchange with contract
+symbols like `MIDCPNIFTY26JUNFUT` or `NIFTY26JUN24500CE` — these must come from
+Kite's **instruments dump**, never be guessed. This phase downloads, caches and
+searches that dump, and resolves friendly inputs to exact symbols + tokens.
+
+**Cache:** the instruments CSV is parsed into memory (instrument_token,
+exchange_token, tradingsymbol, name, last_price, expiry, strike, tick_size,
+lot_size, instrument_type, segment, exchange). It is loaded on first use and can
+be refreshed. It contains only the **live** contracts Kite returns.
+
+**Endpoints (all under `/api/kite/instruments`, read-only):**
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/kite/instruments/status` | Cache status + per-exchange counts (no secrets) |
+| POST | `/api/kite/instruments/refresh` | (Re)download & parse the dump |
+| GET | `/api/kite/instruments/search?q=MIDCPNIFTY&segment=NFO&instrumentType=FUT` | Search contracts |
+| GET | `/api/kite/instruments/resolve?underlying=…&instrumentType=FUT&expiry=…&strike=…&optionType=CE` | Resolve to one exact contract or sorted candidates |
+
+**Resolution rules:**
+- **Futures:** `underlying` + `instrumentType=FUT` (+ optional `expiry`; blank → nearest).
+- **Options:** `underlying` + `optionType` (CE/PE) + `strike` (+ optional `expiry`).
+- **No guessing:** on multiple/ambiguous matches it returns **sorted candidates**
+  (nearest expiry, then strike); on no match it returns a helpful message.
+
+**Quote & live-trade-plan integration:** both `GET /api/kite/quote` and
+`GET /api/analysis/live-trade-plan` accept **either** `instrument=EXCHANGE:TRADINGSYMBOL`
+**or** the resolver params above. Invalid inputs such as
+`NSE:MIDCPNIFTY FUT JUN` (spaces — not a real Kite symbol) are rejected with
+guidance to use the resolver. For F&O historical candles, the resolved
+`instrument_token` is used.
+
+Still **read-only**: no order/trade execution anywhere.
+
 ---
 
 ## 1. Design Principle: a Provider Abstraction

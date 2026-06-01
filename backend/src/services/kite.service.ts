@@ -240,6 +240,52 @@ export async function getHistorical(params: {
 }
 
 /**
+ * GET the Kite instruments master as raw CSV text. Read-only.
+ * `segment` is an optional exchange filter ("NSE", "NFO", …) → /instruments/:exchange.
+ * Requires live data enabled + configured + authenticated (assertReady).
+ */
+export async function getInstrumentsCsv(segment?: string): Promise<string> {
+  assertReady();
+  const path = segment ? `/instruments/${encodeURIComponent(segment)}` : "/instruments";
+  return kiteText("GET", path);
+}
+
+/**
+ * Low-level helper that returns the raw response TEXT (for CSV endpoints).
+ * Never logs headers or secrets; normalises failures to KiteError.
+ */
+async function kiteText(method: "GET" | "POST", path: string): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch(`${env.kite.apiBase}${path}`, {
+      method,
+      headers: {
+        "X-Kite-Version": KITE_API_VERSION,
+        Authorization: `token ${env.kite.apiKey}:${accessToken}`,
+      },
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (err) {
+    const timedOut = err instanceof Error && err.name === "TimeoutError";
+    throw new KiteError(
+      timedOut ? "Kite instruments request timed out." : "Could not reach the Kite API.",
+      502,
+      "KITE_UNREACHABLE",
+    );
+  }
+
+  const text = await res.text();
+  if (!res.ok) {
+    if (res.status === 403) {
+      accessToken = null;
+      throw new KiteError("Kite session expired. Please log in again.", 401, "KITE_LOGIN_REQUIRED");
+    }
+    throw new KiteError(`Kite instruments error (status ${res.status}).`, res.status, "KITE_API_ERROR");
+  }
+  return text;
+}
+
+/**
  * Low-level Kite HTTP helper. Adds the required headers, including the
  * `Authorization: token api_key:access_token` header for authed calls.
  * Never logs headers or secrets. Errors are normalised to KiteError with

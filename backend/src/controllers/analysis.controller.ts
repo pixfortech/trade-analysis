@@ -77,14 +77,23 @@ export async function postTradePlan(req: Request, res: Response) {
 export async function getLiveTradePlanHandler(req: Request, res: Response) {
   try {
     const result = await getLiveTradePlan({
-      instrument: String(req.query.instrument ?? ""),
+      instrument: req.query.instrument ? String(req.query.instrument) : undefined,
+      underlying: req.query.underlying ? String(req.query.underlying) : undefined,
+      segment: req.query.segment ? String(req.query.segment) : undefined,
+      instrumentType: req.query.instrumentType ? String(req.query.instrumentType) : undefined,
+      expiry: req.query.expiry ? String(req.query.expiry) : undefined,
+      strike: req.query.strike ? String(req.query.strike) : undefined,
+      optionType: req.query.optionType ? String(req.query.optionType) : undefined,
       interval: req.query.interval ? String(req.query.interval) : undefined,
       riskProfile: req.query.riskProfile ? String(req.query.riskProfile) : undefined,
     });
     res.json(result);
   } catch (err) {
     if (err instanceof KiteError) {
-      res.status(err.status).json({ error: { message: err.message, code: err.code }, readOnly: true });
+      const body: Record<string, unknown> = { error: { message: err.message, code: err.code }, readOnly: true };
+      const candidates = (err as KiteError & { candidates?: unknown }).candidates;
+      if (candidates) body.candidates = candidates;
+      res.status(err.status).json(body);
       return;
     }
     console.error("[backend] live-trade-plan unexpected error");

@@ -10,6 +10,7 @@
 
 import * as kite from "./kite.service";
 import { KiteError } from "./kite.service";
+import { resolveInstrumentInput, type ResolveQuery } from "./resolveInput";
 import {
   buildLiveTradePlan,
   type Candle,
@@ -84,30 +85,43 @@ function parseCandles(raw: unknown): Candle[] {
  * Always fetches the live quote; attempts historical candles when an
  * instrument_token is available, and downgrades gracefully if they are not.
  */
-export async function getLiveTradePlan(opts: {
-  instrument: string;
-  interval?: string;
-  riskProfile?: string;
-}): Promise<LiveTradePlanResult> {
-  const instrument = (opts.instrument ?? "").trim();
-  if (!instrument || !instrument.includes(":")) {
-    throw new KiteError('Invalid instrument. Use EXCHANGE:TRADINGSYMBOL, e.g. "NSE:RELIANCE".', 400, "KITE_BAD_INSTRUMENT");
-  }
+export async function getLiveTradePlan(
+  opts: {
+    interval?: string;
+    riskProfile?: string;
+  } & ResolveQuery,
+): Promise<LiveTradePlanResult> {
   const interval = normaliseInterval(opts.interval);
   const riskProfile = normaliseRiskProfile(opts.riskProfile);
+
+  // 0) Resolve the input to an exact instrument (accepts exact symbol OR F&O
+  //    params). Throws a clean KiteError with candidates if ambiguous.
+  const resolved = await resolveInstrumentInput({
+    instrument: opts.instrument,
+    underlying: opts.underlying,
+    segment: opts.segment,
+    instrumentType: opts.instrumentType,
+    expiry: opts.expiry,
+    strike: opts.strike,
+    optionType: opts.optionType,
+  });
+  const instrument = resolved.instrument;
 
   // 1) Live quote (assertReady inside enforces enabled/configured/authed).
   const quote = await kite.getQuoteData(instrument);
 
+  // Prefer the resolved instrument_token (correct for F&O), else the quote's.
+  const token = resolved.instrumentToken ?? quote.instrumentToken;
+
   // 2) Historical candles (best-effort). If the token is missing or the call
   //    fails for a non-auth reason, fall back to quote-only OHLC.
   let candles: Candle[] | null = null;
-  if (quote.instrumentToken != null) {
+  if (token != null) {
     try {
       const to = new Date();
       const from = new Date(to.getTime() - historyWindowDays(interval) * 24 * 60 * 60 * 1000);
       const raw = await kite.getHistorical({
-        instrumentToken: String(quote.instrumentToken),
+        instrumentToken: String(token),
         interval,
         from: fmt(from),
         to: fmt(to),

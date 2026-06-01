@@ -38,6 +38,41 @@ export interface KiteQuoteResponse {
   data: Record<string, unknown>;
 }
 
+// Kite instruments resolver (Phase 3C).
+export interface InstrumentCandidate {
+  instrument: string; // EXCHANGE:TRADINGSYMBOL
+  tradingsymbol: string;
+  name: string;
+  exchange: string;
+  instrumentType: string; // EQ | FUT | CE | PE
+  expiry: string;
+  strike: number;
+  lotSize: number;
+  instrumentToken: number;
+}
+
+export interface InstrumentsStatus {
+  loaded: boolean;
+  count: number;
+  loadedAt: string | null;
+  source: "kite" | null;
+  byExchange: Record<string, number>;
+  readOnly: true;
+}
+
+export interface InstrumentSearchResponse {
+  readOnly: true;
+  count: number;
+  results: InstrumentCandidate[];
+}
+
+export interface InstrumentResolveResponse {
+  readOnly: true;
+  resolved: InstrumentCandidate | null;
+  candidates: InstrumentCandidate[];
+  message: string;
+}
+
 // Live Trade Plan (Phase 3B) — read-only Kite-based analysis.
 export type LiveAction = "LONG" | "SHORT" | "WAIT" | "AVOID" | "RANGE-BOUND";
 

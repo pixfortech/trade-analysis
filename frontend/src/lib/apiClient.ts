@@ -14,6 +14,9 @@ import type {
   AnalysisRequest,
   AnalysisResponse,
   HealthResponse,
+  InstrumentResolveResponse,
+  InstrumentSearchResponse,
+  InstrumentsStatus,
   KiteLoginUrlResponse,
   KiteQuoteResponse,
   KiteStatus,
@@ -21,6 +24,15 @@ import type {
   TradePlanRequest,
   TradePlanResponse,
 } from "@/types/api";
+
+export interface ResolveParams {
+  underlying: string;
+  segment?: string;
+  instrumentType: string;
+  expiry?: string;
+  strike?: number | string;
+  optionType?: string;
+}
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
@@ -124,19 +136,36 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  // Zerodha Kite Connect — read-only (Phase 3A).
+  // Zerodha Kite Connect — read-only (Phase 3A/3C).
   kite: {
     status: () => request<KiteStatus>("/api/kite/status"),
     loginUrl: () => request<KiteLoginUrlResponse>("/api/kite/login-url"),
     quote: (instrument: string) =>
       request<KiteQuoteResponse>(`/api/kite/quote?instrument=${encodeURIComponent(instrument)}`),
+
+    // Instruments resolver (Phase 3C).
+    instrumentsStatus: () => request<InstrumentsStatus>("/api/kite/instruments/status"),
+    instrumentsRefresh: () =>
+      request<InstrumentsStatus & { refreshed: boolean }>("/api/kite/instruments/refresh", { method: "POST" }),
+    instrumentsSearch: (filters: { q?: string; segment?: string; instrumentType?: string; underlying?: string; limit?: number }) => {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(filters)) if (v != null && v !== "") qs.set(k, String(v));
+      return request<InstrumentSearchResponse>(`/api/kite/instruments/search?${qs.toString()}`);
+    },
+    instrumentsResolve: (params: ResolveParams) => {
+      const qs = new URLSearchParams();
+      for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
+      return request<InstrumentResolveResponse>(`/api/kite/instruments/resolve?${qs.toString()}`);
+    },
   },
 
-  // Live trade-plan analysis (Phase 3B) — read-only, Kite-based.
-  liveTradePlan: (params: { instrument: string; interval?: string; riskProfile?: string }) => {
-    const qs = new URLSearchParams({ instrument: params.instrument });
-    if (params.interval) qs.set("interval", params.interval);
-    if (params.riskProfile) qs.set("riskProfile", params.riskProfile);
+  // Live trade-plan analysis (Phase 3B/3C) — read-only, Kite-based.
+  // Accepts an exact instrument and/or resolver params (interval/riskProfile extra).
+  liveTradePlan: (
+    params: { instrument?: string; interval?: string; riskProfile?: string } & Partial<ResolveParams>,
+  ) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
     return request<LiveTradePlan>(`/api/analysis/live-trade-plan?${qs.toString()}`);
   },
 };

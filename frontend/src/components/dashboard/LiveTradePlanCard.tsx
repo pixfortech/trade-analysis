@@ -7,22 +7,32 @@ import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { num } from "@/lib/format";
 import type { LiveAction, LivePlanSide, LiveTradePlan } from "@/types/api";
+import { InstrumentSelector, type ResolvedSelection } from "./InstrumentSelector";
 
 const INTERVALS = ["minute", "5minute", "15minute", "30minute", "60minute", "day"];
 const RISK_PROFILES = ["conservative", "balanced", "aggressive"];
 
 /**
- * Live Trade Plan — READ-ONLY Kite-based analysis (Phase 3B).
- * Shows trend, support/resistance and long/short level plans with a final
+ * Live Trade Plan — READ-ONLY Kite-based analysis (Phase 3B/3C).
+ * Uses the instrument selector (Equity/Futures/Options) to resolve an exact
+ * Kite symbol, then shows trend, S/R and long/short level plans with a final
  * decision. There are intentionally NO buy/sell or order-placement controls.
  */
 export function LiveTradePlanCard() {
-  const [instrument, setInstrument] = useState("NSE:RELIANCE");
+  const [selection, setSelection] = useState<ResolvedSelection | null>({
+    instrument: "NSE:RELIANCE",
+    instrumentToken: null,
+    lotSize: null,
+    label: "NSE:RELIANCE",
+  });
   const [interval, setInterval] = useState("5minute");
   const [riskProfile, setRiskProfile] = useState("balanced");
   const plan = useAsync(api.liveTradePlan);
 
-  const run = () => void plan.run({ instrument: instrument.trim(), interval, riskProfile });
+  const run = () => {
+    if (!selection) return;
+    void plan.run({ instrument: selection.instrument, interval, riskProfile });
+  };
 
   return (
     <Card
@@ -35,16 +45,25 @@ export function LiveTradePlanCard() {
         </span>
       }
     >
-      {/* Controls */}
-      <div className="flex flex-col gap-2 sm:flex-row">
-        <input
-          type="text"
-          value={instrument}
-          onChange={(e) => setInstrument(e.target.value)}
-          placeholder="NSE:RELIANCE"
-          aria-label="Instrument (EXCHANGE:SYMBOL)"
-          className="flex-1 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2 text-sm text-slate-200 focus:border-accent/50 focus:outline-none"
-        />
+      {/* Instrument selector (Equity / Futures / Options → exact Kite symbol) */}
+      <InstrumentSelector onResolved={setSelection} />
+
+      {/* Resolved-instrument details + run controls */}
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex-1 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2">
+          <p className="text-[11px] text-slate-500">Resolved instrument</p>
+          {selection ? (
+            <p className="num text-sm font-medium text-slate-100">
+              {selection.instrument}
+              <span className="text-slate-500">
+                {selection.instrumentToken != null ? ` · token ${selection.instrumentToken}` : ""}
+                {selection.lotSize != null ? ` · lot ${selection.lotSize}` : ""}
+              </span>
+            </p>
+          ) : (
+            <p className="text-sm text-slate-500">None selected</p>
+          )}
+        </div>
         <select
           value={interval}
           onChange={(e) => setInterval(e.target.value)}
@@ -72,7 +91,7 @@ export function LiveTradePlanCard() {
         <button
           type="button"
           onClick={run}
-          disabled={plan.isLoading || !instrument.trim()}
+          disabled={plan.isLoading || !selection}
           className="rounded-lg bg-accent/20 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {plan.isLoading ? "Analyzing…" : "Analyze"}
@@ -83,7 +102,7 @@ export function LiveTradePlanCard() {
         {plan.isIdle && (
           <EmptyState
             title="No analysis yet"
-            message="Enter an instrument and click Analyze. Requires live Kite data to be enabled and authorised on the backend."
+            message="Pick an instrument (Equity / Futures / Options), then click Analyze. Requires live Kite data enabled and authorised on the backend."
           />
         )}
         {plan.isLoading && <p className="text-sm text-slate-500">Fetching live data and computing levels…</p>}

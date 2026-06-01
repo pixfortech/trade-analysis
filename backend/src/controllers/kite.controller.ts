@@ -1,9 +1,11 @@
 import type { Request, Response } from "express";
 import * as kite from "../services/kite.service";
 import { KiteError } from "../services/kite.service";
+import * as instruments from "../services/instruments.service";
+import { resolveInstrumentInput, toCandidate } from "../services/resolveInput";
 
-// Phase 3A — READ-ONLY. These handlers expose status, the login flow, and
-// market-data reads only. No order/trade endpoints exist here by design.
+// Phase 3A/3C — READ-ONLY. Status, login flow, market-data reads and the
+// instruments resolver only. No order/trade endpoints exist here by design.
 
 const READ_ONLY_NOTICE =
   "Read-only live market data. Order placement, modification, cancellation, GTT, baskets and trade execution are NOT supported in this app.";
@@ -11,7 +13,14 @@ const READ_ONLY_NOTICE =
 /** Map service errors to clean JSON without leaking secrets. */
 function handleError(res: Response, err: unknown) {
   if (err instanceof KiteError) {
-    res.status(err.status).json({ error: { message: err.message, code: err.code }, readOnly: true });
+    const body: Record<string, unknown> = {
+      error: { message: err.message, code: err.code },
+      readOnly: true,
+    };
+    // Resolver errors may carry candidate suggestions (no secrets).
+    const candidates = (err as KiteError & { candidates?: unknown }).candidates;
+    if (candidates) body.candidates = candidates;
+    res.status(err.status).json(body);
     return;
   }
   // Unknown error — keep the response generic.
@@ -59,12 +68,90 @@ export function postLogout(_req: Request, res: Response) {
   res.json({ authenticated: false, readOnly: true, message: "Kite session cleared." });
 }
 
-/** GET /api/kite/quote?instrument=NSE:RELIANCE — live read-only quote. */
+/**
+ * GET /api/kite/quote — live read-only quote.
+ * Accepts EITHER an exact `instrument=EXCHANGE:TRADINGSYMBOL` OR resolver params
+ * (underlying, segment, instrumentType, expiry, strike, optionType).
+ */
 export async function getQuote(req: Request, res: Response) {
   try {
-    const instrument = String(req.query.instrument ?? "");
-    const data = await kite.getQuote(instrument);
-    res.json({ source: "kite", live: true, readOnly: true, instrument, data });
+    const resolved = await resolveInstrumentInput({
+      instrument: req.query.instrument ? String(req.query.instrument) : undefined,
+      underlying: req.query.underlying ? String(req.query.underlying) : undefined,
+      segment: req.query.segment ? String(req.query.segment) : undefined,
+      instrumentType: req.query.instrumentType ? String(req.query.instrumentType) : undefined,
+      expiry: req.query.expiry ? String(req.query.expiry) : undefined,
+      strike: req.query.strike ? String(req.query.strike) : undefined,
+      optionType: req.query.optionType ? String(req.query.optionType) : undefined,
+    });
+    const data = await kite.getQuote(resolved.instrument);
+    res.json({
+      source: "kite",
+      live: true,
+      readOnly: true,
+      instrument: resolved.instrument,
+      resolved,
+      data,
+    });
+  } catch (err) {
+    handleError(res, err);
+  }
+}
+
+// --------------------------- Instruments (Phase 3C) ---------------------------
+
+/** GET /api/kite/instruments/status — cache status & counts (no secrets). */
+export function getInstrumentsStatus(_req: Request, res: Response) {
+  res.json({ ...instruments.getCacheStatus(), notice: READ_ONLY_NOTICE });
+}
+
+/** POST /api/kite/instruments/refresh — (re)download the instruments dump. */
+export async function refreshInstruments(req: Request, res: Response) {
+  try {
+    const segment = req.query.segment ? String(req.query.segment) : undefined;
+    const count = await instruments.refreshCache(segment);
+    res.json({ ...instruments.getCacheStatus(), refreshed: true, count });
+  } catch (err) {
+    handleError(res, err);
+  }
+}
+
+/** GET /api/kite/instruments/search?q=MIDCPNIFTY&segment=NFO&instrumentType=FUT */
+export async function searchInstruments(req: Request, res: Response) {
+  try {
+    const results = await instruments.search({
+      q: req.query.q ? String(req.query.q) : undefined,
+      segment: req.query.segment ? String(req.query.segment) : undefined,
+      instrumentType: req.query.instrumentType ? String(req.query.instrumentType) : undefined,
+      underlying: req.query.underlying ? String(req.query.underlying) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+    });
+    res.json({ readOnly: true, count: results.length, results: results.map(toCandidate) });
+  } catch (err) {
+    handleError(res, err);
+  }
+}
+
+/**
+ * GET /api/kite/instruments/resolve?underlying=MIDCPNIFTY&instrumentType=FUT&expiry=…
+ * Resolves to one exact contract, or returns sorted candidates + guidance.
+ */
+export async function resolveInstrument(req: Request, res: Response) {
+  try {
+    const result = await instruments.resolve({
+      underlying: String(req.query.underlying ?? ""),
+      segment: req.query.segment ? String(req.query.segment) : undefined,
+      instrumentType: String(req.query.instrumentType ?? ""),
+      expiry: req.query.expiry ? String(req.query.expiry) : undefined,
+      strike: req.query.strike != null && req.query.strike !== "" ? Number(req.query.strike) : undefined,
+      optionType: req.query.optionType ? String(req.query.optionType) : undefined,
+    });
+    res.json({
+      readOnly: true,
+      resolved: result.resolved ? toCandidate(result.resolved) : null,
+      candidates: result.candidates.map(toCandidate),
+      message: result.message,
+    });
   } catch (err) {
     handleError(res, err);
   }
