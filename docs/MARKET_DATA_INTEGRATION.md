@@ -52,6 +52,30 @@ your Kite app. Respect Kite's API terms and SEBI regulations.
 > When the full **provider abstraction** (section 1) is built, this Kite service
 > becomes the first concrete `MarketDataProvider` implementation.
 
+### 7a. Live Trade Plan analysis (Phase 3B) ✅
+
+`GET /api/analysis/live-trade-plan?instrument=NSE:RELIANCE&interval=5minute&riskProfile=balanced`
+
+Combines a **live Kite quote** with **historical candles** (when an
+`instrument_token` is available) and runs a pure, dependency-free technical
+engine (`services/technicalAnalysis.ts`) to produce:
+
+- Trend (direction + strength) from EMA9/EMA20/VWAP/RSI/MACD vs. previous close.
+- Support/resistance via floor pivots from recent swing extremes.
+- **Long** plan (entry above resistance/breakout) and **short** plan (entry below
+  support/breakdown), each with stop-loss (ATR- or range-based, scaled by
+  `riskProfile`), Target 1/2/3 and a risk-reward ratio.
+- A final decision: `LONG | SHORT | WAIT | AVOID | RANGE-BOUND`.
+
+**Graceful degradation:** if candles are unavailable, the engine uses the quote
+OHLC only, marks `dataQuality: "live-quote-only"`, caps confidence (never
+"high"), and prefers `WAIT`/`AVOID`. `riskProfile` ∈
+`conservative | balanced | aggressive` (wider→tighter stops).
+
+**Still read-only:** this endpoint computes levels for information only. It does
+**not** place, modify or cancel orders, and every response carries the risk
+disclaimer. No profit is guaranteed.
+
 ---
 
 ## 1. Design Principle: a Provider Abstraction

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  getLiveTradePlanHandler,
   postFutures,
   postOptions,
   postTechnical,
@@ -19,3 +20,6 @@ analysisRouter.post("/options", postOptions);
 
 // POST /api/analysis/trade-plan
 analysisRouter.post("/trade-plan", postTradePlan);
+
+// GET /api/analysis/live-trade-plan  (READ-ONLY, live Kite data)
+analysisRouter.get("/live-trade-plan", getLiveTradePlanHandler);

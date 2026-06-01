@@ -17,6 +17,7 @@ import type {
   KiteLoginUrlResponse,
   KiteQuoteResponse,
   KiteStatus,
+  LiveTradePlan,
   TradePlanRequest,
   TradePlanResponse,
 } from "@/types/api";
@@ -129,5 +130,13 @@ export const api = {
     loginUrl: () => request<KiteLoginUrlResponse>("/api/kite/login-url"),
     quote: (instrument: string) =>
       request<KiteQuoteResponse>(`/api/kite/quote?instrument=${encodeURIComponent(instrument)}`),
+  },
+
+  // Live trade-plan analysis (Phase 3B) — read-only, Kite-based.
+  liveTradePlan: (params: { instrument: string; interval?: string; riskProfile?: string }) => {
+    const qs = new URLSearchParams({ instrument: params.instrument });
+    if (params.interval) qs.set("interval", params.interval);
+    if (params.riskProfile) qs.set("riskProfile", params.riskProfile);
+    return request<LiveTradePlan>(`/api/analysis/live-trade-plan?${qs.toString()}`);
   },
 };

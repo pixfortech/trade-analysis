@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
 import { callAiEngine } from "../services/aiEngine.service";
+import { KiteError } from "../services/kite.service";
+import { getLiveTradePlan } from "../services/liveTradePlan.service";
 import type { AnalysisResponse, TradePlanResponse } from "../types/contracts";
 import { mockAnalysis, mockTradePlan } from "../utils/mockData";
 
@@ -63,5 +65,29 @@ export async function postTradePlan(req: Request, res: Response) {
   } catch (err) {
     console.warn(`[backend] AI engine fallback for /analyse/trade-plan: ${(err as Error).message}`);
     res.json({ ...mockTradePlan({ symbol: String(symbol), segment: String(segment) }), source: "mock-fallback" });
+  }
+}
+
+/**
+ * GET /api/analysis/live-trade-plan?instrument=NSE:RELIANCE&interval=5minute&riskProfile=balanced
+ * READ-ONLY: live Kite quote + historical candles → long/short levels.
+ * Errors from the Kite layer (disabled/login-required) are surfaced cleanly
+ * without leaking any secret.
+ */
+export async function getLiveTradePlanHandler(req: Request, res: Response) {
+  try {
+    const result = await getLiveTradePlan({
+      instrument: String(req.query.instrument ?? ""),
+      interval: req.query.interval ? String(req.query.interval) : undefined,
+      riskProfile: req.query.riskProfile ? String(req.query.riskProfile) : undefined,
+    });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof KiteError) {
+      res.status(err.status).json({ error: { message: err.message, code: err.code }, readOnly: true });
+      return;
+    }
+    console.error("[backend] live-trade-plan unexpected error");
+    res.status(500).json({ error: { message: "Unexpected analysis error.", code: "ANALYSIS_INTERNAL" }, readOnly: true });
   }
 }

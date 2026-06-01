@@ -13,6 +13,7 @@ import { MarketSentiment } from "@/components/dashboard/MarketSentiment";
 import { ScannerPlaceholder } from "@/components/dashboard/ScannerPlaceholder";
 import { LiveAnalysis } from "@/components/dashboard/LiveAnalysis";
 import { KiteStatusCard } from "@/components/dashboard/KiteStatusCard";
+import { LiveTradePlanCard } from "@/components/dashboard/LiveTradePlanCard";
 
 export default function DashboardPage() {
   return (
@@ -43,6 +44,9 @@ export default function DashboardPage() {
               <LiveAnalysis />
               <KiteStatusCard />
             </div>
+
+            {/* Live Kite-based trade plan (read-only) */}
+            <LiveTradePlanCard />
 
             {/* Watchlist + Options */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

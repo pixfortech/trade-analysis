@@ -178,6 +178,40 @@ export async function getQuote(instrument: string): Promise<unknown> {
   return json?.data ?? {};
 }
 
+/** Shape of the fields we use from a Kite quote (other fields are ignored). */
+export interface KiteQuoteData {
+  instrumentToken: number | null;
+  lastPrice: number;
+  volume: number;
+  ohlc: { open: number; high: number; low: number; close: number };
+}
+
+/**
+ * GET a quote and return just the single instrument's object, normalised to the
+ * fields the analysis layer needs. Read-only. The Kite `data` is keyed by the
+ * instrument string (e.g. { "NSE:RELIANCE": { ... } }).
+ */
+export async function getQuoteData(instrument: string): Promise<KiteQuoteData> {
+  const data = (await getQuote(instrument)) as Record<string, Record<string, unknown>>;
+  const entry = data?.[instrument] ?? Object.values(data ?? {})[0];
+  if (!entry || typeof entry !== "object") {
+    throw new KiteError("Kite returned no quote for that instrument.", 404, "KITE_NO_QUOTE");
+  }
+  const ohlcRaw = (entry.ohlc as Record<string, unknown>) ?? {};
+  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  return {
+    instrumentToken: typeof entry.instrument_token === "number" ? entry.instrument_token : null,
+    lastPrice: num(entry.last_price),
+    volume: num(entry.volume),
+    ohlc: {
+      open: num(ohlcRaw.open),
+      high: num(ohlcRaw.high),
+      low: num(ohlcRaw.low),
+      close: num(ohlcRaw.close),
+    },
+  };
+}
+
 /**
  * GET historical candles for an instrument_token. Read-only.
  * Kite path: /instruments/historical/:token/:interval?from=&to=

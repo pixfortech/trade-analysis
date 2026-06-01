@@ -38,6 +38,48 @@ export interface KiteQuoteResponse {
   data: Record<string, unknown>;
 }
 
+// Live Trade Plan (Phase 3B) — read-only Kite-based analysis.
+export type LiveAction = "LONG" | "SHORT" | "WAIT" | "AVOID" | "RANGE-BOUND";
+
+export interface LivePlanSide {
+  entryAbove?: number;
+  entryBelow?: number;
+  stopLoss: number;
+  target1: number;
+  target2: number;
+  target3: number;
+  riskReward: string;
+  condition: string;
+}
+
+export interface LiveTradePlan {
+  instrument: string;
+  source: "kite";
+  live: true;
+  readOnly: true;
+  timestamp: string;
+  dataQuality: "live-historical" | "live-quote-only";
+  dataNote: string;
+  currentPrice: number;
+  previousClose: number;
+  marketData: { open: number; high: number; low: number; close: number; volume: number };
+  indicators: {
+    ema9: number | null;
+    ema20: number | null;
+    vwap: number | null;
+    rsi: number | null;
+    macd: { macd: number; signal: number; histogram: number } | null;
+    atr: number | null;
+    volumeConfirmed: boolean | null;
+  };
+  trend: { direction: "bullish" | "bearish" | "sideways"; strength: "weak" | "medium" | "strong"; reason: string };
+  levels: { support1: number; support2: number; resistance1: number; resistance2: number };
+  longPlan: LivePlanSide;
+  shortPlan: LivePlanSide;
+  finalDecision: { action: LiveAction; confidence: "low" | "medium" | "high"; reason: string };
+  riskDisclaimer: string;
+}
+
 export interface TradePlanRequest {
   symbol: string;
   segment?: string;
