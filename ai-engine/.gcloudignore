@@ -1,0 +1,30 @@
+# Files NOT uploaded to Cloud Build by `gcloud run deploy --source .`
+# (keeps the upload small and free of local/venv/secret files).
+# NOTE: the Dockerfile + .dockerignore control what ends up in the IMAGE;
+# this file controls what is UPLOADED as build context.
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Never upload secrets.
+.env
+.env.*
+
+# Dev/test/docs not needed to build the runtime image.
+tests/
+requirements-dev.txt
+README.md
+
+# VCS / editor
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store

@@ -18,6 +18,26 @@ uvicorn app.main:app --reload --port 8000
 - Interactive API docs (Swagger): http://localhost:8000/docs
 - Alternative docs (ReDoc): http://localhost:8000/redoc
 
+## Deploy to Google Cloud Run
+
+This service ships a **Dockerfile**, so `gcloud run deploy --source` builds with
+Docker (not Google's Python buildpack). The buildpack previously failed because
+a pinned `.python-version` (3.11.9) had no prebuilt runtime image in the
+serverless-runtimes registry (`MANIFEST_UNKNOWN`); the Dockerfile uses
+`python:3.11-slim` from Docker Hub and avoids that entirely.
+
+```bash
+cd ai-engine
+gcloud run deploy trade-analysis-ai-engine \
+  --source . --region asia-south1 --allow-unauthenticated
+# then open: https://<SERVICE_URL>/health
+```
+
+The container listens on `$PORT` (Cloud Run sets it; defaults to 8080). `venv/`,
+`.env*`, tests and dev deps are excluded from the build context (`.gcloudignore`)
+and the image (`.dockerignore`), so no secrets are baked in.
+
+
 ## Endpoints
 
 | Method | Path | Purpose |

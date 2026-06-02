@@ -1,0 +1,30 @@
+# Keep the Cloud Run image small and secret-free.
+venv/
+.venv/
+env/
+ENV/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Never bake secrets into the image (only .env.example is safe, and unneeded).
+.env
+.env.*
+
+# Dev/test/docs not needed at runtime.
+tests/
+requirements-dev.txt
+README.md
+.python-version
+Procfile
+.gcloudignore
+
+# VCS / editor
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
