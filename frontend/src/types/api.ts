@@ -38,6 +38,81 @@ export interface KiteQuoteResponse {
   data: Record<string, unknown>;
 }
 
+// Phase 3G additions
+export interface MarketStatusResponse {
+  market: "NSE";
+  timezone: "Asia/Kolkata";
+  status: "open" | "closed" | "pre-open" | "post-close" | "weekend" | "holiday-unknown";
+  currentIstTime: string;
+  nextOpenTime: string | null;
+  nextCloseTime: string | null;
+  holidayStatus: "unknown";
+  message: string;
+}
+
+export interface AccountSummaryResponse {
+  readOnly: true;
+  source: "zerodha" | "unavailable" | "user-override";
+  availableCapital: number;
+  availableCash: number;
+  marginAvailable: number;
+  marginUsed: number;
+  holdingsValue: number;
+  positionsPnl: number;
+  message: string;
+}
+
+export type PaperDirection = "LONG" | "SHORT";
+export type PaperStatus = "OPEN" | "CLOSED" | "PARTIAL";
+export interface PaperTradeView {
+  id: string;
+  instrumentKey: string;
+  displayName: string;
+  direction: PaperDirection;
+  entryPrice: number;
+  currentPrice: number | null;
+  quantity: number;
+  initialQuantity: number;
+  lotSize: number;
+  lots: number;
+  stopLoss: number | null;
+  targets: number[];
+  status: PaperStatus;
+  unrealisedPnl: number;
+  realisedPnl: number;
+  pnlPercent: number;
+  entryTime: string;
+  exitTime: string | null;
+  exitPrice: number | null;
+  notes: string;
+  source: "paper-simulation";
+}
+export interface PaperSummary {
+  count: number;
+  openCount: number;
+  totalUnrealisedPnl: number;
+  totalRealisedPnl: number;
+  totalPnl: number;
+}
+
+export interface Mover {
+  instrument: string;
+  displayName: string;
+  ltp: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+}
+export interface TopMoversResponse {
+  segment: "equity" | "indices" | "futures" | "options";
+  source: "kite";
+  partialData: boolean;
+  gainers: Mover[];
+  losers: Mover[];
+  timestamp: string;
+  message: string;
+}
+
 // Phase 3F additions
 export type IndicatorId = "VWAP" | "EMA20" | "EMA50" | "RSI" | "MACD" | "ADX" | "ATR" | "SUPERTREND" | "VOLUME" | "OI";
 

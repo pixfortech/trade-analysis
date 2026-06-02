@@ -324,6 +324,42 @@ cards are fully removed (not just collapsed), and your choice persists in
 > **WAIT** rather than forcing a trade. The app is fully **read-only**: no order
 > placement, modification, cancellation, GTT or basket orders anywhere.
 
+### Paper trading, account data, widgets & theme (Phase 3G)
+
+- **Paper Trading (simulated only):** open **Paper Buy / Long** or **Paper Sell /
+  Short** positions from any instrument. Entries use a live or manual price;
+  unrealised P/L marks-to-market against live quotes (5s polling) and realised
+  P/L is computed on exit. **No real Zerodha order is ever placed** — there are
+  no real Buy/Sell buttons anywhere. Multiple simultaneous trades, partial/full
+  Paper Exit, and Reset are supported. Paper P/L:
+  - long: `(current − entry) × qty` (unrealised), `(exit − entry) × qty` (realised)
+  - short: `(entry − current) × qty` (unrealised), `(entry − exit) × qty` (realised)
+- **Zerodha account data (read-only):** the Account widget shows funds, margins,
+  holdings value and positions P/L **where your Kite app permits**. If an
+  endpoint isn't available, it shows a clear "unavailable" message — **never fake
+  data**. Endpoints: `/api/kite/account/{profile,funds,margins,holdings,positions,portfolio-summary}`.
+- **Risk Management (dynamic):** uses your **live Zerodha capital** when
+  available, or a **manual capital override**; pick a risk % (0.25–2%) and it
+  computes risk/trade, per-unit/per-lot risk and max paper position size.
+  Settings persist in `localStorage`.
+- **Market Status:** real NSE session state in IST (open / pre-open / closed /
+  post-close / weekend) with next open/close — no static label. Exchange
+  holidays aren't in the calendar yet (`holidayStatus: unknown`).
+- **Top Performers:** gainers/losers tabs for Indices / Equity / Futures /
+  Options using a **bounded** instrument set (curated large-caps + nearest
+  expiry) to respect Kite rate limits; `partialData` is flagged when the scan is
+  limited.
+- **Resizable widgets:** every card is an optional widget with **Small / Medium /
+  Large / Full-width** size presets and up/down reordering via **Customise**;
+  layout (visibility + order + size) persists in `localStorage`. Widgets stack
+  cleanly on mobile.
+- **Light / dark theme:** toggle in the header (defaults to dark); persists in
+  `localStorage`.
+
+> Paper trading is **simulation only** for learning — it never connects to
+> Zerodha order APIs. Account data is **read-only**. Real trading execution is
+> disabled everywhere.
+
 ### Troubleshooting: search returns nothing
 
 1. **Enable Kite:** set `KITE_ENABLE_LIVE_DATA=true` + `KITE_API_KEY` in

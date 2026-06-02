@@ -230,6 +230,39 @@ export async function getQuotes(instruments: string[]): Promise<Record<string, u
   return json?.data ?? {};
 }
 
+// --------------------------- Account data (READ-ONLY GETs) ---------------------------
+// These hit Kite's read-only account endpoints. They NEVER place/modify/cancel
+// orders. If the connected app lacks permission, Kite returns a non-2xx which
+// surfaces as a KiteError the caller can convert into a safe fallback.
+
+/** GET /user/profile — basic profile (no funds). */
+export async function getProfile(): Promise<Record<string, unknown>> {
+  assertReady();
+  const json = await kiteRequest<{ data?: Record<string, unknown> }>("GET", "/user/profile", undefined, true);
+  return json?.data ?? {};
+}
+
+/** GET /user/margins — funds & margins across segments. */
+export async function getMargins(): Promise<Record<string, unknown>> {
+  assertReady();
+  const json = await kiteRequest<{ data?: Record<string, unknown> }>("GET", "/user/margins", undefined, true);
+  return json?.data ?? {};
+}
+
+/** GET /portfolio/holdings — long-term holdings. */
+export async function getHoldings(): Promise<unknown[]> {
+  assertReady();
+  const json = await kiteRequest<{ data?: unknown[] }>("GET", "/portfolio/holdings", undefined, true);
+  return Array.isArray(json?.data) ? json.data : [];
+}
+
+/** GET /portfolio/positions — intraday/F&O positions ({ net, day }). */
+export async function getPositions(): Promise<Record<string, unknown>> {
+  assertReady();
+  const json = await kiteRequest<{ data?: Record<string, unknown> }>("GET", "/portfolio/positions", undefined, true);
+  return json?.data ?? {};
+}
+
 /**
  * GET historical candles for an instrument_token. Read-only.
  * Kite path: /instruments/historical/:token/:interval?from=&to=

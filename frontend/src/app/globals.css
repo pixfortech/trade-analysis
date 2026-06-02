@@ -55,3 +55,46 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* =====================================================================
+   Light theme (Phase 3G). Applied via html.light. Overrides the dark
+   palette tokens used across components so the UI stays readable without
+   rewriting every component. Bull/bear/accent colours are unchanged.
+   ===================================================================== */
+html.light body {
+  @apply text-slate-800;
+  background-color: #f1f5f9;
+  background-image:
+    radial-gradient(900px 500px at 100% -10%, rgba(59, 130, 246, 0.06), transparent 60%),
+    radial-gradient(700px 400px at -10% 110%, rgba(22, 199, 132, 0.05), transparent 60%);
+}
+html.light .card {
+  @apply border-slate-200 bg-white/90;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+/* Background tokens → light surfaces */
+html.light .bg-base-950 { background-color: #f1f5f9 !important; }
+html.light .bg-base-900\/80,
+html.light .bg-base-900\/95,
+html.light .bg-base-900\/70,
+html.light .bg-base-900\/60,
+html.light .bg-base-900 { background-color: #ffffff !important; }
+html.light .bg-base-850,
+html.light .bg-base-850\/70 { background-color: #ffffff !important; }
+html.light [class*="bg-base-800"] { background-color: #f8fafc !important; }
+html.light [class*="bg-base-700"] { background-color: #e2e8f0 !important; }
+/* Text tokens → dark ink */
+html.light .text-slate-100,
+html.light .text-slate-200,
+html.light .text-slate-300 { color: #1e293b !important; }
+html.light .text-slate-400 { color: #475569 !important; }
+html.light .text-slate-500 { color: #64748b !important; }
+html.light .text-slate-600 { color: #94a3b8 !important; }
+/* Borders → light */
+html.light [class*="border-white/5"],
+html.light [class*="border-white/10"] { border-color: rgba(15, 23, 42, 0.1) !important; }
+/* Inputs/selects */
+html.light input,
+html.light select,
+html.light textarea { color: #1e293b; }
+html.light input::placeholder { color: #94a3b8; }

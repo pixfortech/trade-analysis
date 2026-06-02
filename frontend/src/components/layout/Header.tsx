@@ -1,3 +1,5 @@
+import { ThemeToggle } from "./ThemeToggle";
+
 /** Top bar: page title, market-status badge, mock search. */
 export function Header() {
   return (
@@ -41,6 +43,7 @@ export function Header() {
             <path d="M13.7 21a2 2 0 01-3.4 0" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
+        <ThemeToggle />
         <div className="grid h-9 w-9 place-items-center rounded-lg bg-accent/15 text-sm font-semibold text-accent">A</div>
       </div>
     </header>

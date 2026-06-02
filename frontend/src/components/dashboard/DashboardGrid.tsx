@@ -5,36 +5,42 @@ import { MarketOverview } from "@/components/dashboard/MarketOverview";
 import { AITradeRecommendation } from "@/components/dashboard/AITradeRecommendation";
 import { FuturesAnalysis } from "@/components/dashboard/FuturesAnalysis";
 import { OptionsAnalysis } from "@/components/dashboard/OptionsAnalysis";
-import { RiskManagement } from "@/components/dashboard/RiskManagement";
 import { ScannerPlaceholder } from "@/components/dashboard/ScannerPlaceholder";
 import { KiteStatusCard } from "@/components/dashboard/KiteStatusCard";
 import { LiveMarketSignal } from "@/components/dashboard/LiveMarketSignal";
 import { ActiveTradeMonitorCard } from "@/components/dashboard/ActiveTradeMonitorCard";
 import { LiveWatchlist } from "@/components/dashboard/LiveWatchlist";
 import { CustomizePanel } from "@/components/dashboard/CustomizePanel";
+import { MarketStatusCard } from "@/components/dashboard/MarketStatusCard";
+import { PaperTradingPanel } from "@/components/dashboard/PaperTradingPanel";
+import { AccountSummaryCard } from "@/components/dashboard/AccountSummaryCard";
+import { RiskManagementCard } from "@/components/dashboard/RiskManagementCard";
+import { TopPerformersCard } from "@/components/dashboard/TopPerformersCard";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
   LAYOUT_STORAGE_KEY,
   defaultLayout,
   reconcileLayout,
+  sizeToColSpan,
   type CardState,
+  type WidgetSize,
 } from "@/lib/dashboardLayout";
 
-// Map card id → element. Cards hidden by default keep the home page clean.
 const CARD_COMPONENTS: Record<string, React.ReactNode> = {
+  "market-status": <MarketStatusCard />,
   "live-market-signal": <LiveMarketSignal />,
+  "paper-trading": <PaperTradingPanel />,
   "active-trade-monitor": <ActiveTradeMonitorCard />,
+  "account-summary": <AccountSummaryCard />,
+  "risk-management": <RiskManagementCard />,
+  "top-performers": <TopPerformersCard />,
   watchlist: <LiveWatchlist />,
   "kite-status": <KiteStatusCard />,
-  "risk-management": <RiskManagement />,
   "market-overview": <MarketOverview />,
   "ai-recommendation": <AITradeRecommendation />,
   "futures-analysis": <FuturesAnalysis />,
   "options-analysis": <OptionsAnalysis />,
   scanner: <ScannerPlaceholder />,
-  // Raw Kite quote test lives in the Kite Status card; surface it again here
-  // for users who want a dedicated raw-data panel.
-  "raw-kite-data": <KiteStatusCard />,
 };
 
 export function DashboardGrid() {
@@ -45,8 +51,7 @@ export function DashboardGrid() {
   const layout = reconcileLayout(stored);
 
   const toggle = useCallback(
-    (id: string) =>
-      setValue((cur) => reconcileLayout(cur).map((c) => (c.id === id ? { ...c, visible: !c.visible } : c))),
+    (id: string) => setValue((cur) => reconcileLayout(cur).map((c) => (c.id === id ? { ...c, visible: !c.visible } : c))),
     [setValue],
   );
 
@@ -64,25 +69,31 @@ export function DashboardGrid() {
     [setValue],
   );
 
+  const resize = useCallback(
+    (id: string, size: WidgetSize) => setValue((cur) => reconcileLayout(cur).map((c) => (c.id === id ? { ...c, size } : c))),
+    [setValue],
+  );
+
   const visible = layout.filter((c) => c.visible);
 
   return (
     <>
       <div className="mb-5 flex items-center justify-between gap-3">
-        <p className="text-sm text-slate-400">
-          {hydrated ? `${visible.length} of ${layout.length} cards shown` : " "}
-        </p>
-        <CustomizePanel layout={layout} onToggle={toggle} onMove={move} onReset={reset} />
+        <p className="text-sm text-slate-400">{hydrated ? `${visible.length} of ${layout.length} widgets shown` : " "}</p>
+        <CustomizePanel layout={layout} onToggle={toggle} onMove={move} onResize={resize} onReset={reset} />
       </div>
 
-      <div className="space-y-5">
+      {/* 12-column responsive grid; widgets span by size. Stacks on mobile. */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
         {visible.length === 0 && (
-          <p className="rounded-xl border border-dashed border-white/10 bg-base-800/40 px-4 py-10 text-center text-slate-400">
-            All cards are hidden. Click <span className="text-slate-200">Customise</span> to show some.
+          <p className="col-span-full rounded-xl border border-dashed border-white/10 bg-base-800/40 px-4 py-10 text-center text-slate-400">
+            All widgets are hidden. Click <span className="text-slate-200">Customise</span> to show some.
           </p>
         )}
         {visible.map((c) => (
-          <div key={c.id}>{CARD_COMPONENTS[c.id] ?? null}</div>
+          <div key={c.id} className={`col-span-1 ${sizeToColSpan(c.size)}`}>
+            {CARD_COMPONENTS[c.id] ?? null}
+          </div>
         ))}
       </div>
     </>

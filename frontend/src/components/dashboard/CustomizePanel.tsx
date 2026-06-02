@@ -1,23 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import type { CardState } from "@/lib/dashboardLayout";
-import { titleFor } from "@/lib/dashboardLayout";
+import type { CardState, WidgetSize } from "@/lib/dashboardLayout";
+import { SIZE_LABELS, titleFor } from "@/lib/dashboardLayout";
+
+const SIZES: WidgetSize[] = ["small", "medium", "large", "full"];
 
 /**
- * Dashboard customisation panel (Phase 3D). Toggle card visibility, reorder
- * with up/down controls, and reset to default. Layout persists via the parent
- * (localStorage). Simple + stable — no drag-and-drop to avoid fragility.
+ * Dashboard customisation panel (Phase 3D–3G). Toggle widget visibility,
+ * reorder with up/down controls, choose a SIZE preset, and reset to default.
+ * Layout persists via the parent (localStorage). Stable size presets instead
+ * of fragile drag-resize.
  */
 export function CustomizePanel({
   layout,
   onToggle,
   onMove,
+  onResize,
   onReset,
 }: {
   layout: CardState[];
   onToggle: (id: string) => void;
   onMove: (id: string, dir: -1 | 1) => void;
+  onResize: (id: string, size: WidgetSize) => void;
   onReset: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -54,46 +59,61 @@ export function CustomizePanel({
             </div>
 
             <p className="mb-4 text-sm text-slate-400">
-              Show or hide cards and reorder them. Your layout is saved in this browser.
+              Show/hide widgets, reorder them, and set a size. Your layout is saved in this browser.
             </p>
 
             <ul className="space-y-2">
               {layout.map((card, i) => (
-                <li
-                  key={card.id}
-                  className="flex items-center justify-between gap-2 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5"
-                >
-                  <label className="flex flex-1 cursor-pointer items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={card.visible}
-                      onChange={() => onToggle(card.id)}
-                      className="h-4 w-4 accent-blue-500"
-                    />
-                    <span className={`text-[15px] ${card.visible ? "text-slate-100" : "text-slate-500"}`}>
-                      {titleFor(card.id)}
-                    </span>
-                  </label>
-                  <div className="flex gap-1">
-                    <button
-                      type="button"
-                      onClick={() => onMove(card.id, -1)}
-                      disabled={i === 0}
-                      aria-label={`Move ${titleFor(card.id)} up`}
-                      className="grid h-7 w-7 place-items-center rounded-md border border-white/10 text-slate-300 hover:bg-white/5 disabled:opacity-30"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onMove(card.id, 1)}
-                      disabled={i === layout.length - 1}
-                      aria-label={`Move ${titleFor(card.id)} down`}
-                      className="grid h-7 w-7 place-items-center rounded-md border border-white/10 text-slate-300 hover:bg-white/5 disabled:opacity-30"
-                    >
-                      ↓
-                    </button>
+                <li key={card.id} className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="flex flex-1 cursor-pointer items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={card.visible}
+                        onChange={() => onToggle(card.id)}
+                        className="h-4 w-4 accent-blue-500"
+                      />
+                      <span className={`text-[15px] ${card.visible ? "text-slate-100" : "text-slate-500"}`}>
+                        {titleFor(card.id)}
+                      </span>
+                    </label>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onMove(card.id, -1)}
+                        disabled={i === 0}
+                        aria-label={`Move ${titleFor(card.id)} up`}
+                        className="grid h-7 w-7 place-items-center rounded-md border border-white/10 text-slate-300 hover:bg-white/5 disabled:opacity-30"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onMove(card.id, 1)}
+                        disabled={i === layout.length - 1}
+                        aria-label={`Move ${titleFor(card.id)} down`}
+                        className="grid h-7 w-7 place-items-center rounded-md border border-white/10 text-slate-300 hover:bg-white/5 disabled:opacity-30"
+                      >
+                        ↓
+                      </button>
+                    </div>
                   </div>
+                  {card.visible && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {SIZES.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() => onResize(card.id, s)}
+                          className={`rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                            card.size === s ? "border-accent/40 bg-accent/10 text-accent" : "border-white/10 text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          {SIZE_LABELS[s]}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

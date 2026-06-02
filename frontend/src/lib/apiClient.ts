@@ -11,6 +11,7 @@
 // All data is mock/demo in Phase 2.
 
 import type {
+  AccountSummaryResponse,
   ActiveTradeMonitor,
   AnalysisRequest,
   AnalysisResponse,
@@ -24,10 +25,27 @@ import type {
   KiteStatus,
   LiveSignal,
   LiveTradePlan,
+  MarketStatusResponse,
+  PaperSummary,
+  PaperTradeView,
   SearchResponse,
+  TopMoversResponse,
   TradePlanRequest,
   TradePlanResponse,
 } from "@/types/api";
+
+export interface OpenPaperTradeBody {
+  instrumentKey: string;
+  displayName?: string;
+  direction: "LONG" | "SHORT";
+  entryPrice: number;
+  quantity?: number;
+  lotSize?: number;
+  lots?: number;
+  stopLoss?: number | null;
+  targets?: number[];
+  notes?: string;
+}
 
 export interface ResolveParams {
   underlying: string;
@@ -219,5 +237,32 @@ export const api = {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
     return request<ActiveTradeMonitor>(`/api/analysis/active-trade-monitor?${qs.toString()}`);
+  },
+
+  // Market status (Phase 3G) — real NSE session state (no Kite needed).
+  marketStatus: () => request<MarketStatusResponse>("/api/market/status"),
+
+  // Top movers (Phase 3G) — read-only.
+  topMovers: (segment: "equity" | "indices" | "futures" | "options") =>
+    request<TopMoversResponse>(`/api/market/top-movers?segment=${segment}`),
+
+  // Zerodha account (Phase 3G) — read-only; safe fallback when unavailable.
+  account: {
+    portfolioSummary: () => request<AccountSummaryResponse>("/api/kite/account/portfolio-summary"),
+    holdings: () => request<{ source: string; holdings?: unknown[]; message?: string }>("/api/kite/account/holdings"),
+    positions: () => request<{ source: string; positions?: unknown; message?: string }>("/api/kite/account/positions"),
+  },
+
+  // Paper trading (Phase 3G) — SIMULATED only; never places real orders.
+  paper: {
+    list: () => request<{ trades: PaperTradeView[]; disclaimer: string }>("/api/paper-trades"),
+    summary: () => request<{ summary: PaperSummary; disclaimer: string }>("/api/paper-trades/summary"),
+    open: (body: OpenPaperTradeBody) =>
+      request<{ trade: PaperTradeView; disclaimer: string }>("/api/paper-trades/open", { method: "POST", body: JSON.stringify(body) }),
+    close: (id: string, exitPrice?: number) =>
+      request<{ trade: PaperTradeView }>("/api/paper-trades/close", { method: "POST", body: JSON.stringify({ id, exitPrice }) }),
+    partialClose: (id: string, quantity: number, exitPrice?: number) =>
+      request<{ trade: PaperTradeView }>("/api/paper-trades/partial-close", { method: "POST", body: JSON.stringify({ id, quantity, exitPrice }) }),
+    reset: () => request<{ reset: boolean }>("/api/paper-trades/reset", { method: "DELETE" }),
   },
 };
