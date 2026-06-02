@@ -1,5 +1,8 @@
 import type { Request, Response } from "express";
 import { buildHistory, buildQuote } from "../utils/mockData";
+import { getChartData } from "../services/liveTradePlan.service";
+import { parseActiveIndicators } from "../services/indicatorEngine";
+import { KiteError } from "../services/kite.service";
 
 /** GET /api/market/quote?symbol=RELIANCE&segment=equity */
 export function getQuote(req: Request, res: Response) {
@@ -14,4 +17,32 @@ export function getHistory(req: Request, res: Response) {
   const interval = String(req.query.interval ?? "1d");
   const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 500);
   res.json({ source: "mock", ...buildHistory(symbol, interval, limit) });
+}
+
+/**
+ * GET /api/market/chart-data — READ-ONLY live candles + indicator series.
+ * Accepts instrument (exact or resolver params), interval and activeIndicators.
+ */
+export async function getChartDataHandler(req: Request, res: Response) {
+  try {
+    const data = await getChartData({
+      instrument: req.query.instrument ? String(req.query.instrument) : undefined,
+      underlying: req.query.underlying ? String(req.query.underlying) : undefined,
+      segment: req.query.segment ? String(req.query.segment) : undefined,
+      instrumentType: req.query.instrumentType ? String(req.query.instrumentType) : undefined,
+      expiry: req.query.expiry ? String(req.query.expiry) : undefined,
+      strike: req.query.strike ? String(req.query.strike) : undefined,
+      optionType: req.query.optionType ? String(req.query.optionType) : undefined,
+      interval: req.query.interval ? String(req.query.interval) : undefined,
+      activeIndicators: parseActiveIndicators(req.query.activeIndicators ? String(req.query.activeIndicators) : undefined),
+    });
+    res.json({ source: "kite", live: true, readOnly: true, ...data });
+  } catch (err) {
+    if (err instanceof KiteError) {
+      res.status(err.status).json({ error: { message: err.message, code: err.code }, readOnly: true });
+      return;
+    }
+    console.error("[backend] chart-data unexpected error");
+    res.status(500).json({ error: { message: "Unexpected chart-data error.", code: "CHART_INTERNAL" }, readOnly: true });
+  }
 }

@@ -1,7 +1,8 @@
 import type { Request, Response } from "express";
 import { callAiEngine } from "../services/aiEngine.service";
 import { KiteError } from "../services/kite.service";
-import { getLiveTradePlan, getLiveSignal } from "../services/liveTradePlan.service";
+import { getLiveTradePlan, getLiveSignal, getActiveTradeMonitor } from "../services/liveTradePlan.service";
+import { parseActiveIndicators } from "../services/indicatorEngine";
 import type { AnalysisResponse, TradePlanResponse } from "../types/contracts";
 import { mockAnalysis, mockTradePlan } from "../utils/mockData";
 
@@ -124,9 +125,50 @@ export async function getLiveSignalHandler(req: Request, res: Response) {
       optionType: req.query.optionType ? String(req.query.optionType) : undefined,
       interval: req.query.interval ? String(req.query.interval) : undefined,
       riskProfile: req.query.riskProfile ? String(req.query.riskProfile) : undefined,
+      activeIndicators: parseActiveIndicators(req.query.activeIndicators ? String(req.query.activeIndicators) : undefined),
+      quantity: req.query.quantity ? Number(req.query.quantity) : null,
     });
     res.json(result);
   } catch (err) {
     sendAnalysisError(res, err, "live-signal");
+  }
+}
+
+/**
+ * GET /api/analysis/active-trade-monitor — READ-ONLY position monitor.
+ * Required: positionDirection (LONG|SHORT), entryPrice, quantity, plus an
+ * instrument (exact or resolver params). Advisory only; never executes.
+ */
+export async function getActiveTradeMonitorHandler(req: Request, res: Response) {
+  try {
+    const dir = String(req.query.positionDirection ?? "").toUpperCase();
+    if (dir !== "LONG" && dir !== "SHORT") {
+      res.status(400).json({ error: { message: "positionDirection must be LONG or SHORT.", code: "BAD_DIRECTION" }, readOnly: true });
+      return;
+    }
+    const entryPrice = Number(req.query.entryPrice);
+    const quantity = Number(req.query.quantity);
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+      res.status(400).json({ error: { message: "entryPrice must be a positive number.", code: "BAD_ENTRY" }, readOnly: true });
+      return;
+    }
+    const result = await getActiveTradeMonitor({
+      positionDirection: dir,
+      entryPrice,
+      quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+      instrument: req.query.instrument ? String(req.query.instrument) : undefined,
+      underlying: req.query.underlying ? String(req.query.underlying) : undefined,
+      segment: req.query.segment ? String(req.query.segment) : undefined,
+      instrumentType: req.query.instrumentType ? String(req.query.instrumentType) : undefined,
+      expiry: req.query.expiry ? String(req.query.expiry) : undefined,
+      strike: req.query.strike ? String(req.query.strike) : undefined,
+      optionType: req.query.optionType ? String(req.query.optionType) : undefined,
+      interval: req.query.interval ? String(req.query.interval) : undefined,
+      riskProfile: req.query.riskProfile ? String(req.query.riskProfile) : undefined,
+      activeIndicators: parseActiveIndicators(req.query.activeIndicators ? String(req.query.activeIndicators) : undefined),
+    });
+    res.json(result);
+  } catch (err) {
+    sendAnalysisError(res, err, "active-trade-monitor");
   }
 }

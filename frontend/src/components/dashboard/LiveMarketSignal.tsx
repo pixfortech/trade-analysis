@@ -1,16 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { EmptyState, ErrorState } from "@/components/ui/States";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { num } from "@/lib/format";
-import type { LiveSignal, SignalAction, SignalSetup } from "@/types/api";
+import type { ChartDataResponse, IndicatorId, LiveSignal, SignalAction, SignalSetup } from "@/types/api";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
+import { IndicatorControls, ALL_INDICATORS } from "./IndicatorControls";
+import { LiveChart } from "./LiveChart";
+import { useAlerts } from "@/hooks/useAlerts";
+import { AlertToasts } from "./AlertToasts";
 
-const INTERVALS = ["3minute", "5minute", "15minute", "30minute", "60minute", "day"];
+const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"];
 const RISK_PROFILES = ["conservative", "balanced", "aggressive"];
+const DEFAULT_ACTIVE: IndicatorId[] = ["VWAP", "EMA20", "EMA50", "RSI", "MACD", "ADX", "ATR", "SUPERTREND", "VOLUME", "OI"];
 
 interface Selection {
   instrument: string;
@@ -19,10 +24,10 @@ interface Selection {
 }
 
 /**
- * Live Market Signal — the primary READ-ONLY analysis card (Phase 3E).
- * Search/select an instrument → trend, bullish/bearish probability, estimated
- * win %, long & short setups (entry/SL/targets/exits), risk-reward and tentative
- * P/L per lot. No buy/sell or order-placement controls anywhere.
+ * Live Market Signal — primary READ-ONLY analysis card (Phase 3E/3F).
+ * Search → live chart + indicator toggles + real-time polling. Recalculates
+ * trend/probability/entry/exit when indicators change, and raises a toast +
+ * (opt-in) browser notification on trend reversal. No order controls anywhere.
  */
 export function LiveMarketSignal() {
   const [sel, setSel] = useState<Selection | null>({
@@ -32,15 +37,60 @@ export function LiveMarketSignal() {
   });
   const [interval, setInterval] = useState("5minute");
   const [riskProfile, setRiskProfile] = useState("balanced");
+  const [active, setActive] = useState<IndicatorId[]>(DEFAULT_ACTIVE);
+  const [livePolling, setLivePolling] = useState(false);
+  const [chart, setChart] = useState<ChartDataResponse | null>(null);
   const signal = useAsync(api.liveSignal);
+  const alerts = useAlerts();
+  const prevTrend = useRef<string | null>(null);
 
-  const onSelect = (ins: SelectedInstrument) =>
+  const onSelect = (ins: SelectedInstrument) => {
     setSel({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize });
-
-  const run = () => {
-    if (!sel) return;
-    void signal.run({ instrument: sel.instrument, interval, riskProfile });
+    prevTrend.current = null;
   };
+
+  const toggleIndicator = (id: IndicatorId) =>
+    setActive((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...ALL_INDICATORS].filter((x) => cur.includes(x) || x === id)));
+
+  const fetchChart = useCallback(
+    async (instrument: string) => {
+      try {
+        const c = await api.chartData({ instrument, interval, activeIndicators: active.join(",") });
+        setChart(c);
+      } catch {
+        setChart(null); // chart needs candles; signal still works quote-only
+      }
+    },
+    [interval, active],
+  );
+
+  const run = useCallback(async () => {
+    if (!sel) return;
+    const res = await signal.run({ instrument: sel.instrument, interval, riskProfile, activeIndicators: active.join(",") });
+    if (res) {
+      // Trend reversal detection (vs the previous successful read).
+      const dir = res.trend.direction;
+      if (prevTrend.current && prevTrend.current !== dir && (dir === "bullish" || dir === "bearish") && prevTrend.current !== "sideways") {
+        const flip = `${prevTrend.current}→${dir}`;
+        alerts.push(
+          `reversal-${sel.instrument}`,
+          `Trend changed: ${dir.toUpperCase()}`,
+          `${res.resolvedInstrument.displayName}: ${prevTrend.current} → ${dir}. ${res.finalDecision.reason}`,
+          dir === "bearish" ? "urgent" : "caution",
+        );
+        void flip;
+      }
+      prevTrend.current = dir;
+    }
+    void fetchChart(sel.instrument);
+  }, [sel, interval, riskProfile, active, signal, alerts, fetchChart]);
+
+  // Real-time polling: re-run the signal+chart every 5s while enabled.
+  useEffect(() => {
+    if (!livePolling || !sel) return;
+    const id = window.setInterval(() => void run(), 5000);
+    return () => window.clearInterval(id);
+  }, [livePolling, sel, run]);
 
   return (
     <Card
@@ -92,12 +142,41 @@ export function LiveMarketSignal() {
         </select>
         <button
           type="button"
-          onClick={run}
+          onClick={() => void run()}
           disabled={signal.isLoading || !sel}
           className="rounded-lg bg-accent/20 px-5 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {signal.isLoading ? "Analyzing…" : "Analyze"}
         </button>
+      </div>
+
+      {/* Live polling + browser notifications */}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setLivePolling((v) => !v)}
+          disabled={!sel}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40 ${
+            livePolling ? "border-bull/40 bg-bull-soft text-bull" : "border-white/10 bg-base-800/60 text-slate-300 hover:text-slate-100"
+          }`}
+        >
+          {livePolling ? "● Live (5s) — stop" : "Start live updates"}
+        </button>
+        {!alerts.browserEnabled && (
+          <button
+            type="button"
+            onClick={() => void alerts.requestBrowser()}
+            className="rounded-lg border border-white/10 bg-base-800/60 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:text-slate-100"
+          >
+            Enable browser alerts
+          </button>
+        )}
+        <span className="text-[11px] text-slate-500">Reversal alerts are advisory only.</span>
+      </div>
+
+      {/* Indicator toggles + contributions */}
+      <div className="mt-3">
+        <IndicatorControls active={active} onToggle={toggleIndicator} contributions={signal.data?.indicatorContributions} />
       </div>
 
       <div className="mt-4">
@@ -107,18 +186,41 @@ export function LiveMarketSignal() {
             message="Pick an instrument above (equity, index, future or option) and click Analyze for a live read-only signal. Needs Kite enabled & authorised."
           />
         )}
-        {signal.isLoading && <p className="text-sm text-slate-400">Fetching live data and computing the signal…</p>}
+        {signal.isLoading && !signal.data && <p className="text-sm text-slate-400">Fetching live data and computing the signal…</p>}
         {signal.isError && (
           <ErrorState
             message={signal.error ?? "Analysis failed."}
             hint="Enable & authorise Kite (Status card). If search is empty, refresh the instruments cache. Live signal needs live Kite data."
-            onRetry={run}
+            onRetry={() => void run()}
           />
         )}
-        {signal.isSuccess && signal.data && <SignalView s={signal.data} />}
+        {signal.data && (
+          <>
+            {chart && chart.candles.length > 0 && (
+              <div className="mb-4 rounded-lg border border-white/5 bg-base-800/30 p-2">
+                <LiveChart data={chart} priceLines={priceLinesFor(signal.data)} />
+              </div>
+            )}
+            <SignalView s={signal.data} />
+          </>
+        )}
       </div>
+
+      <AlertToasts toasts={alerts.toasts} onDismiss={alerts.dismiss} />
     </Card>
   );
+}
+
+/** Entry/SL/target price lines for the chart, from the preferred setup. */
+function priceLinesFor(s: LiveSignal): { price: number; color: string; title: string }[] {
+  const setup = s.preferredSetup === "short" ? s.shortSetup : s.longSetup;
+  const entry = setup.entryAbove ?? setup.entryBelow;
+  const lines: { price: number; color: string; title: string }[] = [];
+  if (entry != null) lines.push({ price: entry, color: "#3b82f6", title: "Entry" });
+  lines.push({ price: setup.stopLoss, color: "#ea3943", title: "SL" });
+  lines.push({ price: setup.target1, color: "#16c784", title: "T1" });
+  lines.push({ price: setup.target2, color: "#16c784", title: "T2" });
+  return lines;
 }
 
 const ACTION_CLS: Record<SignalAction, string> = {

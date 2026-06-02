@@ -38,7 +38,74 @@ export interface KiteQuoteResponse {
   data: Record<string, unknown>;
 }
 
-// Live Market Signal (Phase 3E).
+// Phase 3F additions
+export type IndicatorId = "VWAP" | "EMA20" | "EMA50" | "RSI" | "MACD" | "ADX" | "ATR" | "SUPERTREND" | "VOLUME" | "OI";
+
+export interface IndicatorContribution {
+  id: IndicatorId;
+  direction: "bullish" | "bearish" | "neutral" | "unavailable";
+  weight: number;
+  value: string;
+  detail: string;
+}
+
+export interface ChartPoint {
+  t: string;
+  v: number;
+}
+export interface ChartDataResponse {
+  source: "kite";
+  live: true;
+  readOnly: true;
+  instrument: string;
+  interval: string;
+  candles: { t: string; o: number; h: number; l: number; c: number; v: number }[];
+  activeIndicators: IndicatorId[];
+  overlays: Record<string, ChartPoint[]>;
+  oscillators: Record<string, ChartPoint[]>;
+  levels: {
+    pivot: number | null;
+    bc: number | null;
+    tc: number | null;
+    r1: number | null;
+    s1: number | null;
+    prevHigh: number | null;
+    prevLow: number | null;
+    prevClose: number | null;
+  };
+  lastUpdated: string;
+}
+
+export type MonitorAction = "HOLD" | "TIGHTEN_SL" | "EXIT_NOW" | "PARTIAL_EXIT" | "REVERSE_SETUP" | "WAIT_FOR_REENTRY";
+export interface ActiveTradeMonitor {
+  instrument: string;
+  positionDirection: "LONG" | "SHORT";
+  entryPrice: number;
+  quantity: number;
+  currentPrice: number;
+  currentPnL: number;
+  currentPnLPerUnit: number;
+  trendChangeDetected: boolean;
+  previousTrend: string;
+  currentTrend: "bullish" | "bearish" | "sideways";
+  recommendedAction: MonitorAction;
+  bestExitForLeastLoss: number;
+  updatedStopLoss: number;
+  newEntryPlan: {
+    direction: "LONG" | "SHORT" | "none";
+    entryLevel: number | null;
+    stopLoss: number | null;
+    target1: number | null;
+    target2: number | null;
+    note: string;
+  };
+  alertSeverity: "info" | "caution" | "urgent";
+  reason: string;
+  readOnly: true;
+  disclaimer: string;
+}
+
+// Live Market Signal (Phase 3E/3F).
 export type SignalAction = "LONG" | "SHORT" | "WAIT" | "AVOID";
 export type SetupStatus = "active" | "wait" | "avoid";
 
@@ -55,6 +122,7 @@ export interface SignalSetup {
   riskPerUnit: number;
   rewardPerUnit: number;
   riskReward: string;
+  quantity: number;
   estimatedProfitForOneLot: number;
   estimatedLossForOneLot: number;
   condition: string;
@@ -84,11 +152,18 @@ export interface LiveSignal {
   indicators: {
     ema9: number | null;
     ema20: number | null;
+    ema50: number | null;
     rsi: number | null;
     macd: { macd: number; signal: number; histogram: number } | null;
     atr: number | null;
+    adx: { adx: number; plusDI: number; minusDI: number } | null;
+    supertrend: { value: number; direction: "bullish" | "bearish" } | null;
     volumeConfirmed: boolean | null;
+    oi: number | null;
   };
+  activeIndicators: IndicatorId[];
+  indicatorContributions: IndicatorContribution[];
+  missingIndicators: IndicatorId[];
   trend: { direction: "bullish" | "bearish" | "sideways"; strength: "weak" | "moderate" | "strong"; score: number; reason: string };
   probability: {
     bullishPercent: number;
@@ -100,6 +175,7 @@ export interface LiveSignal {
   levels: { support1: number; support2: number; resistance1: number; resistance2: number; noTradeZone: string };
   longSetup: SignalSetup;
   shortSetup: SignalSetup;
+  preferredSetup: "long" | "short" | "none";
   finalDecision: { action: SignalAction; reason: string; preferredSetup: "long" | "short" | "none"; invalidationLevel: number };
   disclaimer: string;
 }

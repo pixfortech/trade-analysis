@@ -60,17 +60,19 @@ test("downtrend → bearish bias, short SL above entry", () => {
 
 test("estimated win % is capped at 80 and never absurd", () => {
   const s = buildLiveSignal(input(makeCandles(100, 3), 300));
-  assert.ok(s.probability.estimatedWinPercent <= 80);
-  assert.ok(s.probability.estimatedWinPercent >= 20);
+  // Phase 3F conservative band: 35..75.
+  assert.ok(s.probability.estimatedWinPercent <= 75);
+  assert.ok(s.probability.estimatedWinPercent >= 35);
 });
 
-test("quote-only → low confidence, WAIT, indicators null, win% capped low", () => {
+test("quote-only → low confidence, WAIT, indicators null, win% capped (Phase 3F ≤55)", () => {
   const s = buildLiveSignal(input(null, 150));
   assert.equal(s.probability.dataQuality, "quote-only");
   assert.equal(s.probability.confidence, "low");
   assert.equal(s.indicators.ema9, null);
   assert.equal(s.finalDecision.action, "WAIT");
-  assert.ok(s.probability.estimatedWinPercent <= 45);
+  // Phase 3F: poor data quality caps the win estimate at 55 (was 45 in 3E).
+  assert.ok(s.probability.estimatedWinPercent <= 55);
 });
 
 test("estimated P/L for one lot uses lot size", () => {

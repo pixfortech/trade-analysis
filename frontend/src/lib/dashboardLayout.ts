@@ -10,7 +10,8 @@ export interface DashboardCardDef {
 // Order here is the default render order. Phase 3E: the Live Market Signal is
 // the primary card; demo/mock cards are hidden by default for a clean home.
 export const DASHBOARD_CARDS: DashboardCardDef[] = [
-  { id: "live-market-signal", title: "Live Market Signal", defaultVisible: true },
+  { id: "live-market-signal", title: "Live Market Signal (with chart)", defaultVisible: true },
+  { id: "active-trade-monitor", title: "Active Trade Monitor", defaultVisible: true },
   { id: "watchlist", title: "Watchlist", defaultVisible: true },
   { id: "kite-status", title: "Zerodha Kite Status", defaultVisible: true },
   { id: "risk-management", title: "Risk Management", defaultVisible: true },
@@ -27,8 +28,8 @@ export interface CardState {
   visible: boolean;
 }
 
-// Bumped to v2 because Phase 3E changes the default card set/order.
-export const LAYOUT_STORAGE_KEY = "dashboard.layout.v2";
+// Bumped to v3 because Phase 3F adds the Active Trade Monitor to defaults.
+export const LAYOUT_STORAGE_KEY = "dashboard.layout.v3";
 
 export function defaultLayout(): CardState[] {
   return DASHBOARD_CARDS.map((c) => ({ id: c.id, visible: c.defaultVisible }));

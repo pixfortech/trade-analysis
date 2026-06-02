@@ -1,27 +1,35 @@
 // =====================================================================
-// Live Signal Engine — pure, deterministic (Phase 3E, READ-ONLY)
+// Live Signal Engine — pure, deterministic (Phase 3E/3F, READ-ONLY)
 // ---------------------------------------------------------------------
-// Given a live quote + (optional) historical candles, produce a practical
-// market signal: trend, bullish/bearish probability, estimated win %, long &
-// short setups (entry/SL/targets/exits), risk-reward and *tentative* P/L per
-// lot. Reuses the indicator helpers from technicalAnalysis.ts.
+// Given a live quote + (optional) historical candles + a set of ACTIVE
+// indicators, produce a practical market signal: trend, bullish/bearish
+// probability, estimated win %, per-indicator contributions, and SEPARATE long
+// & short setups (entry/SL/targets/exits) with their own risk-reward and
+// *tentative* P/L per lot/quantity.
 //
 // READ-ONLY analysis only — NO order placement/modification/cancellation, no
 // GTT/baskets, no execution. All probabilities and P/L figures are ESTIMATES,
 // never guarantees; the disclaimer is always attached.
+//
+// Phase 3F P/L FIX: long and short stops are derived from DIFFERENT structure
+// (recent swing low for long, swing high for short), so their risk distances —
+// and therefore their P/L — genuinely differ instead of sharing one ATR value.
 // =====================================================================
 
 import {
-  atr,
-  emaLast,
-  macd,
   pivotLevels,
   round2,
-  rsi,
-  vwap,
   type Candle,
   type RiskProfile,
 } from "./technicalAnalysis";
+import {
+  buildContributions,
+  computeIndicators,
+  parseActiveIndicators,
+  type IndicatorContribution,
+  type IndicatorId,
+  type IndicatorValues,
+} from "./indicatorEngine";
 
 export const SIGNAL_DISCLAIMER =
   "This is read-only AI-based market analysis using live data. Probabilities, " +
@@ -46,6 +54,9 @@ export interface SignalInput {
   candles: Candle[] | null;
   riskProfile: RiskProfile;
   lotSize: number | null;
+  quantity?: number | null; // optional explicit quantity; defaults to lotSize (or 1)
+  activeIndicators?: IndicatorId[];
+  oi?: number | null;
   timestamp: string;
 }
 
@@ -62,6 +73,7 @@ interface Setup {
   riskPerUnit: number;
   rewardPerUnit: number;
   riskReward: string;
+  quantity: number;
   estimatedProfitForOneLot: number;
   estimatedLossForOneLot: number;
   condition: string;
@@ -83,13 +95,20 @@ export interface LiveSignalResult {
     vwap: number | null;
   };
   indicators: {
-    ema9: number | null;
+    ema9: number | null; // kept for backward-compat (maps to EMA20 now)
     ema20: number | null;
+    ema50: number | null;
     rsi: number | null;
     macd: { macd: number; signal: number; histogram: number } | null;
     atr: number | null;
+    adx: { adx: number; plusDI: number; minusDI: number } | null;
+    supertrend: { value: number; direction: "bullish" | "bearish" } | null;
     volumeConfirmed: boolean | null;
+    oi: number | null;
   };
+  activeIndicators: IndicatorId[];
+  indicatorContributions: IndicatorContribution[];
+  missingIndicators: IndicatorId[];
   trend: { direction: "bullish" | "bearish" | "sideways"; strength: "weak" | "moderate" | "strong"; score: number; reason: string };
   probability: {
     bullishPercent: number;
@@ -101,6 +120,7 @@ export interface LiveSignalResult {
   levels: { support1: number; support2: number; resistance1: number; resistance2: number; noTradeZone: string };
   longSetup: Setup;
   shortSetup: Setup;
+  preferredSetup: "long" | "short" | "none";
   finalDecision: {
     action: SignalAction;
     reason: string;
@@ -119,94 +139,62 @@ const PROFILE: Record<RiskProfile, { slMult: number; targets: [number, number, n
 /** Build the live signal. Pure — no network, no globals. */
 export function buildLiveSignal(input: SignalInput): LiveSignalResult {
   const { instrument, quote, candles, riskProfile, lotSize, timestamp } = input;
+  const active = input.activeIndicators?.length ? input.activeIndicators : parseActiveIndicators(undefined);
   const hasCandles = Array.isArray(candles) && candles.length >= 20;
-  const closes = hasCandles ? (candles as Candle[]).map((c) => c.c) : [];
-
   const price = round2(quote.lastPrice);
 
-  // --- Indicators ---
-  const ema9 = hasCandles ? emaLast(closes, 9) : null;
-  const ema20 = hasCandles ? emaLast(closes, 20) : null;
-  const rsiVal = hasCandles ? rsi(closes) : null;
-  const macdVal = hasCandles ? macd(closes) : null;
-  const atrVal = hasCandles ? atr(candles as Candle[]) : null;
-  const vwapVal = hasCandles ? vwap(candles as Candle[]) : null;
+  // --- Indicators via the engine (null-safe when data is thin) ---
+  const values: IndicatorValues = hasCandles
+    ? computeIndicators(candles as Candle[], input.oi ?? null)
+    : {
+        vwap: null,
+        ema20: null,
+        ema50: null,
+        rsi: null,
+        macd: null,
+        atr: null,
+        adx: null,
+        supertrend: null,
+        volume: null,
+        oi: input.oi ?? null,
+      };
 
-  let volumeConfirmed: boolean | null = null;
-  if (hasCandles) {
-    const vols = (candles as Candle[]).map((c) => c.v);
-    const avg = vols.reduce((a, b) => a + b, 0) / vols.length;
-    volumeConfirmed = avg > 0 ? vols[vols.length - 1] >= avg : null;
-  }
+  // --- Contributions from ACTIVE indicators only ---
+  const { contributions, bullish, bearish, missing } = buildContributions(price, values, active, { prevOi: null });
 
-  // --- Support / resistance ---
-  const refHigh = hasCandles ? Math.max(...(candles as Candle[]).slice(-30).map((c) => c.h)) : quote.high;
-  const refLow = hasCandles ? Math.min(...(candles as Candle[]).slice(-30).map((c) => c.l)) : quote.low;
+  // --- Support / resistance + swing structure ---
+  const recent = hasCandles ? (candles as Candle[]).slice(-30) : [];
+  const refHigh = hasCandles ? Math.max(...recent.map((c) => c.h)) : quote.high;
+  const refLow = hasCandles ? Math.min(...recent.map((c) => c.l)) : quote.low;
+  const swingLow = hasCandles ? Math.min(...(candles as Candle[]).slice(-10).map((c) => c.l)) : quote.low;
+  const swingHigh = hasCandles ? Math.max(...(candles as Candle[]).slice(-10).map((c) => c.h)) : quote.high;
   const levels = pivotLevels(refHigh, refLow, price);
 
   // --- Volatility unit ---
   const dayRange = Math.max(quote.high - quote.low, 0);
-  const volUnit = atrVal && atrVal > 0 ? atrVal : dayRange > 0 ? dayRange * 0.5 : 0;
+  const volUnit = values.atr && values.atr > 0 ? values.atr : dayRange > 0 ? dayRange * 0.5 : 0;
   const degenerate = volUnit <= 0 || refHigh <= refLow;
 
-  // --- Trend scoring (count only available signals) ---
-  const reasons: string[] = [];
-  let bull = 0;
-  let bear = 0;
-  let signalsCounted = 0;
-  const add = (cond: boolean, bullSide: boolean, why: string) => {
-    if (!cond) return;
-    signalsCounted++;
-    if (bullSide) bull++;
-    else bear++;
-    reasons.push(why);
-  };
-  if (ema9 != null && ema20 != null) {
-    add(ema9 > ema20, true, "EMA9 > EMA20");
-    add(ema9 < ema20, false, "EMA9 < EMA20");
-  }
-  if (ema9 != null) {
-    add(price > ema9, true, "price > EMA9");
-    add(price < ema9, false, "price < EMA9");
-  }
-  if (rsiVal != null) {
-    add(rsiVal > 55, true, `RSI ${rsiVal} (>55)`);
-    add(rsiVal < 45, false, `RSI ${rsiVal} (<45)`);
-  }
-  if (macdVal != null) {
-    add(macdVal.histogram > 0, true, "MACD histogram > 0");
-    add(macdVal.histogram < 0, false, "MACD histogram < 0");
-  }
-  if (vwapVal != null) {
-    add(price > vwapVal, true, "price > VWAP");
-    add(price < vwapVal, false, "price < VWAP");
-  }
-  add(price > levels.resistance1, true, "price broke resistance1");
-  add(price < levels.support1, false, "price broke support1");
-  add(price > quote.previousClose, true, "price > previous close");
-  add(price < quote.previousClose, false, "price < previous close");
-
-  const net = bull - bear;
+  // --- Trend direction/strength from active contributions ---
+  const net = bullish - bearish;
   const direction = net >= 2 ? "bullish" : net <= -2 ? "bearish" : "sideways";
   const magnitude = Math.abs(net);
+  const reasonParts = contributions
+    .filter((c) => c.direction === "bullish" || c.direction === "bearish")
+    .map((c) => `${c.id}:${c.direction}`);
 
   // --- Probability (bullish + bearish ≈ 100) ---
-  // Base 50/50, nudged by net agreement among counted signals.
-  const totalDirectional = bull + bear;
+  const totalDirectional = bullish + bearish;
   let bullishPercent: number;
-  if (totalDirectional === 0) {
-    bullishPercent = 50;
-  } else {
-    // Weight by agreement; clamp so quote-only stays near neutral.
-    const lean = (net / Math.max(totalDirectional, 1)) * 45; // ±45 max
-    bullishPercent = clamp(round2(50 + lean), 5, 95);
-  }
+  if (totalDirectional === 0) bullishPercent = 50;
+  else bullishPercent = clamp(round2(50 + (net / Math.max(totalDirectional, 1)) * 45), 5, 95);
   const bearishPercent = round2(100 - bullishPercent);
 
   // --- Confidence / data quality ---
+  const volumeConfirmed = values.volume?.confirmed ?? null;
   let dataQuality: SignalDataQuality;
   if (!hasCandles) dataQuality = "quote-only";
-  else if (signalsCounted >= 6 && volumeConfirmed) dataQuality = "strong";
+  else if (contributions.filter((c) => c.direction !== "unavailable").length >= 6 && volumeConfirmed) dataQuality = "strong";
   else dataQuality = "candle-backed";
 
   let confidence: Confidence;
@@ -216,46 +204,47 @@ export function buildLiveSignal(input: SignalInput): LiveSignalResult {
   else confidence = "low";
 
   const strength: "weak" | "moderate" | "strong" =
-    !hasCandles ? "weak" : magnitude >= 4 ? "strong" : magnitude >= 2 ? "moderate" : "weak";
+    !hasCandles ? "weak" : magnitude >= 5 ? "strong" : magnitude >= 2 ? "moderate" : "weak";
 
-  // --- Estimated win % (conservative, capped) ---
-  // Start from the dominant-side probability, discount for low confidence /
-  // weak data / conflicting signals; cap at 75 unless everything aligns.
+  // --- Estimated win % (conservative, capped 35..75) ---
   const dominant = Math.max(bullishPercent, bearishPercent);
   let estimatedWinPercent = dominant;
-  if (!hasCandles) estimatedWinPercent = Math.min(estimatedWinPercent, 45);
-  if (confidence === "low") estimatedWinPercent = Math.min(estimatedWinPercent, 50);
-  else if (confidence === "medium") estimatedWinPercent = Math.min(estimatedWinPercent, 65);
-  // Only allow >75 when strong data + strong trend + volume confirmation.
-  const allAligned = dataQuality === "strong" && strength === "strong" && volumeConfirmed === true;
-  estimatedWinPercent = Math.min(estimatedWinPercent, allAligned ? 80 : 75);
-  estimatedWinPercent = round2(clamp(estimatedWinPercent, 20, 80));
+  if (confidence === "low") estimatedWinPercent = Math.min(estimatedWinPercent, 55);
+  else if (confidence === "medium") estimatedWinPercent = Math.min(estimatedWinPercent, 68);
+  if (dataQuality === "quote-only") estimatedWinPercent = Math.min(estimatedWinPercent, 55);
+  estimatedWinPercent = round2(clamp(estimatedWinPercent, 35, 75));
 
-  // --- Setups ---
+  // --- Setups (SEPARATE long & short structure → different P/L) ---
   const { slMult, targets } = PROFILE[riskProfile];
-  const slDistance = round2(volUnit * slMult);
-  const lot = lotSize && lotSize > 0 ? lotSize : 1;
+  const atrStop = volUnit * slMult;
+  const qty = input.quantity && input.quantity > 0 ? input.quantity : lotSize && lotSize > 0 ? lotSize : 1;
 
+  // Long entry above nearest resistance / breakout; SL at the LOWER of the
+  // ATR stop and the recent swing low (structure-aware).
   const longEntry =
     price < levels.resistance1 ? levels.resistance1 : price < levels.resistance2 ? levels.resistance2 : round2(price + volUnit * 0.25);
+  const longStop = hasCandles ? Math.min(longEntry - atrStop, swingLow) : longEntry - atrStop;
   const longSetup = makeSetup({
     side: "long",
     entry: longEntry,
-    slDistance,
+    stopLoss: longStop,
     targets,
-    lot,
+    qty,
     enabled: !degenerate,
     active: direction === "bullish" && confidence !== "low",
   });
 
+  // Short entry below nearest support / breakdown; SL at the HIGHER of the
+  // ATR stop and the recent swing high.
   const shortEntry =
     price > levels.support1 ? levels.support1 : price > levels.support2 ? levels.support2 : round2(price - volUnit * 0.25);
+  const shortStop = hasCandles ? Math.max(shortEntry + atrStop, swingHigh) : shortEntry + atrStop;
   const shortSetup = makeSetup({
     side: "short",
     entry: shortEntry,
-    slDistance,
+    stopLoss: shortStop,
     targets,
-    lot,
+    qty,
     enabled: !degenerate,
     active: direction === "bearish" && confidence !== "low",
   });
@@ -273,15 +262,15 @@ export function buildLiveSignal(input: SignalInput): LiveSignalResult {
   } else if (direction === "bullish" && confidence !== "low") {
     action = "LONG";
     preferredSetup = "long";
-    reason = `Bullish alignment (${reasons.join(", ")}). Prefer longs above ${longSetup.entryAbove}.`;
+    reason = `Bullish alignment (${reasonParts.join(", ")}). Prefer longs above ${longSetup.entryAbove}.`;
   } else if (direction === "bearish" && confidence !== "low") {
     action = "SHORT";
     preferredSetup = "short";
-    reason = `Bearish alignment (${reasons.join(", ")}). Prefer shorts below ${shortSetup.entryBelow}.`;
+    reason = `Bearish alignment (${reasonParts.join(", ")}). Prefer shorts below ${shortSetup.entryBelow}.`;
   } else {
     action = "WAIT";
     preferredSetup = "none";
-    reason = `No decisive edge yet (${reasons.join(", ") || "weak/conflicting signals"}). Wait for a clean break of ${levels.support1}–${levels.resistance1}.`;
+    reason = `No decisive edge yet (${reasonParts.join(", ") || "weak/conflicting signals"}). Wait for a clean break of ${levels.support1}–${levels.resistance1}.`;
   }
 
   const invalidationLevel = action === "LONG" ? longSetup.stopLoss : action === "SHORT" ? shortSetup.stopLoss : round2(price);
@@ -299,14 +288,28 @@ export function buildLiveSignal(input: SignalInput): LiveSignalResult {
       low: round2(quote.low),
       previousClose: round2(quote.previousClose),
       volume: quote.volume,
-      vwap: vwapVal,
+      vwap: values.vwap,
     },
-    indicators: { ema9, ema20, rsi: rsiVal, macd: macdVal, atr: atrVal, volumeConfirmed },
+    indicators: {
+      ema9: values.ema20,
+      ema20: values.ema20,
+      ema50: values.ema50,
+      rsi: values.rsi,
+      macd: values.macd,
+      atr: values.atr,
+      adx: values.adx,
+      supertrend: values.supertrend,
+      volumeConfirmed,
+      oi: values.oi,
+    },
+    activeIndicators: active,
+    indicatorContributions: contributions,
+    missingIndicators: missing,
     trend: {
       direction,
       strength,
       score: net,
-      reason: reasons.length ? `${reasons.join(", ")}.` : "Not enough indicator data; using live quote only.",
+      reason: reasonParts.length ? `${reasonParts.join(", ")}.` : "Not enough active-indicator data; using live quote only.",
     },
     probability: { bullishPercent, bearishPercent, estimatedWinPercent, confidence, dataQuality },
     levels: {
@@ -315,6 +318,7 @@ export function buildLiveSignal(input: SignalInput): LiveSignalResult {
     },
     longSetup,
     shortSetup,
+    preferredSetup,
     finalDecision: { action, reason, preferredSetup, invalidationLevel },
     disclaimer: SIGNAL_DISCLAIMER,
   };
@@ -323,39 +327,47 @@ export function buildLiveSignal(input: SignalInput): LiveSignalResult {
 function makeSetup(o: {
   side: "long" | "short";
   entry: number;
-  slDistance: number;
+  stopLoss: number;
   targets: [number, number, number];
-  lot: number;
+  qty: number;
   enabled: boolean;
   active: boolean;
 }): Setup {
-  const { side, entry, slDistance, targets, lot, enabled, active } = o;
+  const { side, entry, stopLoss, targets, qty, enabled, active } = o;
   const long = side === "long";
-  const stopLoss = round2(long ? entry - slDistance : entry + slDistance);
-  const riskPerUnit = round2(Math.abs(entry - stopLoss));
+  const sl = round2(stopLoss);
+  // Risk per unit is the (genuinely side-specific) entry→stop distance.
+  const riskPerUnit = round2(Math.abs(entry - sl));
+  // Targets are R-multiples of THIS side's own risk distance.
   const t = (m: number) => round2(long ? entry + riskPerUnit * m : entry - riskPerUnit * m);
   const target1 = t(targets[0]);
   const target2 = t(targets[1]);
   const target3 = t(targets[2]);
   const rewardPerUnit = round2(Math.abs(target2 - entry));
   const status: SetupStatus = !enabled ? "avoid" : active ? "active" : "wait";
+  // Phase 3F: explicit per-side P/L formulas.
+  //   long  profit = (target - entry) * qty ;  long  loss = (entry - stop) * qty
+  //   short profit = (entry - target) * qty ;  short loss = (stop - entry) * qty
+  const estimatedProfitForOneLot = round2((long ? target2 - entry : entry - target2) * qty);
+  const estimatedLossForOneLot = round2((long ? entry - sl : sl - entry) * qty);
   return {
     status,
     ...(long ? { entryAbove: round2(entry) } : { entryBelow: round2(entry) }),
-    stopLoss,
+    stopLoss: sl,
     target1,
     target2,
     target3,
-    partialExit: target1, // book partial at T1
-    fullExit: target3, // trail / full exit by T3
+    partialExit: target1,
+    fullExit: target3,
     riskPerUnit,
     rewardPerUnit,
-    riskReward: `1:${targets[1]}`,
-    estimatedProfitForOneLot: round2(rewardPerUnit * lot),
-    estimatedLossForOneLot: round2(riskPerUnit * lot),
+    riskReward: riskPerUnit > 0 ? `1:${round2(rewardPerUnit / riskPerUnit)}` : "—",
+    quantity: qty,
+    estimatedProfitForOneLot,
+    estimatedLossForOneLot,
     condition: long
-      ? `Go long on a sustained move above ${round2(entry)} with volume; book partial at ${target1}, trail to ${target3}; invalid below ${stopLoss}.`
-      : `Go short on a sustained move below ${round2(entry)} with volume; book partial at ${target1}, trail to ${target3}; invalid above ${stopLoss}.`,
+      ? `Go long on a sustained move above ${round2(entry)} with volume; book partial at ${target1}, trail to ${target3}; invalid below ${sl}.`
+      : `Go short on a sustained move below ${round2(entry)} with volume; book partial at ${target1}, trail to ${target3}; invalid above ${sl}.`,
   };
 }
 

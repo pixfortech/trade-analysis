@@ -285,11 +285,44 @@ instrument, choose an interval (default `5minute`) and risk profile, then
 > not guarantees.** With only a quote (no candle history) the signal stays
 > low-confidence and returns **WAIT**.
 
-**Default dashboard (Phase 3E):** only the most useful cards show by default —
-**Live Market Signal, Watchlist, Zerodha Kite Status, Risk Management**. Enable
-Market Overview, AI Recommendation, Futures/Options Analysis, Scanner or Raw Kite
-Data from **Customise**. Hidden cards are fully removed (not just collapsed), and
-your choice persists in `localStorage`. Use **Reset** to restore defaults.
+**Default dashboard (Phase 3F):** the most useful cards show by default —
+**Live Market Signal (with chart), Active Trade Monitor, Watchlist, Zerodha Kite
+Status, Risk Management**. Enable Market Overview, AI Recommendation,
+Futures/Options Analysis, Scanner or Raw Kite Data from **Customise**. Hidden
+cards are fully removed (not just collapsed), and your choice persists in
+`localStorage`. Use **Reset** to restore defaults.
+
+### Real-time chart, indicators & trade alerts (Phase 3F)
+
+- **Live chart:** the Live Market Signal card renders a candlestick chart
+  (lightweight-charts) with active overlays (VWAP, EMA20, EMA50, Supertrend) and
+  entry/SL/target price lines. Timeframes: 1m/3m/5m/15m/30m/60m (default 5m).
+- **Indicator engine & toggles:** default indicators are **VWAP, EMA20, EMA50,
+  RSI14, MACD, ADX(+DI/−DI), ATR, Supertrend, Volume and OI** (OI only when Kite
+  provides it — never faked). Toggle any indicator and the trend, probability,
+  entry/exit and decision **recalculate immediately** using only active
+  indicators. A contribution table shows each indicator's direction & weight.
+- **Real-time updates:** click **Start live updates** to poll every 5s
+  (read-only). The JSON spec's WebSocket is intentionally deferred in favour of
+  polling for stability; nothing here places orders.
+- **Long & short P/L are calculated SEPARATELY.** Long uses
+  `(target − entry) × qty` profit / `(entry − stop) × qty` loss; short uses the
+  mirror. Stops are structure-aware (long = recent swing low, short = swing
+  high), so the two sides have genuinely different risk and P/L. If they ever
+  look close, it's because the risk distances are similar — not a placeholder.
+- **Active Trade Monitor:** enter a manual position (direction, entry, qty) and
+  it shows current P/L, trailing stop, **best exit for least loss**, an
+  opposite **re-entry plan**, and a recommended action — **HOLD / TIGHTEN_SL /
+  EXIT_NOW / PARTIAL_EXIT / REVERSE_SETUP / WAIT_FOR_REENTRY**.
+- **Trend reversal alerts:** when the trend flips bullish↔bearish (or the
+  monitor says exit/tighten), an in-app toast fires; enable **browser alerts**
+  for desktop notifications. Alerts have a cooldown to avoid spam and are
+  **advisory only** — the app never trades for you.
+
+> **All outputs are estimates, not guaranteed profit advice.** Probabilities are
+> capped conservatively (35–75%). If data is insufficient the signal returns
+> **WAIT** rather than forcing a trade. The app is fully **read-only**: no order
+> placement, modification, cancellation, GTT or basket orders anywhere.
 
 ### Troubleshooting: search returns nothing
 

@@ -12,6 +12,9 @@ import * as kite from "./kite.service";
 import { KiteError } from "./kite.service";
 import { resolveInstrumentInput, type ResolveQuery } from "./resolveInput";
 import { buildLiveSignal, type LiveSignalResult } from "./liveSignal";
+import { DEFAULT_INDICATORS, type IndicatorId } from "./indicatorEngine";
+import { buildChartData } from "./chartData";
+import { evaluatePosition, type MonitorResult, type PositionDirection } from "./activeTradeMonitor";
 import {
   buildLiveTradePlan,
   type Candle,
@@ -204,7 +207,12 @@ async function fetchMarketData(
  * P/L per lot. Read-only — accepts exact instrument OR F&O resolver params.
  */
 export async function getLiveSignal(
-  opts: { interval?: string; riskProfile?: string } & ResolveQuery,
+  opts: {
+    interval?: string;
+    riskProfile?: string;
+    activeIndicators?: IndicatorId[];
+    quantity?: number | null;
+  } & ResolveQuery,
 ): Promise<LiveSignalResult & { resolvedInstrument: ResolvedInstrumentInfo }> {
   const riskProfile = normaliseRiskProfile(opts.riskProfile);
   const { resolved, quote, candles } = await fetchMarketData(opts);
@@ -222,6 +230,8 @@ export async function getLiveSignal(
     candles,
     riskProfile,
     lotSize: resolved.lotSize ?? null,
+    quantity: opts.quantity ?? null,
+    activeIndicators: opts.activeIndicators,
     timestamp: new Date().toISOString(),
   });
 
@@ -254,4 +264,77 @@ export interface ResolvedInstrumentInfo {
   expiry: string;
   strike: number;
   optionType: string;
+}
+
+/**
+ * Chart data (Phase 3F): candles + overlay/oscillator series for active
+ * indicators + CPR/pivot levels. Read-only.
+ */
+export async function getChartData(
+  opts: { interval?: string; activeIndicators?: IndicatorId[] } & ResolveQuery,
+): Promise<ReturnType<typeof buildChartData> & { instrument: string; interval: string }> {
+  const active = opts.activeIndicators?.length ? opts.activeIndicators : undefined;
+  const { resolved, candles, interval } = await fetchMarketData(opts);
+  if (!candles || candles.length === 0) {
+    throw new KiteError(
+      "No candle history available for this instrument/interval (chart needs candles). Try a different interval or ensure Kite is authorised.",
+      503,
+      "KITE_NO_CANDLES",
+    );
+  }
+  // Previous-session H/L/C from daily candles (best-effort) for CPR/pivots.
+  let prevDay: { high: number; low: number; close: number } | null = null;
+  try {
+    const token = resolved.instrumentToken;
+    if (token != null) {
+      const to = new Date();
+      const from = new Date(to.getTime() - 10 * 24 * 60 * 60 * 1000);
+      const raw = await kite.getHistorical({ instrumentToken: String(token), interval: "day", from: fmt(from), to: fmt(to) });
+      const days = parseCandles(raw);
+      if (days.length >= 2) {
+        const d = days[days.length - 2];
+        prevDay = { high: d.h, low: d.l, close: d.c };
+      }
+    }
+  } catch {
+    prevDay = null;
+  }
+  const chart = buildChartData(candles, active ?? DEFAULT_INDICATORS, prevDay, new Date().toISOString());
+  return { ...chart, instrument: resolved.instrument, interval };
+}
+
+/**
+ * Active Trade Monitor (Phase 3F): evaluate a manual position against the live
+ * signal. Read-only — advisory only, never executes anything.
+ */
+export async function getActiveTradeMonitor(
+  opts: {
+    positionDirection: PositionDirection;
+    entryPrice: number;
+    quantity: number;
+    interval?: string;
+    riskProfile?: string;
+    activeIndicators?: IndicatorId[];
+  } & ResolveQuery,
+): Promise<MonitorResult & { instrument: string }> {
+  const signal = await getLiveSignal({
+    instrument: opts.instrument,
+    underlying: opts.underlying,
+    segment: opts.segment,
+    instrumentType: opts.instrumentType,
+    expiry: opts.expiry,
+    strike: opts.strike,
+    optionType: opts.optionType,
+    interval: opts.interval,
+    riskProfile: opts.riskProfile,
+    activeIndicators: opts.activeIndicators,
+    quantity: opts.quantity,
+  });
+  const result = evaluatePosition({
+    positionDirection: opts.positionDirection,
+    entryPrice: opts.entryPrice,
+    quantity: opts.quantity,
+    signal,
+  });
+  return { ...result, instrument: signal.resolvedInstrument.instrumentKey };
 }

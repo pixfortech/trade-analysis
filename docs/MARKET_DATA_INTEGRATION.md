@@ -176,6 +176,37 @@ longer reports "session expired"; it surfaces a config-style error.
 All **estimates, not guarantees**; the disclaimer is always attached. Still
 **read-only** — no order/trade execution anywhere.
 
+### 7e. Real-time engine, chart & trade alerts (Phase 3F) ✅
+
+- **P/L fix:** long & short setups now derive stops from **different structure**
+  (long = recent swing low, short = swing high), so `riskPerUnit` and P/L differ
+  per side. Explicit formulas: long `(target−entry)×qty` / `(entry−stop)×qty`;
+  short `(entry−target)×qty` / `(stop−entry)×qty`. Optional `quantity` overrides
+  lot size.
+- **Indicator engine** (`services/indicatorEngine.ts`): EMA20/50, RSI14,
+  MACD, **ATR14, ADX14 (+DI/−DI), Supertrend(10,3)**, VWAP, volume, CPR/pivots —
+  a registry maps each ACTIVE indicator to a bullish/bearish/neutral/unavailable
+  contribution with a weight. `/api/analysis/live-signal?activeIndicators=…`
+  recalculates using only active indicators and returns `indicatorContributions`
+  + `missingIndicators`. ATR & Volume are non-directional (sizing/confidence
+  only); OI is included only when provided, else marked unavailable (never
+  faked).
+- **Chart data** — `GET /api/market/chart-data?instrument=…&interval=…&activeIndicators=…`:
+  candles + overlay series (VWAP/EMA20/EMA50/Supertrend) + oscillators
+  (RSI/MACD histogram/Volume) + CPR/pivot & previous-day levels.
+- **Active trade monitor** — `GET /api/analysis/active-trade-monitor`:
+  evaluates a manual position vs the live signal → current P/L, trailing SL,
+  best-exit-for-least-loss, re-entry plan, severity (info/caution/urgent) and a
+  recommended action (HOLD/TIGHTEN_SL/EXIT_NOW/PARTIAL_EXIT/REVERSE_SETUP/
+  WAIT_FOR_REENTRY). Reversal is confirmed by the active-indicator majority +
+  hard invalidation; weak single signals don't trigger urgent exits.
+- **Real-time:** frontend polling (5s) — read-only; WebSocket deferred for
+  stability per the spec.
+- **Tests:** P/L separation, indicator enable/disable effects, ADX/Supertrend,
+  reversal/monitor recommendations and chart-data shaping (backend 81/81).
+
+Everything remains **read-only** — no order placement or trade execution.
+
 ---
 
 ## 1. Design Principle: a Provider Abstraction

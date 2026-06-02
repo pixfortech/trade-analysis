@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  getActiveTradeMonitorHandler,
   getLiveSignalHandler,
   getLiveTradePlanHandler,
   postFutures,
@@ -27,3 +28,6 @@ analysisRouter.get("/live-trade-plan", getLiveTradePlanHandler);
 
 // GET /api/analysis/live-signal  (READ-ONLY: trend, probability, setups, P/L)
 analysisRouter.get("/live-signal", getLiveSignalHandler);
+
+// GET /api/analysis/active-trade-monitor  (READ-ONLY advisory position monitor)
+analysisRouter.get("/active-trade-monitor", getActiveTradeMonitorHandler);

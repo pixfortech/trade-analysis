@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/config/cors.test.ts src/utils/mockData.test.ts src/services/kite.service.test.ts src/services/technicalAnalysis.test.ts src/services/instruments.service.test.ts src/services/resolveInput.test.ts src/services/instrumentSearch.test.ts src/services/instrumentsCache.test.ts src/services/liveSignal.test.ts"
+    "test": "node --import tsx --test src/config/cors.test.ts src/utils/mockData.test.ts src/services/kite.service.test.ts src/services/technicalAnalysis.test.ts src/services/instruments.service.test.ts src/services/resolveInput.test.ts src/services/instrumentSearch.test.ts src/services/instrumentsCache.test.ts src/services/liveSignal.test.ts src/services/liveSignalPL.test.ts src/services/indicatorEngine.test.ts src/services/activeTradeMonitor.test.ts src/services/chartData.test.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

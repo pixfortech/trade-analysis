@@ -9,6 +9,7 @@ import { RiskManagement } from "@/components/dashboard/RiskManagement";
 import { ScannerPlaceholder } from "@/components/dashboard/ScannerPlaceholder";
 import { KiteStatusCard } from "@/components/dashboard/KiteStatusCard";
 import { LiveMarketSignal } from "@/components/dashboard/LiveMarketSignal";
+import { ActiveTradeMonitorCard } from "@/components/dashboard/ActiveTradeMonitorCard";
 import { LiveWatchlist } from "@/components/dashboard/LiveWatchlist";
 import { CustomizePanel } from "@/components/dashboard/CustomizePanel";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
@@ -22,6 +23,7 @@ import {
 // Map card id → element. Cards hidden by default keep the home page clean.
 const CARD_COMPONENTS: Record<string, React.ReactNode> = {
   "live-market-signal": <LiveMarketSignal />,
+  "active-trade-monitor": <ActiveTradeMonitorCard />,
   watchlist: <LiveWatchlist />,
   "kite-status": <KiteStatusCard />,
   "risk-management": <RiskManagement />,

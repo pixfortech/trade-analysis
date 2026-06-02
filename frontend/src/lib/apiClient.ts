@@ -11,9 +11,11 @@
 // All data is mock/demo in Phase 2.
 
 import type {
+  ActiveTradeMonitor,
   AnalysisRequest,
   AnalysisResponse,
   BatchQuotesResponse,
+  ChartDataResponse,
   HealthResponse,
   InstrumentResolveResponse,
   InstrumentsStatus,
@@ -182,12 +184,40 @@ export const api = {
     return request<LiveTradePlan>(`/api/analysis/live-trade-plan?${qs.toString()}`);
   },
 
-  // Live market signal (Phase 3E) — read-only: trend, probability, setups, P/L.
+  // Live market signal (Phase 3E/3F) — read-only: trend, probability, setups, P/L.
   liveSignal: (
-    params: { instrument?: string; interval?: string; riskProfile?: string } & Partial<ResolveParams>,
+    params: {
+      instrument?: string;
+      interval?: string;
+      riskProfile?: string;
+      activeIndicators?: string;
+      quantity?: number;
+    } & Partial<ResolveParams>,
   ) => {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
     return request<LiveSignal>(`/api/analysis/live-signal?${qs.toString()}`);
+  },
+
+  // Chart data (Phase 3F) — read-only candles + indicator series.
+  chartData: (params: { instrument?: string; interval?: string; activeIndicators?: string } & Partial<ResolveParams>) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
+    return request<ChartDataResponse>(`/api/market/chart-data?${qs.toString()}`);
+  },
+
+  // Active trade monitor (Phase 3F) — read-only advisory.
+  activeTradeMonitor: (params: {
+    instrument: string;
+    positionDirection: "LONG" | "SHORT";
+    entryPrice: number;
+    quantity: number;
+    interval?: string;
+    riskProfile?: string;
+    activeIndicators?: string;
+  }) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
+    return request<ActiveTradeMonitor>(`/api/analysis/active-trade-monitor?${qs.toString()}`);
   },
 };
