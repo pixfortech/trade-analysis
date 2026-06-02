@@ -35,8 +35,10 @@ export interface CardState {
   size: WidgetSize;
 }
 
-// Bumped to v4 because Phase 3G changes the default card set + adds size.
-export const LAYOUT_STORAGE_KEY = "dashboard.layout.v4";
+// Bumped to v5 to migrate away from the broken Phase-3G grid that produced
+// 1/12-width "strip" widgets. Old keys (…v4 and earlier) are ignored, so any
+// broken saved layout self-heals to the safe defaults on first load.
+export const LAYOUT_STORAGE_KEY = "dashboard.layout.v5";
 
 export const SIZE_LABELS: Record<WidgetSize, string> = {
   small: "Small",
@@ -45,23 +47,41 @@ export const SIZE_LABELS: Record<WidgetSize, string> = {
   full: "Full width",
 };
 
-/** Tailwind column-span for a 12-col grid (responsive). */
-export function sizeToColSpan(size: WidgetSize): string {
+// Minimum usable widget width — no card may ever be narrower than this.
+export const MIN_WIDGET_PX = 360;
+
+/**
+ * How many base columns a widget spans in an auto-fit grid whose base column is
+ * MIN_WIDGET_PX wide. The grid is rendered with inline styles (NOT Tailwind
+ * span classes) so nothing can be purged — this was the regression cause.
+ *  - small  → 1 base column  (~360px)
+ *  - medium → 1 base column
+ *  - large  → 2 base columns
+ *  - full   → all columns
+ */
+export function sizeToSpan(size: WidgetSize): number {
   switch (size) {
     case "small":
-      return "lg:col-span-3";
+      return 1;
     case "medium":
-      return "lg:col-span-4";
+      return 1;
     case "large":
-      return "lg:col-span-6";
+      return 2;
     case "full":
     default:
-      return "lg:col-span-12";
+      return Number.MAX_SAFE_INTEGER; // clamped to the current column count
   }
 }
 
 export function defaultLayout(): CardState[] {
   return DASHBOARD_CARDS.map((c) => ({ id: c.id, visible: c.defaultVisible, size: c.defaultSize }));
+}
+
+const VALID_SIZES: WidgetSize[] = ["small", "medium", "large", "full"];
+
+/** Coerce any stored size to a valid preset (clamps broken/legacy values). */
+function safeSize(size: unknown, fallback: WidgetSize): WidgetSize {
+  return typeof size === "string" && (VALID_SIZES as string[]).includes(size) ? (size as WidgetSize) : fallback;
 }
 
 /** Merge a stored layout with the canonical card list (handles added/removed cards). */
@@ -71,9 +91,9 @@ export function reconcileLayout(stored: CardState[] | null): CardState[] {
   const seen = new Set<string>();
   const out: CardState[] = [];
   for (const s of stored) {
-    const def = known.get(s.id);
+    const def = known.get(s?.id);
     if (def && !seen.has(s.id)) {
-      out.push({ id: s.id, visible: Boolean(s.visible), size: s.size ?? def.defaultSize });
+      out.push({ id: s.id, visible: Boolean(s.visible), size: safeSize(s.size, def.defaultSize) });
       seen.add(s.id);
     }
   }

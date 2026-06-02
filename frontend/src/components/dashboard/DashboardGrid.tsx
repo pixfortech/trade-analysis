@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { MarketOverview } from "@/components/dashboard/MarketOverview";
 import { AITradeRecommendation } from "@/components/dashboard/AITradeRecommendation";
 import { FuturesAnalysis } from "@/components/dashboard/FuturesAnalysis";
@@ -19,9 +19,10 @@ import { TopPerformersCard } from "@/components/dashboard/TopPerformersCard";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
   LAYOUT_STORAGE_KEY,
+  MIN_WIDGET_PX,
   defaultLayout,
   reconcileLayout,
-  sizeToColSpan,
+  sizeToSpan,
   type CardState,
   type WidgetSize,
 } from "@/lib/dashboardLayout";
@@ -76,6 +77,26 @@ export function DashboardGrid() {
 
   const visible = layout.filter((c) => c.visible);
 
+  // Track how many base columns currently fit, so a "large"/"full" widget can
+  // span the right amount. The grid itself is auto-fit minmax(MIN_WIDGET_PX,1fr)
+  // via INLINE STYLES — no Tailwind span classes (those were purged and caused
+  // the strip regression).
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [cols, setCols] = useState(1);
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+    const GAP = 20; // matches the 1.25rem gap below
+    const measure = () => {
+      const w = el.clientWidth;
+      setCols(Math.max(1, Math.floor((w + GAP) / (MIN_WIDGET_PX + GAP))));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <>
       <div className="mb-5 flex items-center justify-between gap-3">
@@ -83,18 +104,31 @@ export function DashboardGrid() {
         <CustomizePanel layout={layout} onToggle={toggle} onMove={move} onResize={resize} onReset={reset} />
       </div>
 
-      {/* 12-column responsive grid; widgets span by size. Stacks on mobile. */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+      {/* Responsive auto-fit grid: every column is >= MIN_WIDGET_PX, so a widget
+          can never collapse into a thin strip. Single column on narrow screens. */}
+      <div
+        ref={gridRef}
+        style={{
+          display: "grid",
+          gap: "1.25rem",
+          gridTemplateColumns: `repeat(auto-fit, minmax(min(${MIN_WIDGET_PX}px, 100%), 1fr))`,
+        }}
+      >
         {visible.length === 0 && (
-          <p className="col-span-full rounded-xl border border-dashed border-white/10 bg-base-800/40 px-4 py-10 text-center text-slate-400">
+          <p className="rounded-xl border border-dashed border-white/10 bg-base-800/40 px-4 py-10 text-center text-slate-400">
             All widgets are hidden. Click <span className="text-slate-200">Customise</span> to show some.
           </p>
         )}
-        {visible.map((c) => (
-          <div key={c.id} className={`col-span-1 ${sizeToColSpan(c.size)}`}>
-            {CARD_COMPONENTS[c.id] ?? null}
-          </div>
-        ))}
+        {visible.map((c) => {
+          // Clamp the span to the columns that actually fit (never overflow,
+          // never below 1). On a 1-column layout everything is full width.
+          const span = Math.min(sizeToSpan(c.size), cols) || 1;
+          return (
+            <div key={c.id} style={{ gridColumn: cols > 1 ? `span ${span}` : "auto", minWidth: 0 }}>
+              {CARD_COMPONENTS[c.id] ?? null}
+            </div>
+          );
+        })}
       </div>
     </>
   );
