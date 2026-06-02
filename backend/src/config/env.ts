@@ -2,13 +2,20 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+/** Robust boolean env parse: trims whitespace, case-insensitive "true". */
+export function envFlag(value: string | undefined, fallback = false): boolean {
+  if (value == null) return fallback;
+  return value.trim().toLowerCase() === "true";
+}
+
 /**
  * Centralised, typed access to environment variables.
  * Never hardcode secrets — read everything from the environment.
  */
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
-  port: Number(process.env.BACKEND_PORT ?? 4000),
+  // Cloud Run injects PORT; prefer it, then BACKEND_PORT, then local default.
+  port: Number(process.env.PORT ?? process.env.BACKEND_PORT ?? 4000),
   corsOrigin: (process.env.CORS_ORIGIN ?? "http://localhost:3000")
     .split(",")
     .map((origin) => origin.trim())
@@ -23,12 +30,13 @@ export const env = {
    * the frontend or logged. apiKey is public (it appears in the login URL).
    */
   kite: {
-    apiKey: process.env.KITE_API_KEY ?? "",
-    apiSecret: process.env.KITE_API_SECRET ?? "",
+    apiKey: (process.env.KITE_API_KEY ?? "").trim(),
+    apiSecret: (process.env.KITE_API_SECRET ?? "").trim(),
     // Optional: a pre-obtained access token (otherwise set via the login flow).
-    accessToken: process.env.KITE_ACCESS_TOKEN ?? "",
-    redirectUrl: process.env.KITE_REDIRECT_URL ?? "",
-    enableLiveData: (process.env.KITE_ENABLE_LIVE_DATA ?? "false").toLowerCase() === "true",
+    accessToken: (process.env.KITE_ACCESS_TOKEN ?? "").trim(),
+    redirectUrl: (process.env.KITE_REDIRECT_URL ?? "").trim(),
+    // Robust parse — tolerates whitespace/casing from env-var tooling.
+    enableLiveData: envFlag(process.env.KITE_ENABLE_LIVE_DATA, false),
     // Overridable base URLs (handy for tests); default to Kite's real hosts.
     loginBase: process.env.KITE_LOGIN_BASE ?? "https://kite.zerodha.com/connect/login",
     apiBase: process.env.KITE_API_BASE ?? "https://api.kite.trade",

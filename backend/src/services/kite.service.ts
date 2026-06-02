@@ -28,8 +28,16 @@ export interface KitePublicStatus {
   configured: boolean; // apiKey + apiSecret present
   authenticated: boolean; // an access token is held server-side
   readOnly: true;
-  mode: "live" | "disabled";
+  mode: "live" | "login-required" | "disabled";
   message: string;
+  // Safe, SECRET-FREE diagnostics (booleans only — never values). Helps debug
+  // env/deployment without ever exposing keys.
+  env: {
+    liveDataEnvPresent: boolean;
+    apiKeyPresent: boolean;
+    apiSecretPresent: boolean;
+    redirectUrlPresent: boolean;
+  };
 }
 
 /** Typed error so controllers can map to clean HTTP responses without leaking secrets. */
@@ -63,13 +71,18 @@ export function getPublicStatus(): KitePublicStatus {
   const authenticated = hasAccessToken();
 
   let message: string;
+  let mode: KitePublicStatus["mode"];
   if (!liveDataEnabled) {
+    mode = "disabled";
     message = "Live Kite data is disabled (set KITE_ENABLE_LIVE_DATA=true to enable). Using mock data elsewhere.";
   } else if (!configured) {
+    mode = "disabled";
     message = "Kite live data is enabled but not configured. Set KITE_API_KEY and KITE_API_SECRET in backend/.env.";
   } else if (!authenticated) {
+    mode = "login-required";
     message = "Login required. Open the Kite login URL to authorise read-only access for today's session.";
   } else {
+    mode = "live";
     message = "Connected to Kite (read-only). Live quotes and historical data are available.";
   }
 
@@ -79,8 +92,16 @@ export function getPublicStatus(): KitePublicStatus {
     configured,
     authenticated,
     readOnly: true,
-    mode: liveDataEnabled ? "live" : "disabled",
+    mode,
     message,
+    env: {
+      // Presence/booleans only — secret-free. (Reflects whether the raw env
+      // var was set, independent of how it parsed.)
+      liveDataEnvPresent: process.env.KITE_ENABLE_LIVE_DATA != null && process.env.KITE_ENABLE_LIVE_DATA.trim() !== "",
+      apiKeyPresent: env.kite.apiKey.length > 0,
+      apiSecretPresent: env.kite.apiSecret.length > 0,
+      redirectUrlPresent: env.kite.redirectUrl.length > 0,
+    },
   };
 }
 

@@ -30,6 +30,17 @@ test("when live data disabled, status mode is 'disabled' with a clear message", 
   assert.match(status.message, /disabled/i);
 });
 
+test("status exposes secret-free env diagnostics (booleans only, no values)", () => {
+  const status = kite.getPublicStatus();
+  // apiKey/apiSecret were set in this test's env → present booleans true.
+  assert.equal(status.env.apiKeyPresent, true);
+  assert.equal(status.env.apiSecretPresent, true);
+  assert.equal(typeof status.env.liveDataEnvPresent, "boolean");
+  assert.equal(typeof status.env.redirectUrlPresent, "boolean");
+  // The diagnostics must be booleans, never the secret value itself.
+  assert.ok(!JSON.stringify(status.env).includes("super_secret_value"));
+});
+
 test("buildLoginUrl is blocked while live data is disabled", () => {
   assert.throws(() => kite.buildLoginUrl(), /disabled/i);
 });
