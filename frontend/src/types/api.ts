@@ -38,6 +38,72 @@ export interface KiteQuoteResponse {
   data: Record<string, unknown>;
 }
 
+// Live Market Signal (Phase 3E).
+export type SignalAction = "LONG" | "SHORT" | "WAIT" | "AVOID";
+export type SetupStatus = "active" | "wait" | "avoid";
+
+export interface SignalSetup {
+  status: SetupStatus;
+  entryAbove?: number;
+  entryBelow?: number;
+  stopLoss: number;
+  target1: number;
+  target2: number;
+  target3: number;
+  partialExit: number;
+  fullExit: number;
+  riskPerUnit: number;
+  rewardPerUnit: number;
+  riskReward: string;
+  estimatedProfitForOneLot: number;
+  estimatedLossForOneLot: number;
+  condition: string;
+}
+
+export interface LiveSignal {
+  instrument: string;
+  resolvedInstrument: {
+    instrumentKey: string;
+    instrumentToken: number;
+    exchange: string;
+    tradingsymbol: string;
+    displayName: string;
+    segment: string;
+    instrumentType: string;
+    lotSize: number;
+    expiry: string;
+    strike: number;
+    optionType: string;
+  };
+  source: "kite";
+  live: true;
+  readOnly: true;
+  timestamp: string;
+  currentPrice: number;
+  marketData: { open: number; high: number; low: number; previousClose: number; volume: number; vwap: number | null };
+  indicators: {
+    ema9: number | null;
+    ema20: number | null;
+    rsi: number | null;
+    macd: { macd: number; signal: number; histogram: number } | null;
+    atr: number | null;
+    volumeConfirmed: boolean | null;
+  };
+  trend: { direction: "bullish" | "bearish" | "sideways"; strength: "weak" | "moderate" | "strong"; score: number; reason: string };
+  probability: {
+    bullishPercent: number;
+    bearishPercent: number;
+    estimatedWinPercent: number;
+    confidence: "low" | "medium" | "high";
+    dataQuality: "quote-only" | "candle-backed" | "strong";
+  };
+  levels: { support1: number; support2: number; resistance1: number; resistance2: number; noTradeZone: string };
+  longSetup: SignalSetup;
+  shortSetup: SignalSetup;
+  finalDecision: { action: SignalAction; reason: string; preferredSetup: "long" | "short" | "none"; invalidationLevel: number };
+  disclaimer: string;
+}
+
 // Zerodha-like grouped search (Phase 3D).
 export type UiSegment = "equity" | "indices" | "futures" | "options";
 

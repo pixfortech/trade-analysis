@@ -1,9 +1,22 @@
 import type { Request, Response } from "express";
 import { callAiEngine } from "../services/aiEngine.service";
 import { KiteError } from "../services/kite.service";
-import { getLiveTradePlan } from "../services/liveTradePlan.service";
+import { getLiveTradePlan, getLiveSignal } from "../services/liveTradePlan.service";
 import type { AnalysisResponse, TradePlanResponse } from "../types/contracts";
 import { mockAnalysis, mockTradePlan } from "../utils/mockData";
+
+/** Shared: map a thrown error (incl. KiteError w/ candidates) to a clean response. */
+function sendAnalysisError(res: Response, err: unknown, label: string) {
+  if (err instanceof KiteError) {
+    const body: Record<string, unknown> = { error: { message: err.message, code: err.code }, readOnly: true };
+    const candidates = (err as KiteError & { candidates?: unknown }).candidates;
+    if (candidates) body.candidates = candidates;
+    res.status(err.status).json(body);
+    return;
+  }
+  console.error(`[backend] ${label} unexpected error`);
+  res.status(500).json({ error: { message: "Unexpected analysis error.", code: "ANALYSIS_INTERNAL" }, readOnly: true });
+}
 
 /**
  * Analysis handlers proxy to the Python AI engine via the service layer.
@@ -89,14 +102,31 @@ export async function getLiveTradePlanHandler(req: Request, res: Response) {
     });
     res.json(result);
   } catch (err) {
-    if (err instanceof KiteError) {
-      const body: Record<string, unknown> = { error: { message: err.message, code: err.code }, readOnly: true };
-      const candidates = (err as KiteError & { candidates?: unknown }).candidates;
-      if (candidates) body.candidates = candidates;
-      res.status(err.status).json(body);
-      return;
-    }
-    console.error("[backend] live-trade-plan unexpected error");
-    res.status(500).json({ error: { message: "Unexpected analysis error.", code: "ANALYSIS_INTERNAL" }, readOnly: true });
+    sendAnalysisError(res, err, "live-trade-plan");
+  }
+}
+
+/**
+ * GET /api/analysis/live-signal — READ-ONLY live market signal.
+ * Accepts exact instrument OR F&O resolver params, plus interval & riskProfile.
+ * Returns trend, bullish/bearish probability, estimated win %, long/short
+ * setups (entry/SL/targets/exits), risk-reward and tentative P/L per lot.
+ */
+export async function getLiveSignalHandler(req: Request, res: Response) {
+  try {
+    const result = await getLiveSignal({
+      instrument: req.query.instrument ? String(req.query.instrument) : undefined,
+      underlying: req.query.underlying ? String(req.query.underlying) : undefined,
+      segment: req.query.segment ? String(req.query.segment) : undefined,
+      instrumentType: req.query.instrumentType ? String(req.query.instrumentType) : undefined,
+      expiry: req.query.expiry ? String(req.query.expiry) : undefined,
+      strike: req.query.strike ? String(req.query.strike) : undefined,
+      optionType: req.query.optionType ? String(req.query.optionType) : undefined,
+      interval: req.query.interval ? String(req.query.interval) : undefined,
+      riskProfile: req.query.riskProfile ? String(req.query.riskProfile) : undefined,
+    });
+    res.json(result);
+  } catch (err) {
+    sendAnalysisError(res, err, "live-signal");
   }
 }

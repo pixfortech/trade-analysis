@@ -87,12 +87,12 @@ export interface LiveTradePlanResult {
 }
 
 // --------------------------- helpers ---------------------------
-function round2(n: number): number {
+export function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
 /** Exponential moving average series; entries before the seed index are null. */
-function emaSeries(values: number[], period: number): (number | null)[] {
+export function emaSeries(values: number[], period: number): (number | null)[] {
   const out: (number | null)[] = new Array(values.length).fill(null);
   if (values.length < period) return out;
   const k = 2 / (period + 1);
@@ -105,13 +105,13 @@ function emaSeries(values: number[], period: number): (number | null)[] {
   return out;
 }
 
-function emaLast(values: number[], period: number): number | null {
+export function emaLast(values: number[], period: number): number | null {
   const s = emaSeries(values, period);
   const v = s[s.length - 1];
   return v == null ? null : round2(v);
 }
 
-function rsi(closes: number[], period = 14): number | null {
+export function rsi(closes: number[], period = 14): number | null {
   if (closes.length < period + 1) return null;
   let gain = 0;
   let loss = 0;
@@ -132,7 +132,7 @@ function rsi(closes: number[], period = 14): number | null {
   return round2(100 - 100 / (1 + rs));
 }
 
-function macd(closes: number[]): { macd: number; signal: number; histogram: number } | null {
+export function macd(closes: number[]): { macd: number; signal: number; histogram: number } | null {
   if (closes.length < 26 + 9) return null;
   const e12 = emaSeries(closes, 12);
   const e26 = emaSeries(closes, 26);
@@ -147,7 +147,7 @@ function macd(closes: number[]): { macd: number; signal: number; histogram: numb
   return { macd: round2(m), signal: round2(s), histogram: round2(m - s) };
 }
 
-function atr(candles: Candle[], period = 14): number | null {
+export function atr(candles: Candle[], period = 14): number | null {
   if (candles.length < period + 1) return null;
   const trs: number[] = [];
   for (let i = 1; i < candles.length; i++) {
@@ -161,7 +161,7 @@ function atr(candles: Candle[], period = 14): number | null {
   return round2(a);
 }
 
-function vwap(candles: Candle[]): number | null {
+export function vwap(candles: Candle[]): number | null {
   if (!candles.length) return null;
   let pv = 0;
   let vol = 0;
@@ -174,7 +174,7 @@ function vwap(candles: Candle[]): number | null {
 }
 
 /** Floor pivots from a reference High/Low/Close (recent swing extremes + current price). */
-function pivotLevels(high: number, low: number, close: number) {
+export function pivotLevels(high: number, low: number, close: number) {
   const p = (high + low + close) / 3;
   return {
     resistance1: round2(2 * p - low),

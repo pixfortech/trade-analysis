@@ -143,10 +143,38 @@ returns live quotes for many instruments at once; unknown instruments are listed
 in `missing` rather than failing the call. Used by the watchlist & dashboard.
 
 **Frontend UX:** a reusable **InstrumentSearch** (debounced, grouped, keyboard
-navigable) is used in the Live Trade Plan and Watchlist. The dashboard is
+navigable) is used in the Live Market Signal and Watchlist. The dashboard is
 **customisable** (show/hide + reorder cards, reset) with layout and watchlist
 persisted in `localStorage`. Text sizes were increased for readability. The app
 remains **read-only** — there is no order placement or trade execution.
+
+### 7d. Search fix & Live Signal engine (Phase 3E) ✅
+
+**Search root cause & fix:** instrument search was gated behind a full Kite
+login because `getInstrumentsCsv()` required an access token. But Kite's
+**instruments dump is a public endpoint** (api_key only). The fix requires only
+**enabled + configured** (not authenticated) and omits the access token, so
+search works before login and after the daily token expires. A failed dump no
+longer reports "session expired"; it surfaces a config-style error.
+
+**Live Signal engine** — `GET /api/analysis/live-signal`:
+- Accepts an exact `instrument` OR F&O resolver params, plus `interval`
+  (default `5minute`) and `riskProfile`.
+- Returns: `trend` (direction/strength/score), `probability`
+  (`bullishPercent` + `bearishPercent` ≈ 100, `estimatedWinPercent`,
+  `confidence`, `dataQuality`), `levels` (S/R + no-trade zone), `longSetup` &
+  `shortSetup` (entry, SL, T1/2/3, partial/full exit, risk/reward per unit,
+  R:R, **tentative P/L per lot**), and `finalDecision`
+  (`LONG/SHORT/WAIT/AVOID` + invalidation level).
+- **Conservative by design:** win% is capped (≤75 normally, ≤80 only when strong
+  candle data + strong trend + volume all align). Quote-only or degenerate data
+  → low confidence and `WAIT`/`AVOID`; it never forces LONG/SHORT on thin data.
+- Pure engine (`services/liveSignal.ts`) reuses the EMA/RSI/MACD/ATR/VWAP/pivot
+  helpers; 9 unit tests cover probability totals, SL/target ordering, win-cap,
+  quote-only downgrade, P/L-per-lot and the degenerate→AVOID path.
+
+All **estimates, not guarantees**; the disclaimer is always attached. Still
+**read-only** — no order/trade execution anywhere.
 
 ---
 

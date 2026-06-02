@@ -1,0 +1,291 @@
+"use client";
+
+import { useState } from "react";
+import { Card } from "@/components/ui/Card";
+import { EmptyState, ErrorState } from "@/components/ui/States";
+import { useAsync } from "@/hooks/useAsync";
+import { api } from "@/lib/apiClient";
+import { num } from "@/lib/format";
+import type { LiveSignal, SignalAction, SignalSetup } from "@/types/api";
+import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
+
+const INTERVALS = ["3minute", "5minute", "15minute", "30minute", "60minute", "day"];
+const RISK_PROFILES = ["conservative", "balanced", "aggressive"];
+
+interface Selection {
+  instrument: string;
+  displayName: string;
+  lotSize: number | null;
+}
+
+/**
+ * Live Market Signal — the primary READ-ONLY analysis card (Phase 3E).
+ * Search/select an instrument → trend, bullish/bearish probability, estimated
+ * win %, long & short setups (entry/SL/targets/exits), risk-reward and tentative
+ * P/L per lot. No buy/sell or order-placement controls anywhere.
+ */
+export function LiveMarketSignal() {
+  const [sel, setSel] = useState<Selection | null>({
+    instrument: "NSE:RELIANCE",
+    displayName: "RELIANCE",
+    lotSize: null,
+  });
+  const [interval, setInterval] = useState("5minute");
+  const [riskProfile, setRiskProfile] = useState("balanced");
+  const signal = useAsync(api.liveSignal);
+
+  const onSelect = (ins: SelectedInstrument) =>
+    setSel({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize });
+
+  const run = () => {
+    if (!sel) return;
+    void signal.run({ instrument: sel.instrument, interval, riskProfile });
+  };
+
+  return (
+    <Card
+      id="live-market-signal"
+      title="Live Market Signal"
+      subtitle="Search any instrument → trend, probability, levels & estimated P/L"
+      action={
+        <span className="rounded-full border border-bull/30 bg-bull-soft px-3 py-1 text-xs font-semibold text-bull">
+          LIVE KITE · READ-ONLY
+        </span>
+      }
+    >
+      <InstrumentSearch onSelect={onSelect} autoFocus={false} />
+
+      {/* Selected instrument + controls */}
+      <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
+        <div className="flex-1 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
+          <p className="text-xs text-slate-500">Selected</p>
+          <p className="text-base font-semibold text-slate-100">
+            {sel ? sel.displayName : "None"}{" "}
+            <span className="num text-xs text-slate-500">
+              {sel ? `· ${sel.instrument}${sel.lotSize ? ` · lot ${sel.lotSize}` : ""}` : ""}
+            </span>
+          </p>
+        </div>
+        <select
+          value={interval}
+          onChange={(e) => setInterval(e.target.value)}
+          aria-label="Interval"
+          className="rounded-lg border border-white/10 bg-base-800/60 px-3 py-2.5 text-sm text-slate-200 focus:border-accent/50 focus:outline-none"
+        >
+          {INTERVALS.map((i) => (
+            <option key={i} value={i}>
+              {i}
+            </option>
+          ))}
+        </select>
+        <select
+          value={riskProfile}
+          onChange={(e) => setRiskProfile(e.target.value)}
+          aria-label="Risk profile"
+          className="rounded-lg border border-white/10 bg-base-800/60 px-3 py-2.5 text-sm capitalize text-slate-200 focus:border-accent/50 focus:outline-none"
+        >
+          {RISK_PROFILES.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={run}
+          disabled={signal.isLoading || !sel}
+          className="rounded-lg bg-accent/20 px-5 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {signal.isLoading ? "Analyzing…" : "Analyze"}
+        </button>
+      </div>
+
+      <div className="mt-4">
+        {signal.isIdle && (
+          <EmptyState
+            title="Search and analyze"
+            message="Pick an instrument above (equity, index, future or option) and click Analyze for a live read-only signal. Needs Kite enabled & authorised."
+          />
+        )}
+        {signal.isLoading && <p className="text-sm text-slate-400">Fetching live data and computing the signal…</p>}
+        {signal.isError && (
+          <ErrorState
+            message={signal.error ?? "Analysis failed."}
+            hint="Enable & authorise Kite (Status card). If search is empty, refresh the instruments cache. Live signal needs live Kite data."
+            onRetry={run}
+          />
+        )}
+        {signal.isSuccess && signal.data && <SignalView s={signal.data} />}
+      </div>
+    </Card>
+  );
+}
+
+const ACTION_CLS: Record<SignalAction, string> = {
+  LONG: "border-bull/40 bg-bull-soft text-bull",
+  SHORT: "border-bear/40 bg-bear-soft text-bear",
+  WAIT: "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal",
+  AVOID: "border-bear/40 bg-bear-soft text-bear",
+};
+
+function SignalView({ s }: { s: LiveSignal }) {
+  return (
+    <div className="space-y-5">
+      {/* Top: price + decision */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm text-slate-400">{s.resolvedInstrument.displayName || s.instrument}</p>
+          <p className="num text-3xl font-bold text-slate-100">{num(s.currentPrice)}</p>
+          <p className="num text-sm text-slate-500">prev {num(s.marketData.previousClose)}{s.marketData.vwap != null ? ` · VWAP ${num(s.marketData.vwap)}` : ""}</p>
+        </div>
+        <div className="text-right">
+          <span className={`inline-block rounded-xl border px-5 py-2 text-2xl font-bold ${ACTION_CLS[s.finalDecision.action]}`}>
+            {s.finalDecision.action}
+          </span>
+          <p className="mt-1 text-xs uppercase tracking-wide text-slate-500">
+            {s.probability.confidence} confidence · {s.probability.dataQuality}
+          </p>
+        </div>
+      </div>
+
+      {/* Probability bar */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between text-sm">
+          <span className="font-medium text-bull">Bullish {s.probability.bullishPercent}%</span>
+          <span className="text-slate-400">Win (est.) {s.probability.estimatedWinPercent}%</span>
+          <span className="font-medium text-bear">{s.probability.bearishPercent}% Bearish</span>
+        </div>
+        <div className="flex h-3 overflow-hidden rounded-full bg-base-700">
+          <div className="bg-bull" style={{ width: `${s.probability.bullishPercent}%` }} />
+          <div className="bg-bear" style={{ width: `${s.probability.bearishPercent}%` }} />
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">
+          Trend: <span className="capitalize text-slate-300">{s.trend.direction} ({s.trend.strength})</span> · {s.trend.reason}
+        </p>
+      </div>
+
+      {/* Indicators + levels */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Tile label="RSI 14" value={s.indicators.rsi == null ? "—" : num(s.indicators.rsi)} />
+        <Tile label="EMA 9 / 20" value={pair(s.indicators.ema9, s.indicators.ema20)} />
+        <Tile label="ATR 14" value={s.indicators.atr == null ? "—" : num(s.indicators.atr)} />
+        <Tile label="Volume" value={s.indicators.volumeConfirmed == null ? "—" : s.indicators.volumeConfirmed ? "Confirmed" : "Low"} />
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="rounded-lg border border-bull/20 bg-bull-soft px-3 py-2.5">
+          <p className="text-slate-400">Support</p>
+          <p className="num text-[15px] font-semibold text-bull">{num(s.levels.support1)} · {num(s.levels.support2)}</p>
+        </div>
+        <div className="rounded-lg border border-bear/20 bg-bear-soft px-3 py-2.5">
+          <p className="text-slate-400">Resistance</p>
+          <p className="num text-[15px] font-semibold text-bear">{num(s.levels.resistance1)} · {num(s.levels.resistance2)}</p>
+        </div>
+      </div>
+
+      {/* Long / short setups */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <SetupView title="Long Setup" tone="bull" entryLabel="Entry above" entry={s.longSetup.entryAbove} setup={s.longSetup} />
+        <SetupView title="Short Setup" tone="bear" entryLabel="Entry below" entry={s.shortSetup.entryBelow} setup={s.shortSetup} />
+      </div>
+
+      {/* Decision reason */}
+      <p className="rounded-lg border border-white/5 bg-base-800/40 px-4 py-3 text-sm text-slate-300">
+        <span className="font-semibold text-slate-100">Decision:</span> {s.finalDecision.reason}{" "}
+        <span className="text-slate-500">(invalidation {num(s.finalDecision.invalidationLevel)})</span>
+      </p>
+
+      {/* Disclaimer (mandatory) */}
+      <p className="rounded-lg border border-neutralSignal/20 bg-neutralSignal-soft px-4 py-3 text-xs leading-relaxed text-neutralSignal">
+        ⚠️ {s.disclaimer}
+      </p>
+    </div>
+  );
+}
+
+function SetupView({
+  title,
+  tone,
+  entryLabel,
+  entry,
+  setup,
+}: {
+  title: string;
+  tone: "bull" | "bear";
+  entryLabel: string;
+  entry?: number;
+  setup: SignalSetup;
+}) {
+  const head = tone === "bull" ? "text-bull" : "text-bear";
+  const statusCls =
+    setup.status === "active"
+      ? tone === "bull"
+        ? "border-bull/40 bg-bull-soft text-bull"
+        : "border-bear/40 bg-bear-soft text-bear"
+      : "border-white/10 bg-base-800 text-slate-400";
+  return (
+    <div className="rounded-xl border border-white/5 bg-base-800/40 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <p className={`text-base font-semibold ${head}`}>{title}</p>
+        <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase ${statusCls}`}>
+          {setup.status}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+        <Level label={entryLabel} value={entry} big />
+        <Level label="Stop-loss" value={setup.stopLoss} tone="bear" big />
+        <Level label="Target 1" value={setup.target1} tone="bull" />
+        <Level label="Target 2" value={setup.target2} tone="bull" />
+        <Level label="Target 3" value={setup.target3} tone="bull" />
+        <Level label={`R:R`} text={setup.riskReward} />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+        <div className="rounded-lg border border-bull/20 bg-bull-soft px-3 py-2 text-center">
+          <p className="text-[11px] text-slate-400">Est. profit / lot</p>
+          <p className="num text-[15px] font-semibold text-bull">{num(setup.estimatedProfitForOneLot)}</p>
+        </div>
+        <div className="rounded-lg border border-bear/20 bg-bear-soft px-3 py-2 text-center">
+          <p className="text-[11px] text-slate-400">Est. loss / lot</p>
+          <p className="num text-[15px] font-semibold text-bear">{num(setup.estimatedLossForOneLot)}</p>
+        </div>
+      </div>
+      <p className="mt-3 text-xs leading-relaxed text-slate-500">{setup.condition}</p>
+    </div>
+  );
+}
+
+function Level({
+  label,
+  value,
+  text,
+  tone,
+  big,
+}: {
+  label: string;
+  value?: number;
+  text?: string;
+  tone?: "bull" | "bear";
+  big?: boolean;
+}) {
+  const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : "text-slate-100";
+  const size = big ? "text-lg" : "text-[15px]";
+  return (
+    <div className="flex items-baseline justify-between">
+      <span className="text-xs text-slate-400">{label}</span>
+      <span className={`num font-semibold ${size} ${c}`}>{text ?? (value == null ? "—" : num(value))}</span>
+    </div>
+  );
+}
+
+function Tile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-[15px] font-semibold text-slate-100">{value}</p>
+    </div>
+  );
+}
+
+function pair(a: number | null, b: number | null): string {
+  if (a == null && b == null) return "—";
+  return `${a == null ? "—" : num(a)} / ${b == null ? "—" : num(b)}`;
+}

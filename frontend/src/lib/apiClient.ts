@@ -20,6 +20,7 @@ import type {
   KiteLoginUrlResponse,
   KiteQuoteResponse,
   KiteStatus,
+  LiveSignal,
   LiveTradePlan,
   SearchResponse,
   TradePlanRequest,
@@ -179,5 +180,14 @@ export const api = {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
     return request<LiveTradePlan>(`/api/analysis/live-trade-plan?${qs.toString()}`);
+  },
+
+  // Live market signal (Phase 3E) — read-only: trend, probability, setups, P/L.
+  liveSignal: (
+    params: { instrument?: string; interval?: string; riskProfile?: string } & Partial<ResolveParams>,
+  ) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
+    return request<LiveSignal>(`/api/analysis/live-signal?${qs.toString()}`);
   },
 };

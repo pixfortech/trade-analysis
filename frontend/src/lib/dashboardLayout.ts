@@ -1,4 +1,4 @@
-// Dashboard customisation model (Phase 3D). Card visibility + order are
+// Dashboard customisation model (Phase 3D/3E). Card visibility + order are
 // persisted in localStorage; no backend needed for layout preferences.
 
 export interface DashboardCardDef {
@@ -7,18 +7,19 @@ export interface DashboardCardDef {
   defaultVisible: boolean;
 }
 
-// Order here is the default render order.
+// Order here is the default render order. Phase 3E: the Live Market Signal is
+// the primary card; demo/mock cards are hidden by default for a clean home.
 export const DASHBOARD_CARDS: DashboardCardDef[] = [
-  { id: "market-overview", title: "Market Overview", defaultVisible: true },
-  { id: "kite-live-data", title: "Live Data — Zerodha Kite", defaultVisible: true },
-  { id: "live-trade-plan", title: "Live Trade Plan", defaultVisible: true },
+  { id: "live-market-signal", title: "Live Market Signal", defaultVisible: true },
   { id: "watchlist", title: "Watchlist", defaultVisible: true },
-  { id: "ai-recommendation", title: "AI Recommendation", defaultVisible: true },
-  { id: "futures-analysis", title: "Futures Analysis", defaultVisible: true },
-  { id: "options-analysis", title: "Options Analysis", defaultVisible: true },
+  { id: "kite-status", title: "Zerodha Kite Status", defaultVisible: true },
   { id: "risk-management", title: "Risk Management", defaultVisible: true },
-  { id: "market-sentiment", title: "Market Sentiment", defaultVisible: true },
-  { id: "scanner", title: "Scanner", defaultVisible: true },
+  { id: "market-overview", title: "Market Overview", defaultVisible: false },
+  { id: "ai-recommendation", title: "AI Recommendation", defaultVisible: false },
+  { id: "futures-analysis", title: "Futures Analysis", defaultVisible: false },
+  { id: "options-analysis", title: "Options Analysis", defaultVisible: false },
+  { id: "scanner", title: "Scanner", defaultVisible: false },
+  { id: "raw-kite-data", title: "Raw Kite Data (quote test)", defaultVisible: false },
 ];
 
 export interface CardState {
@@ -26,7 +27,8 @@ export interface CardState {
   visible: boolean;
 }
 
-export const LAYOUT_STORAGE_KEY = "dashboard.layout.v1";
+// Bumped to v2 because Phase 3E changes the default card set/order.
+export const LAYOUT_STORAGE_KEY = "dashboard.layout.v2";
 
 export function defaultLayout(): CardState[] {
   return DASHBOARD_CARDS.map((c) => ({ id: c.id, visible: c.defaultVisible }));
@@ -38,14 +40,12 @@ export function reconcileLayout(stored: CardState[] | null): CardState[] {
   const known = new Map(DASHBOARD_CARDS.map((c) => [c.id, c]));
   const seen = new Set<string>();
   const out: CardState[] = [];
-  // keep stored order for known ids
   for (const s of stored) {
     if (known.has(s.id) && !seen.has(s.id)) {
       out.push({ id: s.id, visible: Boolean(s.visible) });
       seen.add(s.id);
     }
   }
-  // append any new cards not present in stored
   for (const c of DASHBOARD_CARDS) {
     if (!seen.has(c.id)) out.push({ id: c.id, visible: c.defaultVisible });
   }

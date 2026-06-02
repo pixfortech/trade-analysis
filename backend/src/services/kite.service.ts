@@ -260,26 +260,46 @@ export async function getHistorical(params: {
 /**
  * GET the Kite instruments master as raw CSV text. Read-only.
  * `segment` is an optional exchange filter ("NSE", "NFO", …) → /instruments/:exchange.
- * Requires live data enabled + configured + authenticated (assertReady).
+ *
+ * NOTE: the instruments dump is a PUBLIC Kite endpoint — it does NOT require an
+ * access token, only the api_key. So this needs live-data enabled + configured
+ * (api_key/secret) but NOT a completed login. This lets instrument search work
+ * before the user logs in (or after their daily token expires).
  */
 export async function getInstrumentsCsv(segment?: string): Promise<string> {
-  assertReady();
+  if (!isLiveDataEnabled()) {
+    throw new KiteError(
+      "Live Kite data is disabled. Set KITE_ENABLE_LIVE_DATA=true in backend/.env to enable instrument search.",
+      503,
+      "KITE_DISABLED",
+    );
+  }
+  if (!env.kite.apiKey) {
+    throw new KiteError(
+      "Kite is not configured. Set KITE_API_KEY in backend/.env to enable instrument search.",
+      503,
+      "KITE_NOT_CONFIGURED",
+    );
+  }
   const path = segment ? `/instruments/${encodeURIComponent(segment)}` : "/instruments";
   return kiteText("GET", path);
 }
 
 /**
  * Low-level helper that returns the raw response TEXT (for CSV endpoints).
- * Never logs headers or secrets; normalises failures to KiteError.
+ * Sends the api_key; includes the access token only when one is present
+ * (the instruments dump does not require it). Never logs secrets.
  */
 async function kiteText(method: "GET" | "POST", path: string): Promise<string> {
+  // Instruments dump auth: api_key is required; access_token is optional.
+  const authToken = accessToken ?? "";
   let res: Response;
   try {
     res = await fetch(`${env.kite.apiBase}${path}`, {
       method,
       headers: {
         "X-Kite-Version": KITE_API_VERSION,
-        Authorization: `token ${env.kite.apiKey}:${accessToken}`,
+        Authorization: `token ${env.kite.apiKey}:${authToken}`,
       },
       signal: AbortSignal.timeout(20000),
     });
@@ -294,11 +314,13 @@ async function kiteText(method: "GET" | "POST", path: string): Promise<string> {
 
   const text = await res.text();
   if (!res.ok) {
-    if (res.status === 403) {
-      accessToken = null;
-      throw new KiteError("Kite session expired. Please log in again.", 401, "KITE_LOGIN_REQUIRED");
-    }
-    throw new KiteError(`Kite instruments error (status ${res.status}).`, res.status, "KITE_API_ERROR");
+    // The instruments dump is public; a 403 here usually means a bad api_key,
+    // not an expired session — surface a configuration-style error.
+    throw new KiteError(
+      `Kite instruments error (status ${res.status}). Check KITE_API_KEY.`,
+      res.status === 403 ? 502 : res.status,
+      "KITE_INSTRUMENTS_ERROR",
+    );
   }
   return text;
 }

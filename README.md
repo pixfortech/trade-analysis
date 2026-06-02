@@ -250,7 +250,7 @@ endpoints and the security model.
 Once Kite is authorised, **refresh the instruments cache** (Live Data card, or
 `POST /api/kite/instruments/refresh`). Then:
 
-- **Search like Zerodha** in the Live Trade Plan / Watchlist search box — type
+- **Search like Zerodha** in the Live Market Signal / Watchlist search box — type
   `RELIANCE`, `MIDCPNIFTY FUT`, or `NIFTY 24500 CE` and pick from grouped
   results (Equity / Indices / Futures / Options). You never need to know exact
   symbols like `NFO:MIDCPNIFTY26JUNFUT`.
@@ -263,6 +263,45 @@ Once Kite is authorised, **refresh the instruments cache** (Live Data card, or
 with a **24h TTL** (`KITE_INSTRUMENTS_TTL_HOURS`) and auto-refreshes when stale.
 **Do not commit `backend/.cache/`.** Everything here is **read-only** — there is
 no order placement or trade execution anywhere in the app.
+
+### Live Market Signal (Phase 3E)
+
+The home page's primary card is **Live Market Signal**. Search/select an
+instrument, choose an interval (default `5minute`) and risk profile, then
+**Analyze** to get, from live Kite data:
+
+- **Trend** (direction + strength) and a **bullish % / bearish %** split.
+- An **estimated win %** — deliberately conservative and **capped** (never shown
+  above ~75% unless every confirmation strongly aligns).
+- **Long** and **short** setups: entry, stop-loss, Target 1/2/3, partial/full
+  exit, risk-reward, and **tentative profit/loss per lot**.
+- A **final decision**: `LONG / SHORT / WAIT / AVOID` with an invalidation level.
+
+> **How probabilities are estimated:** a transparent score counts aligned
+> signals (EMA9 vs EMA20, price vs EMA9/VWAP, RSI, MACD histogram, support/
+> resistance breaks, price vs previous close). Agreement nudges the bull/bear
+> split from 50/50; conflicting signals and thin/low-volume data lower
+> confidence and the win estimate. **All probabilities and P/L are estimates,
+> not guarantees.** With only a quote (no candle history) the signal stays
+> low-confidence and returns **WAIT**.
+
+**Default dashboard (Phase 3E):** only the most useful cards show by default —
+**Live Market Signal, Watchlist, Zerodha Kite Status, Risk Management**. Enable
+Market Overview, AI Recommendation, Futures/Options Analysis, Scanner or Raw Kite
+Data from **Customise**. Hidden cards are fully removed (not just collapsed), and
+your choice persists in `localStorage`. Use **Reset** to restore defaults.
+
+### Troubleshooting: search returns nothing
+
+1. **Enable Kite:** set `KITE_ENABLE_LIVE_DATA=true` + `KITE_API_KEY` in
+   `backend/.env`, then restart the backend. (Search uses Kite's **public**
+   instruments dump, so it works **before** you complete the login — you only
+   need login for live quotes/signals.)
+2. **Refresh the cache:** `POST /api/kite/instruments/refresh` or the Kite Status
+   card. Check `GET /api/kite/instruments/status` shows `ready: true`.
+3. **Type at least 2 characters.** Results are grouped; if empty, the response
+   includes a helpful message.
+4. The cache auto-refreshes on first use / after the 24h TTL.
 
 ---
 
