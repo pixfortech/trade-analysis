@@ -4,15 +4,16 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 
 export type SidebarMode = "expanded" | "collapsed" | "hidden";
 
-// Global font scale (Phase 3L). Maps to html.font-* classes in globals.css.
-export type FontScale = "compact" | "normal" | "large" | "xl";
-export const FONT_SCALES: FontScale[] = ["compact", "normal", "large", "xl"];
-export const FONT_SCALE_LABEL: Record<FontScale, string> = {
-  compact: "Compact",
-  normal: "Normal",
-  large: "Large",
-  xl: "Extra Large",
-};
+// Global numeric font size (Phase 3M). Stored as a pixel value and applied as an
+// inline CSS custom property on <html> (globals.css consumes --app-base-font-size).
+export const FONT_MIN = 13;
+export const FONT_MAX = 20;
+export const FONT_DEFAULT = 16;
+
+export function clampFont(px: number): number {
+  if (!Number.isFinite(px)) return FONT_DEFAULT;
+  return Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(px)));
+}
 
 /** Instrument shared across Live Signal, AI Recommendation and the assistant. */
 export interface SharedInstrument {
@@ -37,9 +38,9 @@ export interface GlobalControls {
   cycleSidebar: () => void;
   mobileDrawerOpen: boolean;
   setMobileDrawerOpen: (v: boolean) => void;
-  // Global font size (Phase 3L)
-  fontScale: FontScale;
-  setFontScale: (s: FontScale) => void;
+  // Global font size in px (Phase 3M)
+  fontSizePx: number;
+  setFontSizePx: (px: number) => void;
   increaseFont: () => void;
   decreaseFont: () => void;
   resetFont: () => void;
@@ -51,7 +52,8 @@ export interface GlobalControls {
 const LIVE_KEY = "global.liveUpdates.v1";
 const ALERTS_KEY = "global.alerts.v1";
 const SIDEBAR_KEY = "global.sidebarMode.v1";
-const FONT_KEY = "trade-ui.font-size.v1";
+const FONT_KEY = "trade-ui.font-size-px.v1";
+const FONT_KEY_LEGACY = "trade-ui.font-size.v1"; // old preset names — migrated once
 const INSTRUMENT_KEY = "trade-ui.selected-instrument.v1";
 
 const Ctx = createContext<GlobalControls | null>(null);
@@ -64,12 +66,10 @@ function pokeResize() {
   [0, 60, 200, 360].forEach((ms) => window.setTimeout(() => window.dispatchEvent(new Event("resize")), ms));
 }
 
-/** Apply the font scale as a class on <html> so the CSS variable resolves. */
-function applyFontClass(scale: FontScale) {
+/** Apply the numeric font size as an inline custom property on <html>. */
+function applyFontSize(px: number) {
   if (typeof document === "undefined") return;
-  const el = document.documentElement;
-  for (const s of FONT_SCALES) el.classList.remove(`font-${s}`);
-  el.classList.add(`font-${scale}`);
+  document.documentElement.style.setProperty("--app-base-font-size", `${px}px`);
 }
 
 /**
@@ -84,7 +84,7 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
   const [browserGranted, setBrowserGranted] = useState(false);
   const [sidebarMode, setSidebarModeState] = useState<SidebarMode>("expanded");
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
-  const [fontScale, setFontScaleState] = useState<FontScale>("normal");
+  const [fontSizePx, setFontSizePxState] = useState<number>(FONT_DEFAULT);
   const [selectedInstrument, setSelectedInstrumentState] = useState<SharedInstrument>(DEFAULT_INSTRUMENT);
 
   // Hydrate from storage + current permission.
@@ -96,9 +96,16 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
       if (al != null) setAlertsEnabled(al === "true");
       const sb = window.localStorage.getItem(SIDEBAR_KEY);
       if (sb === "expanded" || sb === "collapsed" || sb === "hidden") setSidebarModeState(sb);
+      let px = FONT_DEFAULT;
       const fs = window.localStorage.getItem(FONT_KEY);
-      if (fs === "compact" || fs === "normal" || fs === "large" || fs === "xl") setFontScaleState(fs);
-      applyFontClass((fs as FontScale) || "normal");
+      if (fs != null && Number.isFinite(Number(fs))) {
+        px = clampFont(Number(fs));
+      } else {
+        const legacy = window.localStorage.getItem(FONT_KEY_LEGACY); // migrate old presets
+        if (legacy) px = legacy === "compact" ? 14 : legacy === "large" ? 18 : legacy === "xl" ? 20 : 16;
+      }
+      setFontSizePxState(px);
+      applyFontSize(px);
       const ins = window.localStorage.getItem(INSTRUMENT_KEY);
       if (ins) {
         const parsed = JSON.parse(ins) as Partial<SharedInstrument>;
@@ -168,25 +175,20 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
     setSidebarMode(sidebarMode === "expanded" ? "collapsed" : sidebarMode === "collapsed" ? "hidden" : "expanded");
   }, [sidebarMode, setSidebarMode]);
 
-  const setFontScale = useCallback((s: FontScale) => {
-    setFontScaleState(s);
-    applyFontClass(s);
+  const setFontSizePx = useCallback((px: number) => {
+    const v = clampFont(px);
+    setFontSizePxState(v);
+    applyFontSize(v);
     try {
-      window.localStorage.setItem(FONT_KEY, s);
+      window.localStorage.setItem(FONT_KEY, String(v));
     } catch {
       /* ignore */
     }
     pokeResize(); // cards must re-fit when text/spacing scale changes
   }, []);
-  const increaseFont = useCallback(() => {
-    const i = FONT_SCALES.indexOf(fontScale);
-    setFontScale(FONT_SCALES[Math.min(i + 1, FONT_SCALES.length - 1)]);
-  }, [fontScale, setFontScale]);
-  const decreaseFont = useCallback(() => {
-    const i = FONT_SCALES.indexOf(fontScale);
-    setFontScale(FONT_SCALES[Math.max(i - 1, 0)]);
-  }, [fontScale, setFontScale]);
-  const resetFont = useCallback(() => setFontScale("normal"), [setFontScale]);
+  const increaseFont = useCallback(() => setFontSizePx(fontSizePx + 1), [fontSizePx, setFontSizePx]);
+  const decreaseFont = useCallback(() => setFontSizePx(fontSizePx - 1), [fontSizePx, setFontSizePx]);
+  const resetFont = useCallback(() => setFontSizePx(FONT_DEFAULT), [setFontSizePx]);
 
   const setSelectedInstrument = useCallback((ins: SharedInstrument) => {
     setSelectedInstrumentState(ins);
@@ -212,8 +214,8 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
         cycleSidebar,
         mobileDrawerOpen,
         setMobileDrawerOpen,
-        fontScale,
-        setFontScale,
+        fontSizePx,
+        setFontSizePx,
         increaseFont,
         decreaseFont,
         resetFont,
@@ -243,8 +245,8 @@ export function useGlobalControls(): GlobalControls {
       cycleSidebar: () => {},
       mobileDrawerOpen: false,
       setMobileDrawerOpen: () => {},
-      fontScale: "normal",
-      setFontScale: () => {},
+      fontSizePx: FONT_DEFAULT,
+      setFontSizePx: () => {},
       increaseFont: () => {},
       decreaseFont: () => {},
       resetFont: () => {},

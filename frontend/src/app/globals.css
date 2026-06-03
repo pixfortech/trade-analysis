@@ -12,24 +12,12 @@
     scroll-behavior: smooth;
     /* Never allow the page itself to scroll sideways. */
     overflow-x: hidden;
-    /* Global font scale (Phase 3L). Tailwind type + spacing are rem-based, so
-       scaling the root font-size scales the whole UI consistently. The active
-       scale is chosen by the visible Font Size control (sets html.font-*). */
-    font-size: calc(16px * var(--app-font-scale, 1));
-  }
-
-  /* Font-size presets — applied as a class on <html> by the Font Size control. */
-  html.font-compact {
-    --app-font-scale: 0.9;
-  }
-  html.font-normal {
-    --app-font-scale: 1;
-  }
-  html.font-large {
-    --app-font-scale: 1.12;
-  }
-  html.font-xl {
-    --app-font-scale: 1.28;
+    /* Global numeric font size (Phase 3M). The Font Size control writes
+       `--app-base-font-size` as an INLINE custom property on <html>, so it is
+       authoritative (beats stylesheet rules) and survives theme-class toggles.
+       Tailwind type + spacing are rem-based, so scaling the root scales the
+       whole UI consistently. Defaults to 16px. */
+    font-size: var(--app-base-font-size, 16px);
   }
 
   body {
