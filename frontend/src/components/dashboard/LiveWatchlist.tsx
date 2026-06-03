@@ -19,12 +19,6 @@ interface LiveQuote {
   changePercent: number | null;
 }
 
-/** Smoothly scroll to the AI Trade Scanners dock card. */
-function scrollToScanners() {
-  if (typeof document === "undefined") return;
-  document.getElementById("ai-scanners")?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
 const STORAGE_KEY = "watchlist.v1";
 const DEFAULT_ITEMS: WatchItem[] = [
   { instrument: "NSE:RELIANCE", displayName: "RELIANCE", exchange: "NSE" },
@@ -73,9 +67,11 @@ export function LiveWatchlist() {
 
   const [openedNote, setOpenedNote] = useState<string | null>(null);
   const handleAnalyse = (it: WatchItem) => {
+    const existed = scanners.has(it.instrument);
     scanners.open({ instrument: it.instrument, displayName: it.displayName, exchange: it.exchange });
-    setOpenedNote(it.displayName);
-    window.setTimeout(() => setOpenedNote((n) => (n === it.displayName ? null : n)), 6000);
+    const msg = existed ? `Assistant focused for ${it.displayName}.` : `AI Trade Assistant opened for ${it.displayName}.`;
+    setOpenedNote(msg);
+    window.setTimeout(() => setOpenedNote((n) => (n === msg ? null : n)), 5000);
   };
 
   const add = (ins: SelectedInstrument) => {
@@ -108,16 +104,8 @@ export function LiveWatchlist() {
 
       {openedNote && (
         <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
-          <span>
-            Scanner opened for <strong>{openedNote}</strong> in <strong>AI Trade Scanners</strong>.
-          </span>
-          <button
-            type="button"
-            onClick={scrollToScanners}
-            className="shrink-0 rounded-md border border-accent/40 px-2 py-1 font-semibold transition-colors hover:bg-accent/20"
-          >
-            Go to scanner ↓
-          </button>
+          <span>🪟 {openedNote}</span>
+          <button type="button" onClick={() => setOpenedNote(null)} aria-label="Dismiss" className="shrink-0 text-accent/70 hover:text-accent">✕</button>
         </div>
       )}
 
@@ -156,7 +144,7 @@ export function LiveWatchlist() {
                         <button
                           type="button"
                           onClick={() => handleAnalyse(it)}
-                          title="Open AI Trade Scanner"
+                          title="Open floating AI Trade Assistant"
                           aria-label={`Analyse ${it.displayName}`}
                           className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors ${
                             scanners.has(it.instrument) ? "border-accent/40 bg-accent/10 text-accent" : "border-accent/30 text-accent hover:bg-accent/10"

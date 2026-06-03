@@ -3,6 +3,7 @@ import { Header } from "@/components/layout/Header";
 import { GlobalControlBar } from "@/components/layout/GlobalControlBar";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { FloatingTradeAssistant } from "@/components/dashboard/FloatingTradeAssistant";
+import { FloatingAssistants } from "@/components/dashboard/FloatingAssistants";
 import { GlobalControlsProvider } from "@/hooks/useGlobalControls";
 import { AiScannersProvider } from "@/lib/aiScanners";
 
@@ -39,6 +40,9 @@ export default function DashboardPage() {
 
       {/* Sticky, always-on AI trade assistant (follows the selected instrument) */}
       <FloatingTradeAssistant />
+
+      {/* Floating AI Trade Assistant windows opened from the Watchlist */}
+      <FloatingAssistants />
     </div>
     </AiScannersProvider>
     </GlobalControlsProvider>
