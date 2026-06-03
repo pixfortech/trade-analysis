@@ -41,10 +41,28 @@ interface ChipSummary { tone: AssistantTone; label: string; risk: RiskLevel | nu
  * a chip. Read-only/advisory. Lives in the grid so it reflows with the dashboard.
  */
 export function AITradeScanners() {
-  const { scanners, minimise, expand, togglePin, close, closeAllUnpinned } = useAiScanners();
+  const { scanners, minimise, expand, togglePin, close, closeAllUnpinned, focusNonce, focusedId } = useAiScanners();
   const g = useGlobalControls();
   const [cmps, setCmps] = useState<Record<string, number | null>>({});
   const [summaries, setSummaries] = useState<Record<string, ChipSummary>>({});
+  const [pulseId, setPulseId] = useState<string | null>(null);
+
+  // When a scanner is opened/focused (e.g. from the Watchlist), scroll it into
+  // view and briefly highlight it so the user can see where it opened.
+  useEffect(() => {
+    if (!focusNonce || !focusedId) return;
+    const t1 = window.setTimeout(() => {
+      const el = document.getElementById(`scanner-${focusedId}`) ?? document.getElementById("ai-scanners");
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.dispatchEvent(new Event("resize"));
+    }, 160);
+    setPulseId(focusedId);
+    const t2 = window.setTimeout(() => setPulseId(null), 2400);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [focusNonce, focusedId]);
 
   const keys = useMemo(() => scanners.map((s) => s.instrument.instrument), [scanners]);
   const keysJoined = keys.join(",");
@@ -132,7 +150,7 @@ export function AITradeScanners() {
           ) : (
             <div className="space-y-3">
               {expanded.map((s) => (
-                <ScannerCard key={s.id} scanner={s} cmpHint={cmps[s.instrument.instrument] ?? null} onMinimise={() => minimise(s.id)} onClose={() => close(s.id)} onTogglePin={() => togglePin(s.id)} onSummary={reportSummary} />
+                <ScannerCard key={s.id} scanner={s} highlight={pulseId === s.id} cmpHint={cmps[s.instrument.instrument] ?? null} onMinimise={() => minimise(s.id)} onClose={() => close(s.id)} onTogglePin={() => togglePin(s.id)} onSummary={reportSummary} />
               ))}
             </div>
           )}
@@ -151,6 +169,7 @@ function vtToPos(t: { side: "LONG" | "SHORT"; entryPrice: number; quantity: numb
 function ScannerCard({
   scanner,
   cmpHint,
+  highlight,
   onMinimise,
   onClose,
   onTogglePin,
@@ -158,6 +177,7 @@ function ScannerCard({
 }: {
   scanner: Scanner;
   cmpHint: number | null;
+  highlight?: boolean;
   onMinimise: () => void;
   onClose: () => void;
   onTogglePin: () => void;
@@ -205,7 +225,12 @@ function ScannerCard({
   const bear = data?.probability.bearishPercent ?? null;
 
   return (
-    <div className={`rounded-xl border bg-base-800/30 ${view ? t.chip.split(" ")[0] : "border-white/10"}`}>
+    <div
+      id={`scanner-${scanner.id}`}
+      className={`scroll-mt-4 rounded-xl border bg-base-800/30 transition-shadow ${
+        highlight ? "border-accent ring-2 ring-accent/60 shadow-[0_0_0_4px_rgba(59,130,246,0.18)]" : view ? t.chip.split(" ")[0] : "border-white/10"
+      }`}
+    >
       {/* header */}
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
         <span className={`h-2 w-2 rounded-full ${t.dot}`} />

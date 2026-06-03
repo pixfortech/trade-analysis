@@ -19,6 +19,12 @@ interface LiveQuote {
   changePercent: number | null;
 }
 
+/** Smoothly scroll to the AI Trade Scanners dock card. */
+function scrollToScanners() {
+  if (typeof document === "undefined") return;
+  document.getElementById("ai-scanners")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 const STORAGE_KEY = "watchlist.v1";
 const DEFAULT_ITEMS: WatchItem[] = [
   { instrument: "NSE:RELIANCE", displayName: "RELIANCE", exchange: "NSE" },
@@ -65,6 +71,13 @@ export function LiveWatchlist() {
     if (hydrated) void refreshQuotes();
   }, [hydrated, refreshQuotes]);
 
+  const [openedNote, setOpenedNote] = useState<string | null>(null);
+  const handleAnalyse = (it: WatchItem) => {
+    scanners.open({ instrument: it.instrument, displayName: it.displayName, exchange: it.exchange });
+    setOpenedNote(it.displayName);
+    window.setTimeout(() => setOpenedNote((n) => (n === it.displayName ? null : n)), 6000);
+  };
+
   const add = (ins: SelectedInstrument) => {
     setItems((cur) =>
       cur.some((i) => i.instrument === ins.instrument)
@@ -92,6 +105,21 @@ export function LiveWatchlist() {
       <InstrumentSearch onSelect={add} placeholder="Add to watchlist… (e.g. TCS, NIFTY, BANKNIFTY FUT)" />
 
       {note && <p className="mt-2 text-xs text-slate-500">{note}</p>}
+
+      {openedNote && (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+          <span>
+            Scanner opened for <strong>{openedNote}</strong> in <strong>AI Trade Scanners</strong>.
+          </span>
+          <button
+            type="button"
+            onClick={scrollToScanners}
+            className="shrink-0 rounded-md border border-accent/40 px-2 py-1 font-semibold transition-colors hover:bg-accent/20"
+          >
+            Go to scanner ↓
+          </button>
+        </div>
+      )}
 
       <div className="mt-3 overflow-x-auto">
         {items.length === 0 ? (
@@ -127,7 +155,7 @@ export function LiveWatchlist() {
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           type="button"
-                          onClick={() => scanners.open({ instrument: it.instrument, displayName: it.displayName, exchange: it.exchange })}
+                          onClick={() => handleAnalyse(it)}
                           title="Open AI Trade Scanner"
                           aria-label={`Analyse ${it.displayName}`}
                           className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors ${

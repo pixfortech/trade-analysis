@@ -22,6 +22,7 @@ import { TopPerformersCard } from "@/components/dashboard/TopPerformersCard";
 import { AITradeScanners } from "@/components/dashboard/AITradeScanners";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
+import { useAiScanners } from "@/lib/aiScanners";
 import {
   BREAKPOINTS,
   COLS,
@@ -67,6 +68,28 @@ export function DashboardGrid() {
   const [editing, setEditing] = useState(false);
   const bpRef = useRef<Breakpoint>("lg");
   const { sidebarMode } = useGlobalControls();
+  const { focusNonce } = useAiScanners();
+
+  // When a scanner is opened/focused from the Watchlist, make sure the AI Trade
+  // Scanners card is visible (auto-enable it if the user had hidden it, or if an
+  // old saved layout predates the card). The dock then scrolls/highlights itself.
+  useEffect(() => {
+    if (!focusNonce) return;
+    setValue((cur) => {
+      const base = reconcileState(cur);
+      if (base.visible["ai-scanners"]) return cur;
+      const visible = { ...base.visible, "ai-scanners": true };
+      let layout = base.layout;
+      if (!layout.some((it) => it.i === "ai-scanners")) {
+        const def = DASHBOARD_CARDS.find((c) => c.id === "ai-scanners");
+        if (def) {
+          const maxY = layout.reduce((m, it) => Math.max(m, it.y + it.h), 0);
+          layout = [...layout, { i: "ai-scanners", x: 0, y: maxY, w: def.w, h: def.h }];
+        }
+      }
+      return { visible, layout };
+    });
+  }, [focusNonce, setValue]);
 
   const visibleItems = useMemo(
     () => state.layout.filter((it) => state.visible[it.i]),
