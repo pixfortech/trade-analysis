@@ -12,9 +12,11 @@ import { IndicatorControls, ALL_INDICATORS } from "./IndicatorControls";
 import { LiveChart } from "./LiveChart";
 import { useAlerts } from "@/hooks/useAlerts";
 import { AlertToasts } from "./AlertToasts";
+import { ThemedSelect, InfoTooltip } from "@/components/ui/Inputs";
+import { STRATEGY_MODES, modeBlurb } from "@/lib/strategyModes";
+import { TimeBasedPlan } from "./TimeBasedPlan";
 
 const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"];
-const RISK_PROFILES = ["conservative", "balanced", "aggressive"];
 const DEFAULT_ACTIVE: IndicatorId[] = ["VWAP", "EMA20", "EMA50", "RSI", "MACD", "ADX", "ATR", "SUPERTREND", "VOLUME", "OI"];
 
 interface Selection {
@@ -96,50 +98,68 @@ export function LiveMarketSignal() {
     <Card
       id="live-market-signal"
       title="Live Market Signal"
-      subtitle="Search any instrument → trend, probability, levels & estimated P/L"
+      subtitle="Advisory LONG / SHORT / WAIT from live Kite data"
       action={
         <span className="rounded-full border border-bull/30 bg-bull-soft px-3 py-1 text-xs font-semibold text-bull">
           LIVE KITE · READ-ONLY
         </span>
       }
     >
+      {/* What is this? */}
+      <div className="mb-3">
+        <InfoTooltip label="What is this?">
+          Analyses <strong>live &amp; historical</strong> data (trend via EMA/Supertrend/ADX, momentum via RSI/MACD,
+          VWAP, volume confirmation, support/resistance and ATR volatility) to produce an advisory
+          <strong> LONG / SHORT / WAIT</strong> signal with entry, stop-loss and targets. It is{" "}
+          <strong>read-only decision support — it never places orders</strong>. Source: Zerodha Kite live/historical
+          data via the backend.
+        </InfoTooltip>
+      </div>
+
       <InstrumentSearch onSelect={onSelect} autoFocus={false} />
 
       {/* Selected instrument + controls */}
-      <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-center">
-        <div className="flex-1 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
-          <p className="text-xs text-slate-500">Selected</p>
-          <p className="text-base font-semibold text-slate-100">
+      <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-end">
+        <div className="min-w-0 flex-1 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
+          <p className="text-xs text-slate-500">Selected instrument</p>
+          <p className="truncate text-base font-semibold text-slate-100">
             {sel ? sel.displayName : "None"}{" "}
             <span className="num text-xs text-slate-500">
               {sel ? `· ${sel.instrument}${sel.lotSize ? ` · lot ${sel.lotSize}` : ""}` : ""}
             </span>
           </p>
         </div>
-        <select
-          value={interval}
-          onChange={(e) => setInterval(e.target.value)}
-          aria-label="Interval"
-          className="rounded-lg border border-white/10 bg-base-800/60 px-3 py-2.5 text-sm text-slate-200 focus:border-accent/50 focus:outline-none"
-        >
-          {INTERVALS.map((i) => (
-            <option key={i} value={i}>
-              {i}
-            </option>
-          ))}
-        </select>
-        <select
-          value={riskProfile}
-          onChange={(e) => setRiskProfile(e.target.value)}
-          aria-label="Risk profile"
-          className="rounded-lg border border-white/10 bg-base-800/60 px-3 py-2.5 text-sm capitalize text-slate-200 focus:border-accent/50 focus:outline-none"
-        >
-          {RISK_PROFILES.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
+        <label className="block">
+          <span className="mb-1 block text-xs text-slate-500">Timeframe</span>
+          <ThemedSelect
+            value={interval}
+            onChange={setInterval}
+            ariaLabel="Timeframe"
+            className="w-full lg:w-32"
+            options={INTERVALS.map((i) => ({ value: i, label: i }))}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 flex items-center gap-1.5 text-xs text-slate-500">
+            Strategy mode
+            <InfoTooltip label="?">
+              <span className="space-y-1.5">
+                {STRATEGY_MODES.map((m) => (
+                  <span key={m.value} className="block">
+                    <strong className="text-slate-100">{m.label}:</strong> {m.blurb}
+                  </span>
+                ))}
+              </span>
+            </InfoTooltip>
+          </span>
+          <ThemedSelect
+            value={riskProfile}
+            onChange={setRiskProfile}
+            ariaLabel="Strategy mode"
+            className="w-full lg:w-44"
+            options={STRATEGY_MODES.map((m) => ({ value: m.value, label: m.label }))}
+          />
+        </label>
         <button
           type="button"
           onClick={() => void run()}
@@ -149,6 +169,7 @@ export function LiveMarketSignal() {
           {signal.isLoading ? "Analyzing…" : "Analyze"}
         </button>
       </div>
+      <p className="mt-1.5 text-[11px] text-slate-500">{modeBlurb(riskProfile)}</p>
 
       {/* Live polling + browser notifications */}
       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -196,12 +217,19 @@ export function LiveMarketSignal() {
         )}
         {signal.data && (
           <>
+            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+              <span>Source: Zerodha Kite (live/historical)</span>
+              <span>· Timeframe: {interval}</span>
+              <span>· Mode: <span className="capitalize">{riskProfile}</span></span>
+              <span>· Updated: {formatTime(signal.data.timestamp)}</span>
+            </div>
             {chart && chart.candles.length > 0 && (
               <div className="mb-4 rounded-lg border border-white/5 bg-base-800/30 p-2">
                 <LiveChart data={chart} priceLines={priceLinesFor(signal.data)} />
               </div>
             )}
             <SignalView s={signal.data} />
+            <TimeBasedPlan signal={signal.data} />
           </>
         )}
       </div>
@@ -209,6 +237,13 @@ export function LiveMarketSignal() {
       <AlertToasts toasts={alerts.toasts} onDismiss={alerts.dismiss} />
     </Card>
   );
+}
+
+/** Local IST-ish time formatter for the "last updated" line. */
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
 /** Entry/SL/target price lines for the chart, from the preferred setup. */

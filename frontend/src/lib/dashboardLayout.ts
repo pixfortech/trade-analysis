@@ -21,24 +21,24 @@ export interface DashboardCardDef {
 // can resize freely.
 export const DASHBOARD_CARDS: DashboardCardDef[] = [
   // --- live data, visible by default ---
-  { id: "market-status", title: "Market Status", defaultVisible: true, live: true, w: 4, h: 7 },
-  { id: "kite-status", title: "Zerodha Kite Status", defaultVisible: true, live: true, w: 4, h: 9 },
-  { id: "account-summary", title: "Zerodha Account Summary", defaultVisible: true, live: true, w: 4, h: 9 },
-  { id: "live-market-signal", title: "Live Market Signal", defaultVisible: true, live: true, w: 12, h: 24 },
-  { id: "watchlist", title: "Watchlist", defaultVisible: true, live: true, w: 6, h: 13 },
-  { id: "top-performers", title: "Top Performers", defaultVisible: true, live: true, w: 6, h: 13 },
-  { id: "active-trade-monitor", title: "Active Trade Monitor", defaultVisible: true, live: true, w: 6, h: 13 },
-  { id: "risk-management", title: "Risk Management", defaultVisible: true, live: true, w: 6, h: 13 },
-  // --- simulated / mock-only, hidden by default (opt-in via Customise) ---
-  { id: "paper-trading", title: "Manual Trade Tracker (simulation)", defaultVisible: false, live: false, w: 6, h: 16 },
-  { id: "market-overview", title: "Market Overview (sample)", defaultVisible: false, live: false, w: 12, h: 8 },
-  { id: "ai-recommendation", title: "AI Recommendation (sample)", defaultVisible: false, live: false, w: 4, h: 12 },
-  { id: "futures-analysis", title: "Futures Analysis (sample)", defaultVisible: false, live: false, w: 12, h: 9 },
-  { id: "options-analysis", title: "Options Analysis (sample)", defaultVisible: false, live: false, w: 6, h: 12 },
-  { id: "scanner", title: "Scanner (sample)", defaultVisible: false, live: false, w: 12, h: 9 },
+  { id: "market-status", title: "Market Status", defaultVisible: true, live: true, w: 4, h: 9 },
+  { id: "kite-status", title: "Zerodha Kite Status", defaultVisible: true, live: true, w: 4, h: 11 },
+  { id: "account-summary", title: "Zerodha Account Summary", defaultVisible: true, live: true, w: 4, h: 11 },
+  { id: "live-market-signal", title: "Live Market Signal", defaultVisible: true, live: true, w: 12, h: 34 },
+  { id: "ai-recommendation", title: "AI Recommendation", defaultVisible: true, live: true, w: 6, h: 20 },
+  { id: "risk-management", title: "Risk Management", defaultVisible: true, live: true, w: 6, h: 20 },
+  { id: "active-trade-monitor", title: "Active Trade Monitor", defaultVisible: true, live: true, w: 6, h: 18 },
+  { id: "manual-trade-tracker", title: "Manual Trade Tracker", defaultVisible: true, live: true, w: 6, h: 18 },
+  { id: "watchlist", title: "Watchlist", defaultVisible: true, live: true, w: 6, h: 16 },
+  { id: "top-performers", title: "Top Performers", defaultVisible: true, live: true, w: 6, h: 16 },
+  // --- sample (not live) — hidden by default, opt-in via Customise ---
+  { id: "market-overview", title: "Market Overview (sample)", defaultVisible: false, live: false, w: 12, h: 9 },
+  { id: "futures-analysis", title: "Futures Analysis (sample)", defaultVisible: false, live: false, w: 12, h: 10 },
+  { id: "options-analysis", title: "Options Analysis (sample)", defaultVisible: false, live: false, w: 6, h: 13 },
+  { id: "scanner", title: "Scanner (sample)", defaultVisible: false, live: false, w: 12, h: 10 },
 ];
 
-export const ROW_HEIGHT = 22; // px per grid row unit
+export const ROW_HEIGHT = 20; // px per grid row unit
 export const GRID_COLS = 12;
 export const GRID_MARGIN = 20; // px gap between widgets
 export const MIN_W = 3; // never narrower than 3/12 columns on desktop
@@ -58,7 +58,8 @@ export interface DashboardState {
   layout: RglItem[];
 }
 
-export const LAYOUT_STORAGE_KEY = "dashboard.rgl.v1";
+// v2: Phase 3I default set/heights changed; old layouts self-heal to defaults.
+export const LAYOUT_STORAGE_KEY = "dashboard.rgl.v2";
 
 export function isLiveCard(id: string): boolean {
   return DASHBOARD_CARDS.find((c) => c.id === id)?.live ?? false;

@@ -5,7 +5,7 @@ import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { MarketOverview } from "@/components/dashboard/MarketOverview";
-import { AITradeRecommendation } from "@/components/dashboard/AITradeRecommendation";
+import { LiveAIRecommendation } from "@/components/dashboard/LiveAIRecommendation";
 import { FuturesAnalysis } from "@/components/dashboard/FuturesAnalysis";
 import { OptionsAnalysis } from "@/components/dashboard/OptionsAnalysis";
 import { ScannerPlaceholder } from "@/components/dashboard/ScannerPlaceholder";
@@ -41,13 +41,13 @@ const CARD_COMPONENTS: Record<string, React.ReactNode> = {
   "kite-status": <KiteStatusCard />,
   "account-summary": <AccountSummaryCard />,
   "live-market-signal": <LiveMarketSignal />,
+  "ai-recommendation": <LiveAIRecommendation />,
+  "risk-management": <RiskManagementCard />,
+  "active-trade-monitor": <ActiveTradeMonitorCard />,
+  "manual-trade-tracker": <PaperTradingPanel />,
   watchlist: <LiveWatchlist />,
   "top-performers": <TopPerformersCard />,
-  "active-trade-monitor": <ActiveTradeMonitorCard />,
-  "risk-management": <RiskManagementCard />,
-  "paper-trading": <PaperTradingPanel />,
   "market-overview": <MarketOverview />,
-  "ai-recommendation": <AITradeRecommendation />,
   "futures-analysis": <FuturesAnalysis />,
   "options-analysis": <OptionsAnalysis />,
   scanner: <ScannerPlaceholder />,
@@ -104,8 +104,11 @@ export function DashboardGrid() {
     return <div className="min-h-[40vh]" aria-hidden />;
   }
 
+  // minH per card so resizing can't crush content; defaults to ~60% of its
+  // default height (still scrolls internally if a user makes it smaller).
+  const minHById = new Map(DASHBOARD_CARDS.map((c) => [c.id, Math.max(6, Math.round(c.h * 0.6))]));
   const layouts = {
-    lg: visibleItems.map((it) => ({ ...it, minW: MIN_W, minH: 4 })),
+    lg: visibleItems.map((it) => ({ ...it, minW: MIN_W, minH: minHById.get(it.i) ?? 6 })),
   };
 
   return (
@@ -158,7 +161,7 @@ export function DashboardGrid() {
           useCSSTransforms
         >
           {visibleItems.map((it) => (
-            <div key={it.i} className="h-full">
+            <div key={it.i} className="h-full min-h-0">
               <Widget id={it.i} editing={editing}>
                 {CARD_COMPONENTS[it.i] ?? null}
               </Widget>
@@ -170,23 +173,24 @@ export function DashboardGrid() {
   );
 }
 
-/** Wraps a card; in edit mode shows a drag handle bar at the top. */
+/** Wraps a card; in edit mode shows a drag handle bar at the top. The card
+ *  itself scrolls internally, so this wrapper only clips (no nested scroll). */
 function Widget({ id, editing, children }: { id: string; editing: boolean; children: React.ReactNode }) {
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {editing && (
-        <div className="widget-drag-handle flex cursor-move items-center justify-between rounded-t-lg border border-b-0 border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent">
-          <span className="flex items-center gap-1.5">
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden>
+        <div className="widget-drag-handle flex shrink-0 cursor-move items-center justify-between rounded-t-lg border border-b-0 border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 shrink-0" fill="currentColor" aria-hidden>
               <circle cx="8" cy="6" r="1.4" /><circle cx="8" cy="12" r="1.4" /><circle cx="8" cy="18" r="1.4" />
               <circle cx="16" cy="6" r="1.4" /><circle cx="16" cy="12" r="1.4" /><circle cx="16" cy="18" r="1.4" />
             </svg>
-            {titleFor(id)}
+            <span className="truncate">{titleFor(id)}</span>
           </span>
-          <span className="text-[10px] uppercase tracking-wide text-accent/70">drag · resize ↘</span>
+          <span className="shrink-0 text-[10px] uppercase tracking-wide text-accent/70">drag · resize ↘</span>
         </div>
       )}
-      <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+      <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
     </div>
   );
 }
