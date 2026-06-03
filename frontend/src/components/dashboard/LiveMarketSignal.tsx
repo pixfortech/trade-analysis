@@ -12,9 +12,10 @@ import { IndicatorControls, ALL_INDICATORS } from "./IndicatorControls";
 import { LiveChart } from "./LiveChart";
 import { useAlerts } from "@/hooks/useAlerts";
 import { AlertToasts } from "./AlertToasts";
-import { ThemedSelect, InfoTooltip } from "@/components/ui/Inputs";
+import { ThemedSelect, InfoTooltip, InstrumentTypeSelector, type InstrumentSegment } from "@/components/ui/Inputs";
 import { STRATEGY_MODES, modeBlurb } from "@/lib/strategyModes";
 import { TimeBasedPlan } from "./TimeBasedPlan";
+import { useGlobalControls } from "@/hooks/useGlobalControls";
 
 const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"];
 const DEFAULT_ACTIVE: IndicatorId[] = ["VWAP", "EMA20", "EMA50", "RSI", "MACD", "ADX", "ATR", "SUPERTREND", "VOLUME", "OI"];
@@ -39,11 +40,12 @@ export function LiveMarketSignal() {
   });
   const [interval, setInterval] = useState("5minute");
   const [riskProfile, setRiskProfile] = useState("balanced");
+  const [segment, setSegment] = useState<InstrumentSegment>("all");
   const [active, setActive] = useState<IndicatorId[]>(DEFAULT_ACTIVE);
-  const [livePolling, setLivePolling] = useState(false);
   const [chart, setChart] = useState<ChartDataResponse | null>(null);
   const signal = useAsync(api.liveSignal);
   const alerts = useAlerts();
+  const global = useGlobalControls();
   const prevTrend = useRef<string | null>(null);
 
   const onSelect = (ins: SelectedInstrument) => {
@@ -87,12 +89,13 @@ export function LiveMarketSignal() {
     void fetchChart(sel.instrument);
   }, [sel, interval, riskProfile, active, signal, alerts, fetchChart]);
 
-  // Real-time polling: re-run the signal+chart every 5s while enabled.
+  // Real-time polling driven by the GLOBAL live-updates control. Re-runs the
+  // signal+chart every 5s while live updates are ON and an analysis exists.
   useEffect(() => {
-    if (!livePolling || !sel) return;
+    if (!global.liveUpdates || !sel || !signal.data) return;
     const id = window.setInterval(() => void run(), 5000);
     return () => window.clearInterval(id);
-  }, [livePolling, sel, run]);
+  }, [global.liveUpdates, sel, signal.data, run]);
 
   return (
     <Card
@@ -116,7 +119,11 @@ export function LiveMarketSignal() {
         </InfoTooltip>
       </div>
 
-      <InstrumentSearch onSelect={onSelect} autoFocus={false} />
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="text-xs text-slate-500">Type:</span>
+        <InstrumentTypeSelector value={segment} onChange={setSegment} />
+      </div>
+      <InstrumentSearch onSelect={onSelect} autoFocus={false} segment={segment === "all" ? undefined : segment} />
 
       {/* Selected instrument + controls */}
       <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-end">
@@ -171,28 +178,18 @@ export function LiveMarketSignal() {
       </div>
       <p className="mt-1.5 text-[11px] text-slate-500">{modeBlurb(riskProfile)}</p>
 
-      {/* Live polling + browser notifications */}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setLivePolling((v) => !v)}
-          disabled={!sel}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-40 ${
-            livePolling ? "border-bull/40 bg-bull-soft text-bull" : "border-white/10 bg-base-800/60 text-slate-300 hover:text-slate-100"
-          }`}
-        >
-          {livePolling ? "● Live (5s) — stop" : "Start live updates"}
-        </button>
-        {!alerts.browserEnabled && (
-          <button
-            type="button"
-            onClick={() => void alerts.requestBrowser()}
-            className="rounded-lg border border-white/10 bg-base-800/60 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:text-slate-100"
-          >
-            Enable browser alerts
-          </button>
+      {/* Live status — controlled globally from the top control bar */}
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+        {global.liveUpdates && signal.data ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-bull/40 bg-bull-soft px-2.5 py-0.5 font-semibold text-bull">
+            <span className="h-1.5 w-1.5 rounded-full bg-bull" /> Live (auto-refresh 5s)
+          </span>
+        ) : (
+          <span className="rounded-full border border-white/10 bg-base-800/60 px-2.5 py-0.5">
+            Live updates {global.liveUpdates ? "ON" : "OFF"} — toggle in the top bar
+          </span>
         )}
-        <span className="text-[11px] text-slate-500">Reversal alerts are advisory only.</span>
+        <span>· Reversal alerts are advisory only.</span>
       </div>
 
       {/* Indicator toggles + contributions */}

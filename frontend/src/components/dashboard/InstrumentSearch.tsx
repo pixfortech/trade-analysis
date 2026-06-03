@@ -24,10 +24,13 @@ export function InstrumentSearch({
   onSelect,
   placeholder = "Search e.g. RELIANCE, NIFTY, MIDCPNIFTY FUT, NIFTY 24500 CE",
   autoFocus = false,
+  segment,
 }: {
   onSelect: (ins: SelectedInstrument) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  /** Restrict results to one UI segment: equity | indices | futures | options. */
+  segment?: "equity" | "indices" | "futures" | "options";
 }) {
   const [q, setQ] = useState("");
   const [data, setData] = useState<SearchResponse | null>(null);
@@ -49,7 +52,7 @@ export function InstrumentSearch({
     setStatus("loading");
     const t = setTimeout(async () => {
       try {
-        const res = await api.kite.instrumentsSearch({ q: query, limit: 8 });
+        const res = await api.kite.instrumentsSearch({ q: query, segment, limit: 8 });
         setData(res);
         setStatus("idle");
         setOpen(true);
@@ -60,7 +63,7 @@ export function InstrumentSearch({
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [q, segment]);
 
   // Close on outside click.
   useEffect(() => {

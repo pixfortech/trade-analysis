@@ -43,6 +43,13 @@ export const GRID_COLS = 12;
 export const GRID_MARGIN = 20; // px gap between widgets
 export const MIN_W = 3; // never narrower than 3/12 columns on desktop
 
+// Responsive breakpoints + column counts for react-grid-layout. The desktop
+// layout (lg, 12 cols) is what the user customises and what we persist; other
+// breakpoints are DERIVED so cards always fill the available width.
+export const BREAKPOINTS = { lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 } as const;
+export const COLS = { lg: 12, md: 12, sm: 8, xs: 1, xxs: 1 } as const;
+export type Breakpoint = keyof typeof COLS;
+
 export interface RglItem {
   i: string; // card id
   x: number;
@@ -138,3 +145,60 @@ function clampInt(n: unknown, lo: number, hi: number, fallback: number): number 
   if (!Number.isFinite(v)) return fallback;
   return Math.max(lo, Math.min(hi, v));
 }
+
+/**
+ * Build a react-grid-layout `layouts` object for every breakpoint from the
+ * persisted desktop (lg) items. Other breakpoints are DERIVED so the grid
+ * always fills the available width and never leaves a big blank column:
+ *  - lg (12) / md (12): use the saved positions as-is.
+ *  - sm (8): scale widths to 8 cols and re-flow left→right.
+ *  - xs / xxs (1): single full-width column, preserving visual order.
+ * minW/minH are attached so resizing never crushes a card.
+ */
+export function responsiveLayouts(items: RglItem[]): Record<Breakpoint, (RglItem & { minW: number; minH: number })[]> {
+  const minH = (id: string) => Math.max(6, Math.round((DASHBOARD_CARDS.find((c) => c.id === id)?.h ?? 12) * 0.6));
+  const ordered = [...items].sort((a, b) => a.y - b.y || a.x - b.x);
+
+  // lg / md: keep saved geometry.
+  const lg = items.map((it) => ({ ...it, minW: MIN_W, minH: minH(it.i) }));
+
+  // sm (8 cols): scale each width from /12 to /8, re-flow.
+  const sm = flow(
+    ordered.map((it) => ({ ...it, w: Math.max(2, Math.min(8, Math.round((it.w / GRID_COLS) * 8))) })),
+    8,
+  ).map((it) => ({ ...it, minW: 2, minH: minH(it.i) }));
+
+  // xs / xxs: single column, full width, stacked in order.
+  const single = ordered.map((it, idx) => ({
+    i: it.i,
+    x: 0,
+    y: idx, // RGL compacts vertically; y order is what matters
+    w: 1,
+    h: it.h,
+    minW: 1,
+    minH: minH(it.i),
+  }));
+
+  return { lg, md: lg, sm, xs: single, xxs: single };
+}
+
+/** Left→right flow within `cols`, wrapping to the next row. */
+function flow(items: RglItem[], cols: number): RglItem[] {
+  const out: RglItem[] = [];
+  let x = 0;
+  let y = 0;
+  let rowH = 0;
+  for (const it of items) {
+    const w = Math.min(it.w, cols);
+    if (x + w > cols) {
+      x = 0;
+      y += rowH;
+      rowH = 0;
+    }
+    out.push({ ...it, x, y, w });
+    x += w;
+    rowH = Math.max(rowH, it.h);
+  }
+  return out;
+}
+

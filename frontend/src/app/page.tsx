@@ -1,19 +1,25 @@
 import { Sidebar } from "@/components/layout/Sidebar";
 import { MobileNav } from "@/components/layout/MobileNav";
 import { Header } from "@/components/layout/Header";
+import { GlobalControlBar } from "@/components/layout/GlobalControlBar";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
+import { GlobalControlsProvider } from "@/hooks/useGlobalControls";
 
 export default function DashboardPage() {
   return (
+    <GlobalControlsProvider>
     <div className="flex min-h-screen">
       <Sidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
+        <main className="mx-auto w-full min-w-0 max-w-[1600px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <Header />
-          <div className="mb-5">
+          <div className="mb-4">
             <MobileNav />
           </div>
+
+          {/* Global live-monitoring + alerts controls */}
+          <GlobalControlBar />
 
           {/* Draggable/resizable dashboard (layout + visibility saved in localStorage) */}
           <DashboardGrid />
@@ -32,5 +38,6 @@ export default function DashboardPage() {
         </main>
       </div>
     </div>
+    </GlobalControlsProvider>
   );
 }

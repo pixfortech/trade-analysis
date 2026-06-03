@@ -44,6 +44,42 @@ export function ThemedSelect({
   );
 }
 
+export type InstrumentSegment = "all" | "equity" | "indices" | "futures" | "options";
+
+const SEGMENTS: { value: InstrumentSegment; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "equity", label: "Equity" },
+  { value: "indices", label: "Index" },
+  { value: "futures", label: "Futures" },
+  { value: "options", label: "Options" },
+];
+
+/** Segmented control for instrument type (Equity / Index / Futures / Options). */
+export function InstrumentTypeSelector({
+  value,
+  onChange,
+}: {
+  value: InstrumentSegment;
+  onChange: (v: InstrumentSegment) => void;
+}) {
+  return (
+    <div className="inline-flex flex-wrap gap-1 rounded-lg border border-white/10 bg-base-800/60 p-0.5">
+      {SEGMENTS.map((s) => (
+        <button
+          key={s.value}
+          type="button"
+          onClick={() => onChange(s.value)}
+          className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+            value === s.value ? "bg-accent/20 text-accent" : "text-slate-400 hover:text-slate-200"
+          }`}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Hover/tap info tooltip ("What is this?"). Static-export safe (pure CSS/JS). */
 export function InfoTooltip({ label = "What is this?", children }: { label?: string; children: React.ReactNode }) {
   const id = useId();

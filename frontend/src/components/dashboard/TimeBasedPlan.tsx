@@ -10,12 +10,24 @@ import type { LiveSignal } from "@/types/api";
  * Advisory only — describes conditions to exit on, not guaranteed timing.
  */
 export function TimeBasedPlan({ signal }: { signal: LiveSignal }) {
-  const { side, rows } = buildTimeBasedPlan(signal);
+  const { side, rows, bestStyle, recommendedAction } = buildTimeBasedPlan(signal);
 
   return (
     <div className="mt-5">
+      {/* Summary: best holding style + recommended action */}
+      <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2">
+          <p className="text-[11px] text-slate-500">Best holding style now</p>
+          <p className="text-sm font-semibold capitalize text-slate-100">{bestStyle}</p>
+        </div>
+        <div className="rounded-lg border border-accent/20 bg-accent/5 px-3 py-2">
+          <p className="text-[11px] text-slate-500">Recommended action</p>
+          <p className="text-sm font-semibold text-accent">{recommendedAction}</p>
+        </div>
+      </div>
+
       <div className="mb-2 flex items-center gap-2">
-        <h3 className="text-sm font-semibold text-slate-200">Time-Based Plan</h3>
+        <h3 className="text-sm font-semibold text-slate-200">Time-Based Hold / Exit Plan</h3>
         <span
           className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
             side === "LONG"

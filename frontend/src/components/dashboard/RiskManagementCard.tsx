@@ -81,7 +81,24 @@ export function RiskManagementCard() {
         <Tile label="Capital" value={inr(capital)} big />
         <Tile label="Risk / trade" value={inr(riskAmount)} sub={`${settings.riskPercent}%`} />
         <Tile label="Risk / unit" value={num(perUnitRisk)} />
-        <Tile label="Max position (paper)" value={`${maxUnits} qty · ${maxLots} lot`} />
+        <Tile label="Suggested max size" value={`${maxUnits} qty · ${maxLots} lot`} />
+      </div>
+
+      {/* Risk-level banner (colour-coded) */}
+      <div
+        className={`mt-3 rounded-lg border px-3 py-2 text-xs ${
+          settings.riskPercent <= 1
+            ? "border-bull/30 bg-bull-soft text-bull"
+            : settings.riskPercent <= 1.5
+              ? "border-neutralSignal/30 bg-neutralSignal-soft text-neutralSignal"
+              : "border-bear/40 bg-bear-soft text-bear"
+        }`}
+      >
+        {settings.riskPercent <= 1
+          ? "Healthy risk — risking ≤1% per trade preserves capital across losing streaks."
+          : settings.riskPercent <= 1.5
+            ? "Moderate risk — acceptable, but keep losing streaks in mind."
+            : "High risk — risking >1.5% per trade can draw down capital fast. Consider reducing."}
       </div>
 
       {/* Controls */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
@@ -21,15 +21,17 @@ import { RiskManagementCard } from "@/components/dashboard/RiskManagementCard";
 import { TopPerformersCard } from "@/components/dashboard/TopPerformersCard";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
+  BREAKPOINTS,
+  COLS,
   DASHBOARD_CARDS,
-  GRID_COLS,
   GRID_MARGIN,
   LAYOUT_STORAGE_KEY,
-  MIN_W,
   ROW_HEIGHT,
   defaultState,
   reconcileState,
+  responsiveLayouts,
   titleFor,
+  type Breakpoint,
   type DashboardState,
   type RglItem,
 } from "@/lib/dashboardLayout";
@@ -60,20 +62,23 @@ export function DashboardGrid() {
   );
   const state = reconcileState(stored);
   const [editing, setEditing] = useState(false);
+  const bpRef = useRef<Breakpoint>("lg");
 
   const visibleItems = useMemo(
     () => state.layout.filter((it) => state.visible[it.i]),
     [state],
   );
 
-  // Persist new geometry as the user drags/resizes (desktop "lg" breakpoint).
+  // Persist geometry ONLY from the desktop (lg/md) breakpoint. Saving the
+  // derived mobile single-column layout would corrupt the user's desktop
+  // arrangement — that was part of the squeezed-layout bug.
   const onLayoutChange = useCallback(
     (current: Layout[]) => {
       if (!current?.length) return;
+      if (bpRef.current !== "lg" && bpRef.current !== "md") return;
       const next: RglItem[] = current.map((l) => ({ i: l.i, x: l.x, y: l.y, w: l.w, h: l.h }));
       setValue((cur) => {
         const base = reconcileState(cur);
-        // Merge updated geometry for visible cards; keep hidden cards' geometry.
         const byId = new Map(base.layout.map((it) => [it.i, it]));
         for (const it of next) byId.set(it.i, it);
         return { ...base, layout: Array.from(byId.values()) };
@@ -99,17 +104,23 @@ export function DashboardGrid() {
     [setValue],
   );
 
+  // After hydration the sidebar (hidden lg:flex) appears without firing a
+  // window resize, so WidthProvider can keep a stale/narrow measurement → thin
+  // cards + blank right side. Force a few remeasures once mounted.
+  useEffect(() => {
+    if (!hydrated) return;
+    const fire = () => window.dispatchEvent(new Event("resize"));
+    const timers = [0, 150, 400, 800].map((ms) => window.setTimeout(fire, ms));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [hydrated, visibleItems.length, editing]);
+
   // Avoid SSR/hydration mismatch: render the grid only after hydration.
   if (!hydrated) {
     return <div className="min-h-[40vh]" aria-hidden />;
   }
 
-  // minH per card so resizing can't crush content; defaults to ~60% of its
-  // default height (still scrolls internally if a user makes it smaller).
-  const minHById = new Map(DASHBOARD_CARDS.map((c) => [c.id, Math.max(6, Math.round(c.h * 0.6))]));
-  const layouts = {
-    lg: visibleItems.map((it) => ({ ...it, minW: MIN_W, minH: minHById.get(it.i) ?? 6 })),
-  };
+  // Derive layouts for every breakpoint from the persisted desktop items.
+  const layouts = responsiveLayouts(visibleItems);
 
   return (
     <>
@@ -146,8 +157,8 @@ export function DashboardGrid() {
         <ResponsiveGridLayout
           className="layout"
           layouts={layouts}
-          breakpoints={{ lg: 768, xs: 0 }}
-          cols={{ lg: GRID_COLS, xs: 1 }}
+          breakpoints={BREAKPOINTS}
+          cols={COLS}
           rowHeight={ROW_HEIGHT}
           margin={[GRID_MARGIN, GRID_MARGIN]}
           containerPadding={[0, 0]}
@@ -156,6 +167,9 @@ export function DashboardGrid() {
           draggableHandle=".widget-drag-handle"
           // Don't start a drag from interactive elements inside a card.
           draggableCancel="input,textarea,select,button,a,[role='listbox'],[role='combobox'],canvas,table,svg"
+          onBreakpointChange={(bp: string) => {
+            bpRef.current = bp as Breakpoint;
+          }}
           onLayoutChange={onLayoutChange}
           measureBeforeMount={false}
           useCSSTransforms
