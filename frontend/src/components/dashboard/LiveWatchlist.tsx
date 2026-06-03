@@ -6,6 +6,7 @@ import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { api } from "@/lib/apiClient";
 import { changeTextClass, num, pct } from "@/lib/format";
+import { useAiScanners } from "@/lib/aiScanners";
 
 interface WatchItem {
   instrument: string;
@@ -31,6 +32,7 @@ const DEFAULT_ITEMS: WatchItem[] = [
  */
 export function LiveWatchlist() {
   const { value: items, setValue: setItems, hydrated } = useLocalStorage<WatchItem[]>(STORAGE_KEY, DEFAULT_ITEMS);
+  const scanners = useAiScanners();
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
   const [live, setLive] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -122,14 +124,27 @@ export function LiveWatchlist() {
                       {q?.changePercent != null ? pct(q.changePercent) : "—"}
                     </td>
                     <td className="px-2 py-2.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => remove(it.instrument)}
-                        aria-label={`Remove ${it.displayName}`}
-                        className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-400 transition-colors hover:border-bear/30 hover:text-bear"
-                      >
-                        Remove
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => scanners.open({ instrument: it.instrument, displayName: it.displayName, exchange: it.exchange })}
+                          title="Open AI Trade Scanner"
+                          aria-label={`Analyse ${it.displayName}`}
+                          className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors ${
+                            scanners.has(it.instrument) ? "border-accent/40 bg-accent/10 text-accent" : "border-accent/30 text-accent hover:bg-accent/10"
+                          }`}
+                        >
+                          {scanners.has(it.instrument) ? "Open ▸" : "Analyse"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => remove(it.instrument)}
+                          aria-label={`Remove ${it.displayName}`}
+                          className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-400 transition-colors hover:border-bear/30 hover:text-bear"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

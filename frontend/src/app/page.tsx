@@ -4,10 +4,12 @@ import { GlobalControlBar } from "@/components/layout/GlobalControlBar";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
 import { FloatingTradeAssistant } from "@/components/dashboard/FloatingTradeAssistant";
 import { GlobalControlsProvider } from "@/hooks/useGlobalControls";
+import { AiScannersProvider } from "@/lib/aiScanners";
 
 export default function DashboardPage() {
   return (
     <GlobalControlsProvider>
+    <AiScannersProvider>
     <div className="flex min-h-screen">
       <Sidebar />
 
@@ -38,6 +40,7 @@ export default function DashboardPage() {
       {/* Sticky, always-on AI trade assistant (follows the selected instrument) */}
       <FloatingTradeAssistant />
     </div>
+    </AiScannersProvider>
     </GlobalControlsProvider>
   );
 }

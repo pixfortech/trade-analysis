@@ -17,6 +17,7 @@ import { STRATEGY_MODES, modeBlurb } from "@/lib/strategyModes";
 import { TimeBasedPlan } from "./TimeBasedPlan";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { Expandable } from "@/components/ui/Expandable";
+import { computeRiskLevel, type RiskLevel } from "@/lib/tradeAssistant";
 
 const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"];
 const DEFAULT_ACTIVE: IndicatorId[] = ["VWAP", "EMA20", "EMA50", "RSI", "MACD", "ADX", "ATR", "SUPERTREND", "VOLUME", "OI"];
@@ -88,6 +89,13 @@ export function LiveMarketSignal() {
     const id = window.setInterval(() => void run(), 5000);
     return () => window.clearInterval(id);
   }, [global.liveUpdates, sel, signal.data, run]);
+
+  // Reflow the grid once a result arrives so the summary/indicators fit cleanly.
+  useEffect(() => {
+    if (!signal.data) return;
+    const timers = [0, 120, 320].map((ms) => window.setTimeout(() => window.dispatchEvent(new Event("resize")), ms));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [signal.data]);
 
   return (
     <Card
@@ -212,11 +220,16 @@ export function LiveMarketSignal() {
               <span>· Mode: <span className="capitalize">{riskProfile}</span></span>
               <span>· Updated: {formatTime(signal.data.timestamp)}</span>
             </div>
-            {chart && chart.candles.length > 0 && (
-              <div className="mb-4 rounded-lg border border-white/5 bg-base-800/30 p-2">
-                <LiveChart data={chart} priceLines={priceLinesFor(signal.data)} />
-              </div>
-            )}
+            {/* Prominent result summary (fills the previously empty space).
+                Side-by-side with the chart on wide screens; stacked on mobile. */}
+            <div className={`mb-4 grid gap-4 ${chart && chart.candles.length > 0 ? "lg:grid-cols-2" : ""}`}>
+              <ResultSummary s={signal.data} />
+              {chart && chart.candles.length > 0 && (
+                <div className="rounded-lg border border-white/5 bg-base-800/30 p-2">
+                  <LiveChart data={chart} priceLines={priceLinesFor(signal.data)} />
+                </div>
+              )}
+            </div>
             <Expandable title={`Live Market Signal — ${signal.data.resolvedInstrument.displayName || signal.data.instrument}`}>
               <SignalView s={signal.data} />
               <TimeBasedPlan signal={signal.data} />
@@ -255,6 +268,77 @@ const ACTION_CLS: Record<SignalAction, string> = {
   WAIT: "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal",
   AVOID: "border-bear/40 bg-bear-soft text-bear",
 };
+
+const RISK_CLS: Record<RiskLevel, string> = {
+  Low: "border-bull/40 bg-bull-soft text-bull",
+  Medium: "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal",
+  High: "border-bear/40 bg-bear-soft text-bear",
+  Extreme: "border-bear/60 bg-bear/20 text-bear",
+};
+
+/**
+ * Compact, prominent result summary shown immediately after Analyze — fills the
+ * previously empty area with the decision, bullish/bearish %, risk, confidence
+ * and key levels. Detailed indicators stay below in the expandable view.
+ */
+function ResultSummary({ s }: { s: LiveSignal }) {
+  const action = s.finalDecision.action;
+  const long = action === "LONG";
+  const short = action === "SHORT";
+  const setup = short ? s.shortSetup : s.longSetup;
+  const entry = (long ? setup.entryAbove : short ? setup.entryBelow : setup.entryAbove) ?? null;
+  const risk = computeRiskLevel(s);
+  const bull = s.probability.bullishPercent;
+  const bear = s.probability.bearishPercent;
+  return (
+    <div className="rounded-xl border border-white/10 bg-base-800/40 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`inline-flex items-center rounded-lg border px-3 py-1.5 text-lg font-bold uppercase tracking-wide ${ACTION_CLS[action]}`}>{action}</span>
+        <div className="text-right">
+          <p className="num text-2xl font-bold text-slate-100">{num(s.currentPrice)}</p>
+          <p className="text-[10px] uppercase tracking-wide text-slate-500">CMP · {s.probability.confidence} confidence</p>
+        </div>
+      </div>
+      <div className="mt-3">
+        <div className="mb-1 flex items-center justify-between text-xs">
+          <span className="font-semibold text-bull">Bullish {bull}%</span>
+          <span className="text-slate-500">win est. {s.probability.estimatedWinPercent}%</span>
+          <span className="font-semibold text-bear">{bear}% Bearish</span>
+        </div>
+        <div className="flex h-2.5 overflow-hidden rounded-full bg-base-700">
+          <div className="bg-bull" style={{ width: `${bull}%` }} />
+          <div className="bg-bear" style={{ width: `${bear}%` }} />
+        </div>
+      </div>
+      <div className="mt-3 grid grid-cols-3 gap-1.5 text-center sm:grid-cols-5">
+        <div className={`rounded-md border px-1.5 py-1 ${RISK_CLS[risk]}`}>
+          <p className="text-[9px] uppercase opacity-80">Risk</p>
+          <p className="text-xs font-bold">{risk}</p>
+        </div>
+        <div className="rounded-md border border-white/10 bg-base-800/60 px-1.5 py-1">
+          <p className="text-[9px] uppercase text-slate-500">Conf.</p>
+          <p className="text-xs font-bold text-slate-200">{s.probability.estimatedWinPercent}%</p>
+        </div>
+        <MiniLvl label="Entry" value={entry} />
+        <MiniLvl label="SL" value={setup.stopLoss} tone="bear" />
+        <MiniLvl label="T1" value={setup.target1} tone="bull" />
+      </div>
+      <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-400">
+        <span className="font-semibold text-slate-300">Why: </span>{s.finalDecision.reason}
+      </p>
+    </div>
+  );
+}
+
+function MiniLvl({ label, value, tone }: { label: string; value: number | null; tone?: "bull" | "bear" }) {
+  const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : "text-slate-100";
+  return (
+    <div className="rounded-md border border-white/10 bg-base-800/60 px-1.5 py-1">
+      <p className="text-[9px] uppercase text-slate-500">{label}</p>
+      <p className={`num text-xs font-bold ${value == null ? "text-slate-500" : c}`}>{value == null ? "—" : num(value)}</p>
+    </div>
+  );
+}
 
 function SignalView({ s }: { s: LiveSignal }) {
   return (

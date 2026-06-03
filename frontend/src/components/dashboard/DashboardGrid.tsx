@@ -19,6 +19,7 @@ import { PaperTradingPanel } from "@/components/dashboard/PaperTradingPanel";
 import { AccountSummaryCard } from "@/components/dashboard/AccountSummaryCard";
 import { RiskManagementCard } from "@/components/dashboard/RiskManagementCard";
 import { TopPerformersCard } from "@/components/dashboard/TopPerformersCard";
+import { AITradeScanners } from "@/components/dashboard/AITradeScanners";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import {
@@ -44,6 +45,7 @@ const CARD_COMPONENTS: Record<string, React.ReactNode> = {
   "kite-status": <KiteStatusCard />,
   "account-summary": <AccountSummaryCard />,
   "live-market-signal": <LiveMarketSignal />,
+  "ai-scanners": <AITradeScanners />,
   "ai-recommendation": <LiveAIRecommendation />,
   "risk-management": <RiskManagementCard />,
   "active-trade-monitor": <ActiveTradeMonitorCard />,
