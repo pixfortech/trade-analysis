@@ -35,3 +35,26 @@ test("does not allow look-alike domains", () => {
   assert.equal(isOriginAllowed("https://app.github.dev.evil.com", allowed, true), false);
   assert.equal(isOriginAllowed("not-a-url", allowed, true), false);
 });
+
+test("allows the deployed Firebase frontend (production)", () => {
+  // Production (allowDevWildcards=false), explicit allowed list empty → must
+  // still pass via the Firebase suffix rule.
+  assert.equal(isOriginAllowed("https://trade-analysis-ai-engine.web.app", [], false), true);
+  assert.equal(isOriginAllowed("https://trade-analysis-ai-engine.firebaseapp.com", [], false), true);
+});
+
+test("allows any Firebase Hosting domain (preview channels) in production", () => {
+  assert.equal(isOriginAllowed("https://some-preview--abc.web.app", [], false), true);
+  assert.equal(isOriginAllowed("https://other-site.firebaseapp.com", [], false), true);
+});
+
+test("default allow-list (no args) covers Firebase + localhost", () => {
+  // Using the real defaults (DEFAULT_ALLOWED_ORIGINS + env.corsOrigin).
+  assert.equal(isOriginAllowed("https://trade-analysis-ai-engine.web.app"), true);
+  assert.equal(isOriginAllowed("http://localhost:3000"), true);
+});
+
+test("rejects Firebase look-alike domains", () => {
+  assert.equal(isOriginAllowed("https://web.app.evil.com", [], false), false);
+  assert.equal(isOriginAllowed("https://firebaseapp.com.evil.com", [], false), false);
+});
