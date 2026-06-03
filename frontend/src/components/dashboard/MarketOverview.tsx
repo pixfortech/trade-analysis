@@ -5,7 +5,7 @@ import { changeTextClass, num, pct, signed } from "@/lib/format";
 
 export function MarketOverview() {
   return (
-    <Card id="overview" title="Market Overview" subtitle="Key indices · demo data">
+    <Card id="overview" title="Market Overview" subtitle="Key indices · sample data (not live)">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {marketIndices.map((idx) => {
           const up = idx.change >= 0;

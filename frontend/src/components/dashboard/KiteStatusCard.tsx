@@ -27,7 +27,7 @@ export function KiteStatusCard() {
 
   return (
     <Card
-      id="kite"
+      id="kite-status"
       title="Live Data — Zerodha Kite"
       subtitle="Read-only market data · Phase 3A"
       action={data ? <StatusBadge status={data} /> : null}

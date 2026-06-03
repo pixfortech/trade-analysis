@@ -1,14 +1,15 @@
 // Typed frontend API client for the backend.
 //
 // Backend base-URL resolution (in priority order):
-//   1. NEXT_PUBLIC_BACKEND_URL — explicit override (see .env.local.example).
-//   2. GitHub Codespaces auto-detect (browser only): the forwarded frontend URL
+//   1. NEXT_PUBLIC_API_BASE_URL — explicit override (production: Cloud Run).
+//   2. NEXT_PUBLIC_BACKEND_URL — legacy override (kept for back-compat).
+//   3. GitHub Codespaces auto-detect (browser only): the forwarded frontend URL
 //      https://<name>-3000.app.github.dev  ->  https://<name>-4000.app.github.dev
-//   3. http://localhost:4000 — normal local development.
+//   4. localhost:4000 in dev; the deployed Cloud Run backend otherwise.
 //
 // The frontend talks to the BACKEND only. The AI engine stays backend-side
 // (the backend calls it), so the browser never hits port 8000 directly.
-// All data is mock/demo in Phase 2.
+// Live market data comes from the backend's read-only Kite integration.
 
 import type {
   AccountSummaryResponse,
@@ -69,9 +70,13 @@ const CODESPACES_BACKEND_SUFFIX = "-4000.app.github.dev";
  * Returns a URL with no trailing slash. Safe to call during SSR (falls back
  * to localhost when `window` is unavailable).
  */
+// Deployed Cloud Run backend — used as the production fallback so the static
+// Firebase build always has a working API target even without an env var.
+const CLOUD_RUN_BACKEND = "https://trade-analysis-backend-452185410229.asia-south1.run.app";
+
 export function getBackendBaseUrl(): string {
-  // 1) Explicit override always wins.
-  const envUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim();
+  // 1) Explicit overrides win (NEXT_PUBLIC_API_BASE_URL preferred; legacy name kept).
+  const envUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? process.env.NEXT_PUBLIC_BACKEND_URL)?.trim();
   if (envUrl) return envUrl.replace(/\/+$/, "");
 
   // 2) Auto-detect a GitHub Codespaces forwarded URL from the browser origin.
@@ -80,10 +85,13 @@ export function getBackendBaseUrl(): string {
     if (origin.includes(CODESPACES_FRONTEND_SUFFIX)) {
       return origin.replace(CODESPACES_FRONTEND_SUFFIX, CODESPACES_BACKEND_SUFFIX);
     }
+    // 3) Local dev → local backend; any other host (e.g. Firebase) → Cloud Run.
+    if (origin.includes("localhost") || origin.includes("127.0.0.1")) return "http://localhost:4000";
+    return CLOUD_RUN_BACKEND;
   }
 
-  // 3) Local development fallback.
-  return "http://localhost:4000";
+  // 4) SSR/build-time fallback: the deployed backend.
+  return CLOUD_RUN_BACKEND;
 }
 
 /** Error thrown for any non-OK response or network/timeout failure. */

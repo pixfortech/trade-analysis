@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Responsive, WidthProvider, type Layout } from "react-grid-layout";
+import "react-grid-layout/css/styles.css";
+import "react-resizable/css/styles.css";
 import { MarketOverview } from "@/components/dashboard/MarketOverview";
 import { AITradeRecommendation } from "@/components/dashboard/AITradeRecommendation";
 import { FuturesAnalysis } from "@/components/dashboard/FuturesAnalysis";
@@ -18,25 +21,31 @@ import { RiskManagementCard } from "@/components/dashboard/RiskManagementCard";
 import { TopPerformersCard } from "@/components/dashboard/TopPerformersCard";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import {
+  DASHBOARD_CARDS,
+  GRID_COLS,
+  GRID_MARGIN,
   LAYOUT_STORAGE_KEY,
-  MIN_WIDGET_PX,
-  defaultLayout,
-  reconcileLayout,
-  sizeToSpan,
-  type CardState,
-  type WidgetSize,
+  MIN_W,
+  ROW_HEIGHT,
+  defaultState,
+  reconcileState,
+  titleFor,
+  type DashboardState,
+  type RglItem,
 } from "@/lib/dashboardLayout";
+
+const ResponsiveGridLayout = WidthProvider(Responsive);
 
 const CARD_COMPONENTS: Record<string, React.ReactNode> = {
   "market-status": <MarketStatusCard />,
-  "live-market-signal": <LiveMarketSignal />,
-  "paper-trading": <PaperTradingPanel />,
-  "active-trade-monitor": <ActiveTradeMonitorCard />,
-  "account-summary": <AccountSummaryCard />,
-  "risk-management": <RiskManagementCard />,
-  "top-performers": <TopPerformersCard />,
-  watchlist: <LiveWatchlist />,
   "kite-status": <KiteStatusCard />,
+  "account-summary": <AccountSummaryCard />,
+  "live-market-signal": <LiveMarketSignal />,
+  watchlist: <LiveWatchlist />,
+  "top-performers": <TopPerformersCard />,
+  "active-trade-monitor": <ActiveTradeMonitorCard />,
+  "risk-management": <RiskManagementCard />,
+  "paper-trading": <PaperTradingPanel />,
   "market-overview": <MarketOverview />,
   "ai-recommendation": <AITradeRecommendation />,
   "futures-analysis": <FuturesAnalysis />,
@@ -45,91 +54,139 @@ const CARD_COMPONENTS: Record<string, React.ReactNode> = {
 };
 
 export function DashboardGrid() {
-  const { value: stored, setValue, reset, hydrated } = useLocalStorage<CardState[]>(
+  const { value: stored, setValue, reset, hydrated } = useLocalStorage<DashboardState>(
     LAYOUT_STORAGE_KEY,
-    defaultLayout(),
+    defaultState(),
   );
-  const layout = reconcileLayout(stored);
+  const state = reconcileState(stored);
+  const [editing, setEditing] = useState(false);
 
-  const toggle = useCallback(
-    (id: string) => setValue((cur) => reconcileLayout(cur).map((c) => (c.id === id ? { ...c, visible: !c.visible } : c))),
+  const visibleItems = useMemo(
+    () => state.layout.filter((it) => state.visible[it.i]),
+    [state],
+  );
+
+  // Persist new geometry as the user drags/resizes (desktop "lg" breakpoint).
+  const onLayoutChange = useCallback(
+    (current: Layout[]) => {
+      if (!current?.length) return;
+      const next: RglItem[] = current.map((l) => ({ i: l.i, x: l.x, y: l.y, w: l.w, h: l.h }));
+      setValue((cur) => {
+        const base = reconcileState(cur);
+        // Merge updated geometry for visible cards; keep hidden cards' geometry.
+        const byId = new Map(base.layout.map((it) => [it.i, it]));
+        for (const it of next) byId.set(it.i, it);
+        return { ...base, layout: Array.from(byId.values()) };
+      });
+    },
     [setValue],
   );
 
-  const move = useCallback(
-    (id: string, dir: -1 | 1) =>
+  const toggle = useCallback(
+    (id: string) =>
       setValue((cur) => {
-        const arr = reconcileLayout(cur);
-        const i = arr.findIndex((c) => c.id === id);
-        const j = i + dir;
-        if (i < 0 || j < 0 || j >= arr.length) return arr;
-        const next = [...arr];
-        [next[i], next[j]] = [next[j], next[i]];
-        return next;
+        const base = reconcileState(cur);
+        const nowVisible = !base.visible[id];
+        const visible = { ...base.visible, [id]: nowVisible };
+        let layout = base.layout;
+        if (nowVisible && !layout.some((it) => it.i === id)) {
+          const def = DASHBOARD_CARDS.find((c) => c.id === id)!;
+          const maxY = layout.reduce((m, it) => Math.max(m, it.y + it.h), 0);
+          layout = [...layout, { i: id, x: 0, y: maxY, w: def.w, h: def.h }];
+        }
+        return { visible, layout };
       }),
     [setValue],
   );
 
-  const resize = useCallback(
-    (id: string, size: WidgetSize) => setValue((cur) => reconcileLayout(cur).map((c) => (c.id === id ? { ...c, size } : c))),
-    [setValue],
-  );
+  // Avoid SSR/hydration mismatch: render the grid only after hydration.
+  if (!hydrated) {
+    return <div className="min-h-[40vh]" aria-hidden />;
+  }
 
-  const visible = layout.filter((c) => c.visible);
-
-  // Track how many base columns currently fit, so a "large"/"full" widget can
-  // span the right amount. The grid itself is auto-fit minmax(MIN_WIDGET_PX,1fr)
-  // via INLINE STYLES — no Tailwind span classes (those were purged and caused
-  // the strip regression).
-  const gridRef = useRef<HTMLDivElement>(null);
-  const [cols, setCols] = useState(1);
-  useEffect(() => {
-    const el = gridRef.current;
-    if (!el) return;
-    const GAP = 20; // matches the 1.25rem gap below
-    const measure = () => {
-      const w = el.clientWidth;
-      setCols(Math.max(1, Math.floor((w + GAP) / (MIN_WIDGET_PX + GAP))));
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  const layouts = {
+    lg: visibleItems.map((it) => ({ ...it, minW: MIN_W, minH: 4 })),
+  };
 
   return (
     <>
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <p className="text-sm text-slate-400">{hydrated ? `${visible.length} of ${layout.length} widgets shown` : " "}</p>
-        <CustomizePanel layout={layout} onToggle={toggle} onMove={move} onResize={resize} onReset={reset} />
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-slate-400">
+          {visibleItems.length} widget{visibleItems.length === 1 ? "" : "s"} shown · live read-only data
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEditing((v) => !v)}
+            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+              editing ? "border-accent/40 bg-accent/10 text-accent" : "border-white/10 bg-base-800/70 text-slate-200 hover:bg-base-700"
+            }`}
+          >
+            {editing ? "Done arranging" : "Arrange widgets"}
+          </button>
+          <CustomizePanel visible={state.visible} onToggle={toggle} onReset={reset} />
+        </div>
       </div>
 
-      {/* Responsive auto-fit grid: every column is >= MIN_WIDGET_PX, so a widget
-          can never collapse into a thin strip. Single column on narrow screens. */}
-      <div
-        ref={gridRef}
-        style={{
-          display: "grid",
-          gap: "1.25rem",
-          gridTemplateColumns: `repeat(auto-fit, minmax(min(${MIN_WIDGET_PX}px, 100%), 1fr))`,
-        }}
-      >
-        {visible.length === 0 && (
-          <p className="rounded-xl border border-dashed border-white/10 bg-base-800/40 px-4 py-10 text-center text-slate-400">
-            All widgets are hidden. Click <span className="text-slate-200">Customise</span> to show some.
-          </p>
-        )}
-        {visible.map((c) => {
-          // Clamp the span to the columns that actually fit (never overflow,
-          // never below 1). On a 1-column layout everything is full width.
-          const span = Math.min(sizeToSpan(c.size), cols) || 1;
-          return (
-            <div key={c.id} style={{ gridColumn: cols > 1 ? `span ${span}` : "auto", minWidth: 0 }}>
-              {CARD_COMPONENTS[c.id] ?? null}
+      {editing && (
+        <p className="mb-3 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs text-accent">
+          Drag a widget by its title bar to move it; drag the bottom-right corner to resize. Your layout saves
+          automatically.
+        </p>
+      )}
+
+      {visibleItems.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-white/10 bg-base-800/40 px-4 py-10 text-center text-slate-400">
+          No widgets shown. Click <span className="text-slate-200">Customise</span> to add some.
+        </p>
+      ) : (
+        <ResponsiveGridLayout
+          className="layout"
+          layouts={layouts}
+          breakpoints={{ lg: 768, xs: 0 }}
+          cols={{ lg: GRID_COLS, xs: 1 }}
+          rowHeight={ROW_HEIGHT}
+          margin={[GRID_MARGIN, GRID_MARGIN]}
+          containerPadding={[0, 0]}
+          isDraggable={editing}
+          isResizable={editing}
+          draggableHandle=".widget-drag-handle"
+          // Don't start a drag from interactive elements inside a card.
+          draggableCancel="input,textarea,select,button,a,[role='listbox'],[role='combobox'],canvas,table,svg"
+          onLayoutChange={onLayoutChange}
+          measureBeforeMount={false}
+          useCSSTransforms
+        >
+          {visibleItems.map((it) => (
+            <div key={it.i} className="h-full">
+              <Widget id={it.i} editing={editing}>
+                {CARD_COMPONENTS[it.i] ?? null}
+              </Widget>
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </ResponsiveGridLayout>
+      )}
     </>
+  );
+}
+
+/** Wraps a card; in edit mode shows a drag handle bar at the top. */
+function Widget({ id, editing, children }: { id: string; editing: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {editing && (
+        <div className="widget-drag-handle flex cursor-move items-center justify-between rounded-t-lg border border-b-0 border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent">
+          <span className="flex items-center gap-1.5">
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden>
+              <circle cx="8" cy="6" r="1.4" /><circle cx="8" cy="12" r="1.4" /><circle cx="8" cy="18" r="1.4" />
+              <circle cx="16" cy="6" r="1.4" /><circle cx="16" cy="12" r="1.4" /><circle cx="16" cy="18" r="1.4" />
+            </svg>
+            {titleFor(id)}
+          </span>
+          <span className="text-[10px] uppercase tracking-wide text-accent/70">drag · resize ↘</span>
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+    </div>
   );
 }

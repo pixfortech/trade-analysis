@@ -15,19 +15,18 @@ export default function DashboardPage() {
             <MobileNav />
           </div>
 
-          {/* Customisable dashboard (visibility + order persisted in localStorage) */}
+          {/* Draggable/resizable dashboard (layout + visibility saved in localStorage) */}
           <DashboardGrid />
 
           <footer className="mt-10 border-t border-white/5 pt-6 text-center text-xs leading-relaxed text-slate-500">
             <p>
-              AI Share Market Analysis Tool · Live data via Zerodha Kite is{" "}
-              <span className="text-slate-400">read-only</span>. Other widgets use mock/demo data until wired to
-              live sources.
+              AI Share Market Analysis Tool · Live read-only market data via Zerodha Kite. Advisory analysis only —
+              for decision support, with no automatic trade execution.
             </p>
             <p className="mt-1.5">
-              ⚠️ Educational use only. Not investment advice. No order placement or trade execution. Trading in
-              equities, futures &amp; options involves substantial risk of loss. Live data depends on authorised API
-              providers.
+              ⚠️ Not investment advice. No order placement, modification or trade execution. Trading in equities,
+              futures &amp; options involves substantial risk of loss. Levels and probabilities are estimates based on
+              live/historical data.
             </p>
           </footer>
         </main>

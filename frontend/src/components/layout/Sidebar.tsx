@@ -36,7 +36,7 @@ export function Sidebar() {
 
       <div className="border-t border-white/5 px-5 py-4">
         <p className="text-[11px] leading-relaxed text-slate-500">
-          Phase 1 · Mock data only. Not investment advice.
+          Live read-only market data via Zerodha Kite. Advisory analysis only — no order execution.
         </p>
       </div>
     </aside>

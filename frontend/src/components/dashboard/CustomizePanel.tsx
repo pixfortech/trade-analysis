@@ -1,31 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import type { CardState, WidgetSize } from "@/lib/dashboardLayout";
-import { SIZE_LABELS, titleFor } from "@/lib/dashboardLayout";
-
-const SIZES: WidgetSize[] = ["small", "medium", "large", "full"];
+import { DASHBOARD_CARDS, titleFor } from "@/lib/dashboardLayout";
 
 /**
- * Dashboard customisation panel (Phase 3D–3G). Toggle widget visibility,
- * reorder with up/down controls, choose a SIZE preset, and reset to default.
- * Layout persists via the parent (localStorage). Stable size presets instead
- * of fragile drag-resize.
+ * Dashboard customisation panel (Phase 3H). Show/hide widgets and reset the
+ * layout. Live-data widgets are listed first; sample/simulation widgets are
+ * grouped separately and clearly labelled. Visibility persists via the parent.
  */
 export function CustomizePanel({
-  layout,
+  visible,
   onToggle,
-  onMove,
-  onResize,
   onReset,
 }: {
-  layout: CardState[];
+  visible: Record<string, boolean>;
   onToggle: (id: string) => void;
-  onMove: (id: string, dir: -1 | 1) => void;
-  onResize: (id: string, size: WidgetSize) => void;
   onReset: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const liveCards = DASHBOARD_CARDS.filter((c) => c.live);
+  const sampleCards = DASHBOARD_CARDS.filter((c) => !c.live);
 
   return (
     <>
@@ -59,75 +53,52 @@ export function CustomizePanel({
             </div>
 
             <p className="mb-4 text-sm text-slate-400">
-              Show/hide widgets, reorder them, and set a size. Your layout is saved in this browser.
+              Show or hide widgets. Use <span className="text-slate-200">Arrange widgets</span> on the dashboard to
+              drag and resize them. Your choices are saved in this browser.
             </p>
 
-            <ul className="space-y-2">
-              {layout.map((card, i) => (
-                <li key={card.id} className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <label className="flex flex-1 cursor-pointer items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={card.visible}
-                        onChange={() => onToggle(card.id)}
-                        className="h-4 w-4 accent-blue-500"
-                      />
-                      <span className={`text-[15px] ${card.visible ? "text-slate-100" : "text-slate-500"}`}>
-                        {titleFor(card.id)}
-                      </span>
-                    </label>
-                    <div className="flex gap-1">
-                      <button
-                        type="button"
-                        onClick={() => onMove(card.id, -1)}
-                        disabled={i === 0}
-                        aria-label={`Move ${titleFor(card.id)} up`}
-                        className="grid h-7 w-7 place-items-center rounded-md border border-white/10 text-slate-300 hover:bg-white/5 disabled:opacity-30"
-                      >
-                        ↑
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onMove(card.id, 1)}
-                        disabled={i === layout.length - 1}
-                        aria-label={`Move ${titleFor(card.id)} down`}
-                        className="grid h-7 w-7 place-items-center rounded-md border border-white/10 text-slate-300 hover:bg-white/5 disabled:opacity-30"
-                      >
-                        ↓
-                      </button>
-                    </div>
-                  </div>
-                  {card.visible && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {SIZES.map((s) => (
-                        <button
-                          key={s}
-                          type="button"
-                          onClick={() => onResize(card.id, s)}
-                          className={`rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                            card.size === s ? "border-accent/40 bg-accent/10 text-accent" : "border-white/10 text-slate-400 hover:text-slate-200"
-                          }`}
-                        >
-                          {SIZE_LABELS[s]}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </li>
+            <Section title="Live data">
+              {liveCards.map((c) => (
+                <Row key={c.id} id={c.id} on={Boolean(visible[c.id])} onToggle={onToggle} />
               ))}
-            </ul>
+            </Section>
+
+            <Section title="Sample / simulation (not live data)">
+              {sampleCards.map((c) => (
+                <Row key={c.id} id={c.id} on={Boolean(visible[c.id])} onToggle={onToggle} />
+              ))}
+            </Section>
 
             <button
               type="button"
               onClick={onReset}
               className="mt-5 w-full rounded-lg border border-white/10 bg-base-800/70 px-3 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:bg-base-700"
             >
-              Reset to default layout
+              Reset layout to default
             </button>
           </aside>
         </div>
       )}
     </>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-4">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{title}</p>
+      <ul className="space-y-2">{children}</ul>
+    </div>
+  );
+}
+
+function Row({ id, on, onToggle }: { id: string; on: boolean; onToggle: (id: string) => void }) {
+  return (
+    <li className="flex items-center justify-between gap-2 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
+      <label className="flex flex-1 cursor-pointer items-center gap-3">
+        <input type="checkbox" checked={on} onChange={() => onToggle(id)} className="h-4 w-4 accent-blue-500" />
+        <span className={`text-[15px] ${on ? "text-slate-100" : "text-slate-500"}`}>{titleFor(id)}</span>
+      </label>
+    </li>
   );
 }

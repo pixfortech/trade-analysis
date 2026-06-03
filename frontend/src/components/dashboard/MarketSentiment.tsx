@@ -4,7 +4,7 @@ import { signalClasses } from "@/lib/format";
 
 export function MarketSentiment() {
   return (
-    <Card id="sentiment" title="Market Sentiment" subtitle="Composite gauges · demo data">
+    <Card id="sentiment" title="Market Sentiment" subtitle="Composite gauges · sample data (not live)">
       <div className="space-y-4">
         {sentimentGauges.map((g) => {
           const s = signalClasses(g.signal);

@@ -11,7 +11,7 @@ export function AITradeRecommendation() {
     <Card
       id="ai-reco"
       title="AI Trade Recommendation"
-      subtitle="Model output · placeholder"
+      subtitle="Model output · sample data (not live)"
       action={<SignalPill signal={r.signal} />}
     >
       <div className="flex items-center justify-between">

@@ -5,7 +5,7 @@ import { changeTextClass, num, pct, signalClasses } from "@/lib/format";
 
 export function FuturesAnalysis() {
   return (
-    <Card id="futures" title="Futures Analysis" subtitle="Basis & OI build-up · demo data">
+    <Card id="futures" title="Futures Analysis" subtitle="Basis & OI build-up · sample data (not live)">
       <div className="-mx-4 overflow-x-auto sm:-mx-5">
         <table className="w-full min-w-[540px] text-sm">
           <thead>

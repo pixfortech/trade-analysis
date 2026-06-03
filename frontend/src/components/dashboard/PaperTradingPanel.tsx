@@ -83,11 +83,11 @@ export function PaperTradingPanel() {
   return (
     <Card
       id="paper-trading"
-      title="Paper Trading"
-      subtitle="SIMULATED — no real orders are ever placed"
+      title="Manual Trade Tracker"
+      subtitle="Track positions with live prices — no real orders are placed"
       action={
         <span className="rounded-full border border-neutralSignal/40 bg-neutralSignal-soft px-3 py-1 text-xs font-semibold text-neutralSignal">
-          SIMULATED ONLY
+          SIMULATION
         </span>
       }
     >

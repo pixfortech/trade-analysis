@@ -56,6 +56,36 @@
   }
 }
 
+/* ---------------------------------------------------------------------------
+   react-grid-layout: make widgets fill their grid cell, plus dark-theme resize
+   handles and smooth drag placeholder. The card inside should stretch to the
+   full height of its grid item.
+   --------------------------------------------------------------------------- */
+.react-grid-item > div,
+.react-grid-item .card {
+  height: 100%;
+}
+.react-grid-item.react-grid-placeholder {
+  background: rgba(59, 130, 246, 0.18);
+  border: 1px dashed rgba(59, 130, 246, 0.5);
+  border-radius: 0.75rem;
+}
+.react-grid-item.react-draggable-dragging,
+.react-grid-item.resizing {
+  z-index: 30;
+  opacity: 0.95;
+}
+.react-grid-item > .react-resizable-handle {
+  z-index: 20;
+}
+/* Recolour the default SE resize handle so it's visible on dark cards. */
+.react-grid-item > .react-resizable-handle::after {
+  border-right-color: rgba(148, 163, 184, 0.7);
+  border-bottom-color: rgba(148, 163, 184, 0.7);
+  width: 8px;
+  height: 8px;
+}
+
 /* =====================================================================
    Light theme (Phase 3G). Applied via html.light. Overrides the dark
    palette tokens used across components so the UI stays readable without

@@ -99,7 +99,7 @@ export function RiskManagementCard() {
           <div className="h-full rounded-full bg-neutralSignal" style={{ width: `${Math.min(settings.riskPercent * 6, 100)}%` }} />
         </div>
         <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-          Sizes are for paper trading and education only. Capital source: <span className="text-slate-400">{capitalSource}</span>.
+          Position sizes are advisory, for decision support only. Capital source: <span className="text-slate-400">{capitalSource}</span>.
           {capitalSource === "fallback" ? " Enter capital manually or connect Zerodha." : ""}
         </p>
       </div>

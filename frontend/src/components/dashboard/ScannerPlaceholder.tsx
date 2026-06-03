@@ -8,7 +8,7 @@ export function ScannerPlaceholder() {
     <Card
       id="scanner"
       title="Scanner"
-      subtitle="Setups across segments · placeholder"
+      subtitle="Setups across segments · sample data (not live)"
       action={
         <button
           type="button"

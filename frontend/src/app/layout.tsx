@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "AI Share Market Analysis Tool",
   description:
-    "Premium dark-mode dashboard for AI-powered Indian share market analysis (Equity, Futures, Options, Nifty, Bank Nifty, Fin Nifty). Phase 1 — demo data only.",
+    "Live read-only dashboard for Indian share market analysis (Equity, Futures, Options, Nifty, Bank Nifty, Fin Nifty) via Zerodha Kite. Advisory analysis only — no trade execution.",
 };
 
 export const viewport: Viewport = {
