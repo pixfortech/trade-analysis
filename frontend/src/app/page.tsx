@@ -2,6 +2,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { GlobalControlBar } from "@/components/layout/GlobalControlBar";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
+import { FloatingTradeAssistant } from "@/components/dashboard/FloatingTradeAssistant";
 import { GlobalControlsProvider } from "@/hooks/useGlobalControls";
 
 export default function DashboardPage() {
@@ -11,7 +12,7 @@ export default function DashboardPage() {
       <Sidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <main className="mx-auto w-full min-w-0 max-w-[1600px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
+        <main className="mx-auto w-full min-w-0 max-w-[1600px] flex-1 px-4 py-6 pb-28 sm:px-6 lg:px-8 lg:pb-10">
           <Header />
 
           {/* Global live-monitoring + alerts controls */}
@@ -33,6 +34,9 @@ export default function DashboardPage() {
           </footer>
         </main>
       </div>
+
+      {/* Sticky, always-on AI trade assistant (follows the selected instrument) */}
+      <FloatingTradeAssistant />
     </div>
     </GlobalControlsProvider>
   );

@@ -12,6 +12,24 @@
     scroll-behavior: smooth;
     /* Never allow the page itself to scroll sideways. */
     overflow-x: hidden;
+    /* Global font scale (Phase 3L). Tailwind type + spacing are rem-based, so
+       scaling the root font-size scales the whole UI consistently. The active
+       scale is chosen by the visible Font Size control (sets html.font-*). */
+    font-size: calc(16px * var(--app-font-scale, 1));
+  }
+
+  /* Font-size presets — applied as a class on <html> by the Font Size control. */
+  html.font-compact {
+    --app-font-scale: 0.9;
+  }
+  html.font-normal {
+    --app-font-scale: 1;
+  }
+  html.font-large {
+    --app-font-scale: 1.12;
+  }
+  html.font-xl {
+    --app-font-scale: 1.28;
   }
 
   body {
@@ -19,8 +37,9 @@
     font-family: var(--font-sans);
     overflow-x: hidden;
     max-width: 100vw;
-    /* Readability: comfortable base body size (16px) + relaxed line-height. */
-    font-size: 16px;
+    /* Readability: comfortable base body size + relaxed line-height. Uses rem so
+       the global font scale (html.font-*) applies to everything. */
+    font-size: 1rem;
     line-height: 1.55;
     background-image:
       radial-gradient(900px 500px at 100% -10%, rgba(59, 130, 246, 0.08), transparent 60%),
@@ -65,7 +84,7 @@
   /* Nudge the very small helper labels up to ~12px so they stay readable,
      without changing every component. (Tailwind text-[11px] → 12px.) */
   .text-\[11px\] {
-    font-size: 12px;
+    font-size: 0.78rem;
     line-height: 1.45;
   }
 }

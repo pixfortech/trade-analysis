@@ -13,6 +13,7 @@ import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { TimeBasedPlan } from "./TimeBasedPlan";
 import { LevelRow } from "./LevelRow";
 import { Expandable } from "@/components/ui/Expandable";
+import { computeTrailStop } from "@/lib/tradeAssistant";
 import type { LiveSignal, SignalAction } from "@/types/api";
 
 const ACTION_CLS: Record<SignalAction, string> = {
@@ -28,25 +29,25 @@ const ACTION_CLS: Record<SignalAction, string> = {
  * and shows entry/SL/targets/support/resistance/confidence with a risk note.
  */
 export function LiveAIRecommendation() {
-  const [sel, setSel] = useState<{ key: string; label: string } | null>({ key: "NSE:RELIANCE", label: "RELIANCE" });
+  const global = useGlobalControls();
+  const sel = global.selectedInstrument;
   const [interval, setInterval] = useState("15minute");
   const [mode, setMode] = useState("balanced");
   const [segment, setSegment] = useState<InstrumentSegment>("all");
   const rec = useAsync(api.liveSignal);
-  const global = useGlobalControls();
 
-  const onSelect = (ins: SelectedInstrument) => setSel({ key: ins.instrument, label: ins.displayName });
+  const onSelect = (ins: SelectedInstrument) =>
+    global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize });
   const run = useCallback(() => {
-    if (!sel) return;
-    void rec.run({ instrument: sel.key, interval, riskProfile: mode });
-  }, [sel, interval, mode, rec]);
+    void rec.run({ instrument: sel.instrument, interval, riskProfile: mode });
+  }, [sel.instrument, interval, mode, rec]);
 
   // Auto-refresh when global live updates are ON (and a recommendation exists).
   useEffect(() => {
-    if (!global.liveUpdates || !sel || !rec.data) return;
+    if (!global.liveUpdates || !rec.data) return;
     const id = window.setInterval(() => run(), 5000);
     return () => window.clearInterval(id);
-  }, [global.liveUpdates, sel, rec.data, run]);
+  }, [global.liveUpdates, rec.data, run]);
 
   return (
     <Card
@@ -76,7 +77,7 @@ export function LiveAIRecommendation() {
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2">
           <p className="text-xs text-slate-500">Selected</p>
-          <p className="truncate text-sm font-semibold text-slate-100">{sel?.label ?? "None"}</p>
+          <p className="truncate text-sm font-semibold text-slate-100">{sel.displayName}</p>
         </div>
         <ThemedSelect
           value={interval}
@@ -95,7 +96,7 @@ export function LiveAIRecommendation() {
         <button
           type="button"
           onClick={run}
-          disabled={rec.isLoading || !sel}
+          disabled={rec.isLoading}
           className="rounded-lg bg-accent/20 px-4 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/30 disabled:opacity-40"
         >
           {rec.isLoading ? "Analyzing…" : "Get recommendation"}
@@ -202,6 +203,18 @@ function Recommendation({ s, interval, live }: { s: LiveSignal; interval: string
             value={setup.target3}
             tone="target"
             explanation="Stretch target if the trend stays strong (Supertrend aligned)."
+          />
+          <LevelRow
+            label="Trail stop (ATR)"
+            value={computeTrailStop(s)}
+            tone="stop"
+            explanation="Ratchet your stop to here as price moves your way — never widen it against you."
+          />
+          <LevelRow
+            label="Invalidation"
+            value={s.finalDecision.invalidationLevel}
+            tone="stop"
+            explanation="If price decisively breaks this, the whole setup is wrong — stand aside."
           />
           <LevelRow label="Risk : Reward" value={setup.riskReward} tone="neutral" prefix="" explanation="To T2, per unit of risk. Below 1:1.5 is generally not worth it." />
         </div>

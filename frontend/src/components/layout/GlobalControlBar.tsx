@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
+import { FontSizeControl } from "./FontSizeControl";
 
 /**
  * Global live-monitoring / alerts control bar. Sits under the header and shows
@@ -96,6 +97,11 @@ export function GlobalControlBar() {
           Enable browser alerts
         </button>
       )}
+
+      <span className="mx-1 hidden h-5 w-px bg-white/10 sm:block" />
+
+      {/* Global font size */}
+      <FontSizeControl />
 
       <span className="ml-auto text-[11px] text-slate-500">Advisory · read-only · no order execution</span>
     </div>

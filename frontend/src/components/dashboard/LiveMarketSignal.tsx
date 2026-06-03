@@ -21,24 +21,16 @@ import { Expandable } from "@/components/ui/Expandable";
 const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"];
 const DEFAULT_ACTIVE: IndicatorId[] = ["VWAP", "EMA20", "EMA50", "RSI", "MACD", "ADX", "ATR", "SUPERTREND", "VOLUME", "OI"];
 
-interface Selection {
-  instrument: string;
-  displayName: string;
-  lotSize: number | null;
-}
-
 /**
  * Live Market Signal — primary READ-ONLY analysis card (Phase 3E/3F).
  * Search → live chart + indicator toggles + real-time polling. Recalculates
  * trend/probability/entry/exit when indicators change, and raises a toast +
  * (opt-in) browser notification on trend reversal. No order controls anywhere.
+ * The selected instrument is shared globally (Live Signal / AI Rec / assistant).
  */
 export function LiveMarketSignal() {
-  const [sel, setSel] = useState<Selection | null>({
-    instrument: "NSE:RELIANCE",
-    displayName: "RELIANCE",
-    lotSize: null,
-  });
+  const global = useGlobalControls();
+  const sel = global.selectedInstrument;
   const [interval, setInterval] = useState("5minute");
   const [riskProfile, setRiskProfile] = useState("balanced");
   const [segment, setSegment] = useState<InstrumentSegment>("all");
@@ -46,11 +38,10 @@ export function LiveMarketSignal() {
   const [chart, setChart] = useState<ChartDataResponse | null>(null);
   const signal = useAsync(api.liveSignal);
   const alerts = useAlerts();
-  const global = useGlobalControls();
   const prevTrend = useRef<string | null>(null);
 
   const onSelect = (ins: SelectedInstrument) => {
-    setSel({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize });
+    global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize });
     prevTrend.current = null;
   };
 
