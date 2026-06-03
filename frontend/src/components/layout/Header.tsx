@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
+import { useGlobalControls } from "@/hooks/useGlobalControls";
 
 /**
  * Top bar: title + a REAL data-mode badge derived from the backend Kite status
@@ -12,6 +13,7 @@ import { api } from "@/lib/apiClient";
  */
 export function Header() {
   const status = useAsync(api.kite.status);
+  const g = useGlobalControls();
 
   useEffect(() => {
     void status.run();
@@ -36,22 +38,51 @@ export function Header() {
 
   return (
     <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          <h1 className="text-xl font-semibold text-slate-100 sm:text-2xl">Dashboard</h1>
-          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${badge.cls}`}>
-            {badge.pulse && (
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-bull opacity-60" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-bull" />
-              </span>
-            )}
-            {badge.text}
-          </span>
+      <div className="flex items-start gap-3">
+        {/* Mobile: open drawer. Desktop: show sidebar when hidden. */}
+        <button
+          type="button"
+          onClick={() => {
+            g.setMobileDrawerOpen(true);
+            if (g.sidebarMode === "hidden") g.setSidebarMode("expanded");
+          }}
+          aria-label="Open menu"
+          className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-base-800/60 text-slate-300 hover:text-slate-100 lg:hidden"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+            <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" />
+          </svg>
+        </button>
+        {g.sidebarMode === "hidden" && (
+          <button
+            type="button"
+            onClick={() => g.setSidebarMode("expanded")}
+            aria-label="Show sidebar"
+            title="Show sidebar"
+            className="mt-0.5 hidden h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 bg-base-800/60 text-slate-300 hover:text-slate-100 lg:grid"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+              <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
+        <div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-slate-100 sm:text-3xl">Dashboard</h1>
+            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${badge.cls}`}>
+              {badge.pulse && (
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-bull opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-bull" />
+                </span>
+              )}
+              {badge.text}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            Indian markets · Equity · Futures · Options — live read-only via Zerodha Kite
+          </p>
         </div>
-        <p className="mt-1 text-sm text-slate-500">
-          Indian markets · Equity · Futures · Options — live read-only via Zerodha Kite
-        </p>
       </div>
 
       <div className="flex items-center gap-2.5">

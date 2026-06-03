@@ -20,6 +20,7 @@ import { AccountSummaryCard } from "@/components/dashboard/AccountSummaryCard";
 import { RiskManagementCard } from "@/components/dashboard/RiskManagementCard";
 import { TopPerformersCard } from "@/components/dashboard/TopPerformersCard";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { useGlobalControls } from "@/hooks/useGlobalControls";
 import {
   BREAKPOINTS,
   COLS,
@@ -63,6 +64,7 @@ export function DashboardGrid() {
   const state = reconcileState(stored);
   const [editing, setEditing] = useState(false);
   const bpRef = useRef<Breakpoint>("lg");
+  const { sidebarMode } = useGlobalControls();
 
   const visibleItems = useMemo(
     () => state.layout.filter((it) => state.visible[it.i]),
@@ -112,7 +114,7 @@ export function DashboardGrid() {
     const fire = () => window.dispatchEvent(new Event("resize"));
     const timers = [0, 150, 400, 800].map((ms) => window.setTimeout(fire, ms));
     return () => timers.forEach((t) => window.clearTimeout(t));
-  }, [hydrated, visibleItems.length, editing]);
+  }, [hydrated, visibleItems.length, editing, sidebarMode]);
 
   // Avoid SSR/hydration mismatch: render the grid only after hydration.
   if (!hydrated) {

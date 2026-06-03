@@ -1,5 +1,4 @@
 import { Sidebar } from "@/components/layout/Sidebar";
-import { MobileNav } from "@/components/layout/MobileNav";
 import { Header } from "@/components/layout/Header";
 import { GlobalControlBar } from "@/components/layout/GlobalControlBar";
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
@@ -14,9 +13,6 @@ export default function DashboardPage() {
       <div className="flex min-w-0 flex-1 flex-col">
         <main className="mx-auto w-full min-w-0 max-w-[1600px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <Header />
-          <div className="mb-4">
-            <MobileNav />
-          </div>
 
           {/* Global live-monitoring + alerts controls */}
           <GlobalControlBar />

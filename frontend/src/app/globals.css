@@ -19,9 +19,9 @@
     font-family: var(--font-sans);
     overflow-x: hidden;
     max-width: 100vw;
-    /* Phase 3D readability: comfortable base body size (≈15.5px). */
-    font-size: 15.5px;
-    line-height: 1.5;
+    /* Readability: comfortable base body size (16px) + relaxed line-height. */
+    font-size: 16px;
+    line-height: 1.55;
     background-image:
       radial-gradient(900px 500px at 100% -10%, rgba(59, 130, 246, 0.08), transparent 60%),
       radial-gradient(700px 400px at -10% 110%, rgba(22, 199, 132, 0.06), transparent 60%);
@@ -50,13 +50,23 @@
 @layer components {
   .card {
     @apply rounded-xl border border-white/5 bg-base-850/70 shadow-card backdrop-blur-sm;
+    /* Never let a card or its content force horizontal overflow. */
+    min-width: 0;
+    max-width: 100%;
   }
   .card-pad {
     @apply p-4 sm:p-5;
+    min-width: 0;
   }
   .num {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+  }
+  /* Nudge the very small helper labels up to ~12px so they stay readable,
+     without changing every component. (Tailwind text-[11px] → 12px.) */
+  .text-\[11px\] {
+    font-size: 12px;
+    line-height: 1.45;
   }
 }
 

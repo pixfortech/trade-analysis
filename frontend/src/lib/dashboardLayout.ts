@@ -24,8 +24,8 @@ export const DASHBOARD_CARDS: DashboardCardDef[] = [
   { id: "market-status", title: "Market Status", defaultVisible: true, live: true, w: 4, h: 9 },
   { id: "kite-status", title: "Zerodha Kite Status", defaultVisible: true, live: true, w: 4, h: 11 },
   { id: "account-summary", title: "Zerodha Account Summary", defaultVisible: true, live: true, w: 4, h: 11 },
-  { id: "live-market-signal", title: "Live Market Signal", defaultVisible: true, live: true, w: 12, h: 34 },
-  { id: "ai-recommendation", title: "AI Recommendation", defaultVisible: true, live: true, w: 6, h: 20 },
+  { id: "live-market-signal", title: "Live Market Signal", defaultVisible: true, live: true, w: 12, h: 40 },
+  { id: "ai-recommendation", title: "AI Recommendation", defaultVisible: true, live: true, w: 6, h: 26 },
   { id: "risk-management", title: "Risk Management", defaultVisible: true, live: true, w: 6, h: 20 },
   { id: "active-trade-monitor", title: "Active Trade Monitor", defaultVisible: true, live: true, w: 6, h: 18 },
   { id: "manual-trade-tracker", title: "Manual Trade Tracker", defaultVisible: true, live: true, w: 6, h: 18 },
@@ -66,7 +66,8 @@ export interface DashboardState {
 }
 
 // v2: Phase 3I default set/heights changed; old layouts self-heal to defaults.
-export const LAYOUT_STORAGE_KEY = "dashboard.rgl.v2";
+// v3: taller default heights for Live Signal / AI Rec so analysis fits.
+export const LAYOUT_STORAGE_KEY = "dashboard.rgl.v3";
 
 export function isLiveCard(id: string): boolean {
   return DASHBOARD_CARDS.find((c) => c.id === id)?.live ?? false;

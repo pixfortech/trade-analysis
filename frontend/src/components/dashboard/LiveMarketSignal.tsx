@@ -16,6 +16,7 @@ import { ThemedSelect, InfoTooltip, InstrumentTypeSelector, type InstrumentSegme
 import { STRATEGY_MODES, modeBlurb } from "@/lib/strategyModes";
 import { TimeBasedPlan } from "./TimeBasedPlan";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
+import { Expandable } from "@/components/ui/Expandable";
 
 const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"];
 const DEFAULT_ACTIVE: IndicatorId[] = ["VWAP", "EMA20", "EMA50", "RSI", "MACD", "ADX", "ATR", "SUPERTREND", "VOLUME", "OI"];
@@ -225,8 +226,10 @@ export function LiveMarketSignal() {
                 <LiveChart data={chart} priceLines={priceLinesFor(signal.data)} />
               </div>
             )}
-            <SignalView s={signal.data} />
-            <TimeBasedPlan signal={signal.data} />
+            <Expandable title={`Live Market Signal — ${signal.data.resolvedInstrument.displayName || signal.data.instrument}`}>
+              <SignalView s={signal.data} />
+              <TimeBasedPlan signal={signal.data} />
+            </Expandable>
           </>
         )}
       </div>
@@ -401,11 +404,11 @@ function Level({
   big?: boolean;
 }) {
   const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : "text-slate-100";
-  const size = big ? "text-lg" : "text-[15px]";
+  const size = big ? "text-xl" : "text-base";
   return (
-    <div className="flex items-baseline justify-between">
-      <span className="text-xs text-slate-400">{label}</span>
-      <span className={`num font-semibold ${size} ${c}`}>{text ?? (value == null ? "—" : num(value))}</span>
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="text-sm text-slate-400">{label}</span>
+      <span className={`num font-bold ${size} ${c}`}>{text ?? (value == null ? "—" : `₹${num(value)}`)}</span>
     </div>
   );
 }

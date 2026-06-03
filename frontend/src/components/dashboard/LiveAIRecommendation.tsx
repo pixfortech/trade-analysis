@@ -11,6 +11,8 @@ import { ThemedSelect, InfoTooltip, InstrumentTypeSelector, type InstrumentSegme
 import { STRATEGY_MODES } from "@/lib/strategyModes";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { TimeBasedPlan } from "./TimeBasedPlan";
+import { LevelRow } from "./LevelRow";
+import { Expandable } from "@/components/ui/Expandable";
 import type { LiveSignal, SignalAction } from "@/types/api";
 
 const ACTION_CLS: Record<SignalAction, string> = {
@@ -104,7 +106,11 @@ export function LiveAIRecommendation() {
         {rec.isIdle && <EmptyState title="No recommendation yet" message="Pick an instrument and click Get recommendation. Needs live Kite data." />}
         {rec.isLoading && !rec.data && <p className="text-sm text-slate-400">Reading live data…</p>}
         {rec.isError && <ErrorState message={rec.error ?? "Failed."} hint="Enable & authorise Kite. This uses live data only." onRetry={run} />}
-        {rec.data && <Recommendation s={rec.data} interval={interval} live={global.liveUpdates} />}
+        {rec.data && (
+          <Expandable title={`AI Recommendation — ${rec.data.resolvedInstrument.displayName || rec.data.instrument}`}>
+            <Recommendation s={rec.data} interval={interval} live={global.liveUpdates} />
+          </Expandable>
+        )}
       </div>
     </Card>
   );
@@ -158,28 +164,73 @@ function Recommendation({ s, interval, live }: { s: LiveSignal; interval: string
         <Stat label="ATR" value={ind.atr == null ? "—" : num(ind.atr)} small />
       </div>
 
-      {/* Levels (only when tradeable; otherwise show support/resistance to watch) */}
+      {/* Levels (bold + explained). Tradeable → entry/SL/targets; else S/R to watch. */}
       {tradeable ? (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <Stat label="Entry" value={entry == null ? "Unavailable" : num(entry)} />
-          <Stat label="Stop-loss" value={num(setup.stopLoss)} tone="bear" />
-          <Stat label="R : R" value={setup.riskReward} />
-          <Stat label="Target 1" value={num(setup.target1)} tone="bull" />
-          <Stat label="Target 2" value={num(setup.target2)} tone="bull" />
-          <Stat label="Target 3" value={num(setup.target3)} tone="bull" />
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LevelRow
+            label={long ? "Entry above" : "Entry below"}
+            value={entry}
+            tone="entry"
+            explanation={
+              entry == null
+                ? "Backend did not return an entry — wait for a clearer setup."
+                : long
+                  ? `Go long only if price sustains above this for 1–2 candles with volume.`
+                  : `Go short only if price sustains below this for 1–2 candles with volume.`
+            }
+          />
+          <LevelRow
+            label="Stop-loss / Invalidation"
+            value={setup.stopLoss}
+            tone="stop"
+            explanation={`Exit immediately if price ${long ? "crosses and holds below" : "crosses and holds above"} this — the setup is invalidated.`}
+          />
+          <LevelRow
+            label="Target 1"
+            value={setup.target1}
+            tone="target"
+            explanation="Book partial profit here and trail the rest."
+          />
+          <LevelRow
+            label="Target 2"
+            value={setup.target2}
+            tone="target"
+            explanation="Main objective — book more and tighten the trail."
+          />
+          <LevelRow
+            label="Target 3"
+            value={setup.target3}
+            tone="target"
+            explanation="Stretch target if the trend stays strong (Supertrend aligned)."
+          />
+          <LevelRow label="Risk : Reward" value={setup.riskReward} tone="neutral" prefix="" explanation="To T2, per unit of risk. Below 1:1.5 is generally not worth it." />
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
-          <Stat label="Support" value={`${num(s.levels.support1)} · ${num(s.levels.support2)}`} tone="bull" />
-          <Stat label="Resistance" value={`${num(s.levels.resistance1)} · ${num(s.levels.resistance2)}`} tone="bear" />
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <LevelRow label="Support" value={`${num(s.levels.support1)} · ${num(s.levels.support2)}`} tone="support" prefix="" explanation="Watch for a bounce or a breakdown here." />
+          <LevelRow label="Resistance" value={`${num(s.levels.resistance1)} · ${num(s.levels.resistance2)}`} tone="resistance" prefix="" explanation="Watch for rejection or a breakout here." />
+        </div>
+      )}
+
+      {/* Practical guidance: holding / price moved away */}
+      {tradeable && (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="rounded-lg border border-white/5 bg-base-800/40 px-3 py-2 text-xs leading-relaxed text-slate-400">
+            <span className="font-semibold text-slate-200">If already holding {long ? "long" : "short"}: </span>
+            trail your stop toward {long ? "the latest higher low" : "the latest lower high"} and book partial at Target 1 {num(setup.target1)}. Exit if {long ? "price loses" : "price reclaims"} {s.marketData.vwap == null ? "VWAP/EMA" : `VWAP ${num(s.marketData.vwap)}`}.
+          </div>
+          <div className="rounded-lg border border-white/5 bg-base-800/40 px-3 py-2 text-xs leading-relaxed text-slate-400">
+            <span className="font-semibold text-slate-200">If price already moved past entry: </span>
+            don’t chase. Wait for a pullback toward {num(entry ?? s.currentPrice)} or skip — entering late worsens your risk-reward.
+          </div>
         </div>
       )}
 
       {/* Risk warning tied to actual SL/target */}
       {tradeable && (
-        <p className="rounded-md border border-neutralSignal/20 bg-neutralSignal-soft px-3 py-2 text-[11px] leading-relaxed text-neutralSignal">
-          Risk warning: if the stop-loss {num(setup.stopLoss)} is hit you lose ≈ {num(setup.riskPerUnit)} pts/unit.
-          Never risk more than ~1% of capital — size accordingly (see Risk Management). Advisory only.
+        <p className="rounded-md border border-neutralSignal/20 bg-neutralSignal-soft px-3 py-2 text-xs leading-relaxed text-neutralSignal">
+          <span className="font-semibold">Risk:</span> if the stop-loss {num(setup.stopLoss)} is hit you lose ≈ {num(setup.riskPerUnit)} pts/unit.
+          Never risk more than ~1% of capital — size in Risk Management. Advisory only.
         </p>
       )}
 
