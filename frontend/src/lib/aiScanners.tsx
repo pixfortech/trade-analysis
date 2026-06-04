@@ -1,12 +1,14 @@
 "use client";
 
-// Floating AI Trade Assistant manager (Phase 3O).
+// Floating AI Trade Assistant manager (Phase 3O/3P).
 // A React context that manages MULTIPLE independent floating assistant windows
 // opened from the Watchlist. Each has its own instrument, window position,
-// z-index and expanded/minimised/pinned state. SEPARATE from the right-side
-// FloatingTradeAssistant (which follows the globally-selected instrument), the
-// AI Assistant watchlist and AI Virtual Trades. Persisted in localStorage.
-// Opening ADDS a window (or focuses an existing one) — never replaces another.
+// z-index and expanded/minimised/pinned state. SEPARATE from the AI Assistant
+// watchlist and AI Virtual Trades. Persisted in localStorage.
+//
+// NOTHING opens by default: on load we restore ONLY pinned windows. Unpinned
+// windows live for the session and are dropped on refresh. Opening from the
+// Watchlist ADDS a window (or focuses an existing one) — never replaces another.
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
@@ -80,7 +82,8 @@ function load(): Scanner[] {
   const arr = read(KEY) ?? read(LEGACY_KEY);
   if (!arr) return [];
   return arr
-    .filter((s) => s && typeof s.id === "string" && s.instrument && typeof s.instrument.instrument === "string")
+    // Restore ONLY pinned windows — never auto-open an unpinned/default one.
+    .filter((s) => s && s.pinned === true && typeof s.id === "string" && s.instrument && typeof s.instrument.instrument === "string")
     .map((s, idx): Scanner => ({
       id: s.id,
       instrument: {

@@ -10,7 +10,6 @@ import { buildTimeBasedPlan } from "@/lib/timeBasedPlan";
 import {
   deriveEntryScanner,
   derivePositionManager,
-  computeRiskLevel,
   factorBreakdown,
   type ActivePosition,
   type AssistantTone,
@@ -33,13 +32,12 @@ const RISK_CLS: Record<RiskLevel, string> = {
   Extreme: "border-bear/60 bg-bear/20 text-bear",
 };
 
-interface ChipSummary { tone: AssistantTone; label: string; risk: RiskLevel | null }
 type TabId = "summary" | "time" | "risk" | "details";
+interface SignalState { data?: LiveSignal; error?: string; loading: boolean; updatedAt: number }
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
-
 function useIsMobile(): boolean {
   const [m, setM] = useState(false);
   useEffect(() => {
@@ -51,52 +49,70 @@ function useIsMobile(): boolean {
   }, []);
   return m;
 }
-
 function vtToPos(t: { side: "LONG" | "SHORT"; entryPrice: number; quantity: number; stopLoss: number | null; target: number | null; id: string }): ActivePosition {
   return { source: "ai-virtual", side: t.side, entryPrice: t.entryPrice, quantity: t.quantity, stopLoss: t.stopLoss, target: t.target, id: t.id };
 }
 
 /**
- * Floating AI Trade Assistants (Phase 3O). Renders MULTIPLE independent
- * assistant windows opened from the Watchlist. Each runs its own live analysis,
- * is draggable (desktop) / a bottom sheet (mobile), and can be minimised to a
- * chip in the dock. Read-only/advisory — never places orders.
+ * Floating AI Trade Assistants (Phase 3P). Renders MULTIPLE independent
+ * assistant windows opened from the Watchlist. Nothing opens by default — only
+ * pinned windows restore on reload. Signals are fetched centrally so the action
+ * shows immediately after opening and minimised chips stay in sync. Pinned
+ * windows dock bottom-right; unpinned ones float (draggable). Read-only.
  */
 export function FloatingAssistants() {
-  const { scanners, focus, minimise, close, closeAllUnpinned, togglePin, bringToFront, setPosition, focusNonce, focusedId } = useAiScanners();
+  const { scanners, focus, minimise, close, closeAllUnpinned, minimiseAll, togglePin, bringToFront, setPosition, focusNonce, focusedId } = useAiScanners();
   const g = useGlobalControls();
+  const vt = useAiVirtualTrades();
   const isMobile = useIsMobile();
-  const [cmps, setCmps] = useState<Record<string, number | null>>({});
-  const [summaries, setSummaries] = useState<Record<string, ChipSummary>>({});
+  const [signals, setSignals] = useState<Record<string, SignalState>>({});
   const [breadth, setBreadth] = useState<{ up: number; down: number } | null>(null);
 
-  const keys = useMemo(() => scanners.map((s) => s.instrument.instrument), [scanners]);
+  const keys = useMemo(() => Array.from(new Set(scanners.map((s) => s.instrument.instrument))), [scanners]);
   const keysJoined = keys.join(",");
+  const keysRef = useRef<string[]>([]);
+  keysRef.current = keys;
 
-  // Batch quote all open assistants for chip CMP (one request).
+  // Centralised live-signal fetch for EVERY open assistant (expanded or
+  // minimised). Runs immediately when the set changes, then every 5s while live.
+  const fetchAll = useCallback(async () => {
+    const ks = keysRef.current;
+    if (ks.length === 0) return;
+    setSignals((cur) => {
+      const n = { ...cur };
+      for (const k of ks) if (!n[k]?.data) n[k] = { ...(n[k] ?? { updatedAt: 0 }), loading: true };
+      return n;
+    });
+    await Promise.allSettled(
+      ks.map(async (k) => {
+        try {
+          const d = await api.liveSignal({ instrument: k, interval: "5minute", riskProfile: "balanced" });
+          setSignals((cur) => ({ ...cur, [k]: { data: d, error: undefined, loading: false, updatedAt: Date.now() } }));
+        } catch (e) {
+          setSignals((cur) => ({ ...cur, [k]: { ...(cur[k] ?? { updatedAt: 0 }), error: e instanceof Error ? e.message : "Request failed.", loading: false } }));
+        }
+      }),
+    );
+  }, []);
+
   useEffect(() => {
     if (keys.length === 0) return;
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const res = await api.kite.quotes(keys);
-        if (cancelled) return;
-        setCmps((cur) => {
-          const next = { ...cur };
-          for (const [k, q] of Object.entries(res.data)) next[k] = typeof q.last_price === "number" ? q.last_price : null;
-          return next;
-        });
-      } catch {
-        /* keep last known */
-      }
-    };
-    void load();
-    if (!g.liveUpdates) return () => { cancelled = true; };
-    const id = window.setInterval(load, 5000);
-    return () => { cancelled = true; window.clearInterval(id); };
-  }, [keysJoined, g.liveUpdates, keys]);
+    void fetchAll();
+    if (!g.liveUpdates) return;
+    const id = window.setInterval(() => void fetchAll(), 5000);
+    return () => window.clearInterval(id);
+  }, [keysJoined, g.liveUpdates, fetchAll, keys.length]);
 
-  // Market breadth (indices) for the Sentiment tab — best effort, slow refresh.
+  const refreshCache = useCallback(async () => {
+    try {
+      await api.kite.instrumentsRefresh();
+    } catch {
+      /* ignore — fetchAll surfaces any remaining issue */
+    }
+    void fetchAll();
+  }, [fetchAll]);
+
+  // Market breadth (indices) for the Sentiment section.
   const hasScanners = scanners.length > 0;
   useEffect(() => {
     if (!hasScanners) return;
@@ -114,72 +130,129 @@ export function FloatingAssistants() {
     return () => { cancelled = true; window.clearInterval(id); };
   }, [hasScanners]);
 
-  const reportSummary = useCallback((id: string, s: ChipSummary) => {
-    setSummaries((cur) => (cur[id] && cur[id].label === s.label && cur[id].risk === s.risk ? cur : { ...cur, [id]: s }));
-  }, []);
+  // Derive a view per assistant from the shared signal + that instrument's
+  // virtual trade (Entry Scanner vs Position Manager). Same data for window+chip.
+  const views = useMemo(() => {
+    const out: Record<string, { view: AssistantView | null; managed: ActivePosition | null }> = {};
+    for (const s of scanners) {
+      const sig = signals[s.instrument.instrument]?.data ?? null;
+      const t = vt.trades.find((x) => x.instrumentKey === s.instrument.instrument && x.status === "OPEN");
+      const managed = t ? vtToPos(t) : null;
+      out[s.id] = { view: sig ? (managed ? derivePositionManager(sig, managed) : deriveEntryScanner(sig)) : null, managed };
+    }
+    return out;
+  }, [scanners, signals, vt.trades]);
 
   if (scanners.length === 0) return null;
 
   const expanded = scanners.filter((s) => s.state === "expanded");
   const frontId = expanded.length ? expanded.reduce((a, b) => (a.zIndex >= b.zIndex ? a : b)).id : null;
-  // On mobile only the front window shows (as a bottom sheet); the rest dock.
-  const windows = isMobile ? expanded.filter((s) => s.id === frontId) : expanded;
-  const dockItems = (isMobile ? scanners.filter((s) => s.id !== frontId) : scanners.filter((s) => s.state === "minimised")).sort((a, b) => a.createdAt - b.createdAt);
+  const minimised = scanners.filter((s) => s.state === "minimised").sort((a, b) => a.createdAt - b.createdAt);
+
+  const cmpOf = (s: Scanner) => signals[s.instrument.instrument]?.data?.currentPrice ?? null;
+
+  const renderWindow = (s: Scanner, layout: "docked" | "floating" | "sheet") => {
+    const st = signals[s.instrument.instrument] ?? { loading: true, updatedAt: 0 };
+    const v = views[s.id] ?? { view: null, managed: null };
+    return (
+      <AssistantWindow
+        key={s.id}
+        scanner={s}
+        layout={layout}
+        data={st.data ?? null}
+        view={v.view}
+        managed={v.managed}
+        error={st.error ?? null}
+        loading={!!st.loading}
+        updatedAt={st.updatedAt}
+        breadth={breadth}
+        liveOn={g.liveUpdates}
+        vt={vt}
+        isFront={s.id === frontId}
+        pulseNonce={focusedId === s.id ? focusNonce : 0}
+        onMinimise={() => minimise(s.id)}
+        onClose={() => close(s.id)}
+        onTogglePin={() => togglePin(s.id)}
+        onFront={() => bringToFront(s.id)}
+        onMove={(x, y) => setPosition(s.id, x, y)}
+        onRefreshCache={refreshCache}
+      />
+    );
+  };
+
+  // ---- mobile: only the front window as a bottom sheet; the rest become chips
+  if (isMobile) {
+    const front = expanded.find((s) => s.id === frontId) ?? null;
+    const chips = scanners.filter((s) => s.id !== front?.id);
+    return (
+      <>
+        {front && renderWindow(front, "sheet")}
+        {chips.length > 0 && (
+          <div style={{ zIndex: 70 }} className="fixed inset-x-2 top-2 flex gap-1.5 overflow-x-auto">
+            {chips.map((s) => (
+              <Chip key={s.id} scanner={s} cmp={cmpOf(s)} view={views[s.id]?.view ?? null} onOpen={() => focus(s.id)} onClose={() => close(s.id)} />
+            ))}
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // ---- desktop
+  const pinnedExpanded = expanded.filter((s) => s.pinned);
+  const floatingExpanded = expanded.filter((s) => !s.pinned);
 
   return (
     <>
-      {windows.map((s) => (
-        <AssistantWindow
-          key={s.id}
-          scanner={s}
-          isMobile={isMobile}
-          isFront={s.id === frontId}
-          breadth={breadth}
-          pulseNonce={focusedId === s.id ? focusNonce : 0}
-          cmpHint={cmps[s.instrument.instrument] ?? null}
-          onMinimise={() => minimise(s.id)}
-          onClose={() => close(s.id)}
-          onTogglePin={() => togglePin(s.id)}
-          onFront={() => bringToFront(s.id)}
-          onMove={(x, y) => setPosition(s.id, x, y)}
-          onSummary={reportSummary}
-        />
-      ))}
+      {/* Free-floating (unpinned) windows */}
+      {floatingExpanded.map((s) => renderWindow(s, "floating"))}
 
-      {dockItems.length > 0 && (
-        <div
-          style={{ zIndex: 90 }}
-          className={isMobile ? "fixed inset-x-2 top-2 flex gap-1.5 overflow-x-auto" : "fixed bottom-4 left-4 flex max-w-[230px] flex-col items-start gap-1.5"}
-        >
-          {!isMobile && dockItems.some((s) => !s.pinned) && (
-            <button type="button" onClick={closeAllUnpinned} className="rounded-md border border-white/10 bg-base-900/90 px-2 py-1 text-[10px] text-slate-400 shadow-card backdrop-blur hover:text-slate-200">
-              Close unpinned
-            </button>
-          )}
-          {dockItems.map((s) => {
-            const sum = summaries[s.id];
-            const tone = sum ? TONE[sum.tone] : TONE.neutral;
-            const cmp = cmps[s.instrument.instrument] ?? null;
-            return (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => focus(s.id)}
-                title={`Open ${s.instrument.displayName}`}
-                className={`group inline-flex shrink-0 items-center gap-1.5 rounded-full border bg-base-900/95 px-2.5 py-1.5 shadow-card backdrop-blur ${tone.border}`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
-                <span className="text-[11px] font-semibold text-slate-100">{s.instrument.displayName}</span>
-                <span className="num text-[11px] text-slate-400">{cmp == null ? "" : num(cmp)}</span>
-                {sum && <span className={`text-[10px] font-semibold uppercase ${tone.text}`}>{sum.label}</span>}
-                {s.pinned && <span className="text-[10px]">📌</span>}
-                <span role="button" tabIndex={-1} aria-label={`Close ${s.instrument.displayName}`} onClick={(e) => { e.stopPropagation(); close(s.id); }} className="text-slate-500 hover:text-bear">✕</span>
-              </button>
-            );
-          })}
+      {/* Pinned windows docked bottom-right, wrapping upward */}
+      {pinnedExpanded.length > 0 && (
+        <div style={{ zIndex: 80 }} className="pointer-events-none fixed bottom-4 right-4 flex max-w-[calc(100vw-1.5rem)] flex-wrap-reverse items-end justify-end gap-3">
+          {pinnedExpanded.map((s) => (
+            <div key={s.id} className="pointer-events-auto">
+              {renderWindow(s, "docked")}
+            </div>
+          ))}
         </div>
       )}
+
+      {/* Bottom-left dock: controls + minimised chips (wraps to fit many) */}
+      <div style={{ zIndex: 70 }} className="fixed bottom-4 left-4 flex max-w-[min(62vw,560px)] flex-col items-start gap-1.5">
+        {(expanded.length > 0 || minimised.some((s) => !s.pinned)) && (
+          <div className="flex gap-1.5">
+            {expanded.length > 0 && (
+              <button type="button" onClick={minimiseAll} className="rounded-md border border-white/10 bg-base-900/90 px-2 py-0.5 text-[10px] text-slate-400 shadow-card backdrop-blur hover:text-slate-200">Minimise all</button>
+            )}
+            {minimised.some((s) => !s.pinned) && (
+              <button type="button" onClick={closeAllUnpinned} className="rounded-md border border-white/10 bg-base-900/90 px-2 py-0.5 text-[10px] text-slate-400 shadow-card backdrop-blur hover:text-slate-200">Close unpinned</button>
+            )}
+          </div>
+        )}
+        {minimised.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {minimised.map((s) => (
+              <Chip key={s.id} scanner={s} cmp={cmpOf(s)} view={views[s.id]?.view ?? null} onOpen={() => focus(s.id)} onClose={() => close(s.id)} />
+            ))}
+          </div>
+        )}
+      </div>
     </>
+  );
+}
+
+function Chip({ scanner, cmp, view, onOpen, onClose }: { scanner: Scanner; cmp: number | null; view: AssistantView | null; onOpen: () => void; onClose: () => void }) {
+  const tone = view ? TONE[view.tone] : TONE.neutral;
+  return (
+    <button type="button" onClick={onOpen} title={`Open ${scanner.instrument.displayName}`} className={`group inline-flex shrink-0 items-center gap-1.5 rounded-full border bg-base-900/95 px-2.5 py-1.5 shadow-card backdrop-blur ${tone.border}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+      <span className="max-w-[120px] truncate text-[11px] font-semibold text-slate-100">{scanner.instrument.displayName}</span>
+      <span className="num text-[11px] text-slate-400">{cmp == null ? "" : num(cmp)}</span>
+      {view && <span className={`text-[10px] font-semibold uppercase ${tone.text}`}>{view.label}</span>}
+      {scanner.pinned && <span className="text-[10px]">📌</span>}
+      <span role="button" tabIndex={-1} aria-label={`Close ${scanner.instrument.displayName}`} onClick={(e) => { e.stopPropagation(); onClose(); }} className="text-slate-500 hover:text-bear">✕</span>
+    </button>
   );
 }
 
@@ -187,62 +260,52 @@ export function FloatingAssistants() {
 
 function AssistantWindow({
   scanner,
-  isMobile,
-  isFront,
+  layout,
+  data,
+  view,
+  managed,
+  error,
+  loading,
+  updatedAt,
   breadth,
+  liveOn,
+  vt,
+  isFront,
   pulseNonce,
-  cmpHint,
   onMinimise,
   onClose,
   onTogglePin,
   onFront,
   onMove,
-  onSummary,
+  onRefreshCache,
 }: {
   scanner: Scanner;
-  isMobile: boolean;
-  isFront: boolean;
+  layout: "docked" | "floating" | "sheet";
+  data: LiveSignal | null;
+  view: AssistantView | null;
+  managed: ActivePosition | null;
+  error: string | null;
+  loading: boolean;
+  updatedAt: number;
   breadth: { up: number; down: number } | null;
+  liveOn: boolean;
+  vt: ReturnType<typeof useAiVirtualTrades>;
+  isFront: boolean;
   pulseNonce: number;
-  cmpHint: number | null;
   onMinimise: () => void;
   onClose: () => void;
   onTogglePin: () => void;
   onFront: () => void;
   onMove: (x: number, y: number) => void;
-  onSummary: (id: string, s: ChipSummary) => void;
+  onRefreshCache: () => void;
 }) {
-  const g = useGlobalControls();
-  const vt = useAiVirtualTrades();
-  const key = scanner.instrument.instrument;
-  const [data, setData] = useState<LiveSignal | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [updatedAt, setUpdatedAt] = useState(0);
   const [tab, setTab] = useState<TabId>("summary");
   const [pos, setPos] = useState(scanner.position);
   const [pulse, setPulse] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const posRef = useRef(pos);
   posRef.current = pos;
 
-  const fetchSignal = useCallback(async () => {
-    try {
-      const res = await api.liveSignal({ instrument: key, interval: "5minute", riskProfile: "balanced" });
-      setData(res);
-      setError(null);
-      setUpdatedAt(Date.now());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Cannot reach the backend.");
-    }
-  }, [key]);
-
-  useEffect(() => {
-    void fetchSignal();
-    if (!g.liveUpdates) return;
-    const id = window.setInterval(() => void fetchSignal(), 5000);
-    return () => window.clearInterval(id);
-  }, [key, g.liveUpdates, fetchSignal]);
-
-  // Pulse the border briefly when focused.
   useEffect(() => {
     if (!pulseNonce) return;
     setPulse(true);
@@ -250,26 +313,14 @@ function AssistantWindow({
     return () => window.clearTimeout(t);
   }, [pulseNonce]);
 
-  const openVts = vt.openForInstrument(key);
-  const managed = openVts[0] ? vtToPos(openVts[0]) : null;
-  const view: AssistantView | null = data ? (managed ? derivePositionManager(data, managed) : deriveEntryScanner(data)) : null;
-
-  useEffect(() => {
-    if (view) onSummary(scanner.id, { tone: view.tone, label: view.label, risk: view.riskLevel });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view?.state, view?.tone, view?.riskLevel, scanner.id]);
-
-  // Drag (desktop only) — stable per-drag handlers so listeners always detach.
   const onHeaderPointerDown = (e: React.PointerEvent) => {
-    if (isMobile) return;
+    if (layout !== "floating") return;
     if ((e.target as HTMLElement).closest("button")) return;
     onFront();
     const base = { ...posRef.current };
     const sx = e.clientX;
     const sy = e.clientY;
-    const move = (ev: PointerEvent) => {
-      setPos({ x: clamp(base.x + ev.clientX - sx, 0, window.innerWidth - 80), y: clamp(base.y + ev.clientY - sy, 0, window.innerHeight - 60) });
-    };
+    const move = (ev: PointerEvent) => setPos({ x: clamp(base.x + ev.clientX - sx, 0, window.innerWidth - 80), y: clamp(base.y + ev.clientY - sy, 0, window.innerHeight - 60) });
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
@@ -281,92 +332,109 @@ function AssistantWindow({
   };
 
   const t = view ? TONE[view.tone] : TONE.neutral;
-  const cmp = data?.currentPrice ?? cmpHint;
+  const cmp = data?.currentPrice ?? null;
   const itype = data?.resolvedInstrument.instrumentType ?? "";
-  const ringCls = pulse ? "border-accent ring-2 ring-accent/60 shadow-[0_0_0_4px_rgba(59,130,246,0.18)]" : `${t.border}`;
+  const ringCls = pulse ? "border-accent ring-2 ring-accent/60 shadow-[0_0_0_4px_rgba(59,130,246,0.18)]" : t.border;
 
-  const frameStyle: React.CSSProperties = isMobile
-    ? { zIndex: scanner.zIndex }
-    : { zIndex: scanner.zIndex, left: pos.x, top: pos.y, width: 384 };
-  const frameCls = isMobile
-    ? "fixed inset-x-2 bottom-2 flex max-h-[82vh] flex-col"
-    : "fixed flex max-h-[78vh] flex-col";
+  const frameStyle: React.CSSProperties =
+    layout === "floating" ? { zIndex: scanner.zIndex, left: pos.x, top: pos.y, width: 360 } : layout === "sheet" ? { zIndex: scanner.zIndex } : {};
+  const frameCls =
+    layout === "floating"
+      ? "fixed flex max-h-[78vh] w-[360px] flex-col"
+      : layout === "sheet"
+        ? "fixed inset-x-2 bottom-2 flex max-h-[82vh] flex-col"
+        : "flex max-h-[70vh] w-[340px] flex-col"; // docked
+
+  const friendly = !!error && /(not found|resolve|unsupported|invalid|no candle|instrument|unavailable|cache)/i.test(error);
 
   return (
-    <div style={frameStyle} className={`${frameCls} overflow-hidden rounded-2xl border ${ringCls} bg-base-900/95 shadow-card backdrop-blur transition-shadow`} onMouseDown={() => { if (!isFront) onFront(); }}>
-      {/* header (drag handle on desktop) */}
-      <div onPointerDown={onHeaderPointerDown} className={`flex items-center gap-2 border-b border-white/10 px-3 py-2 ${isMobile ? "" : "cursor-move"}`}>
+    <div style={frameStyle} className={`${frameCls} overflow-hidden rounded-2xl border ${ringCls} bg-base-900/95 shadow-card backdrop-blur transition-shadow`} onMouseDown={() => { if (!isFront && layout !== "docked") onFront(); }}>
+      {/* header */}
+      <div onPointerDown={onHeaderPointerDown} className={`flex items-center gap-2 border-b border-white/10 px-3 py-2 ${layout === "floating" ? "cursor-move" : ""}`}>
         <span className={`h-2 w-2 rounded-full ${t.dot}`} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold text-slate-100">{scanner.instrument.displayName}</p>
           <p className="num truncate text-[10px] text-slate-500">
-            {scanner.instrument.exchange}{itype ? ` · ${itype}` : ""} · {updatedAt ? `updated ${secsAgo(updatedAt)}` : g.liveUpdates ? "loading…" : "live off"}
+            {scanner.instrument.exchange}{itype ? ` · ${itype}` : ""} · {data ? `updated ${secsAgo(updatedAt)}` : loading ? "analysing…" : liveOn ? "—" : "live off"}
           </p>
         </div>
         {view && <span className="rounded-md border border-white/15 bg-base-800 px-1.5 py-0.5 text-[9px] font-semibold text-slate-300">{view.mode === "POSITION_MANAGER" ? `Managing · ${managed?.source === "zerodha" ? "Zerodha" : "Virtual"}` : "Scanner"}</span>}
-        <button type="button" onClick={onTogglePin} title={scanner.pinned ? "Unpin" : "Pin"} className={`grid h-6 w-6 place-items-center rounded ${scanner.pinned ? "text-accent" : "text-slate-500 hover:text-slate-300"}`}>📌</button>
+        <button type="button" onClick={onTogglePin} title={scanner.pinned ? "Unpin" : "Pin (dock bottom-right · restores on reload)"} className={`grid h-6 w-6 place-items-center rounded ${scanner.pinned ? "bg-accent/20 text-accent" : "text-slate-500 hover:text-slate-300"}`}>📌</button>
         <button type="button" onClick={onMinimise} title="Minimise" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:text-slate-300">▁</button>
         <button type="button" onClick={onClose} title="Close" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:text-bear">✕</button>
       </div>
 
-      {/* top summary */}
-      {view && (
-        <div className="border-b border-white/10 px-3 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-bold uppercase tracking-wide ${t.chip}`}>{view.label}</span>
-            <div className="text-right">
-              <p className="num text-xl font-bold text-slate-100">{cmp == null ? "—" : num(cmp)}</p>
-              <p className="text-[9px] uppercase text-slate-500">CMP</p>
+      {/* states */}
+      {!view ? (
+        error && !data ? (
+          <div className="space-y-2 px-3 py-4 text-center">
+            <p className="text-sm font-semibold text-slate-200">{friendly ? "Instrument unavailable" : "Can't reach live data"}</p>
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              {friendly
+                ? `Couldn't resolve ${scanner.instrument.displayName} in the Kite instruments cache, or it isn't quotable. Refresh the cache, or remove it and pick it again from search.`
+                : "The backend didn't respond. It will retry automatically while live updates are on."}
+            </p>
+            <div className="flex justify-center gap-2">
+              <button
+                type="button"
+                onClick={async () => { setRefreshing(true); try { await onRefreshCache(); } finally { setRefreshing(false); } }}
+                disabled={refreshing}
+                className="rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1 text-[11px] font-semibold text-accent hover:bg-accent/20 disabled:opacity-50"
+              >
+                {refreshing ? "Refreshing…" : "Refresh instruments cache"}
+              </button>
+              <button type="button" onClick={onClose} className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-400 hover:text-slate-200">Remove</button>
             </div>
           </div>
-          {data && data.probability && (
-            <div className="mt-2">
-              <div className="mb-1 flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-bull">Bullish {data.probability.bullishPercent}%</span>
-                <span className="font-semibold text-bear">{data.probability.bearishPercent}% Bearish</span>
-              </div>
-              <div className="flex h-2 overflow-hidden rounded-full bg-base-700">
-                <div className="bg-bull" style={{ width: `${data.probability.bullishPercent}%` }} />
-                <div className="bg-bear" style={{ width: `${data.probability.bearishPercent}%` }} />
-              </div>
-            </div>
-          )}
-          <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
-            <Pill label="Risk" value={view.riskLevel ?? "—"} cls={view.riskLevel ? RISK_CLS[view.riskLevel] : "border-white/10 text-slate-400"} />
-            <Pill label="Confidence" value={view.confidencePercent == null ? "—" : `${view.confidencePercent}%`} cls="border-white/10 text-slate-200" sub="estimated" />
-            <Pill label="R:R" value={view.riskReward ?? "—"} cls="border-white/10 text-slate-200" />
-          </div>
-        </div>
-      )}
-
-      {/* tabs */}
-      {view && (
-        <div className="flex shrink-0 gap-1 border-b border-white/10 px-2 py-1.5">
-          {(["summary", "time", "risk", "details"] as TabId[]).map((id) => (
-            <button key={id} type="button" onClick={() => setTab(id)} className={`flex-1 rounded-md px-1 py-1 text-[11px] font-semibold capitalize ${tab === id ? "bg-accent/15 text-accent" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}>
-              {id === "time" ? "Time" : id}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* body */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {!view ? (
-          error ? (
-            <p className="rounded-lg border border-bear/30 bg-bear-soft px-3 py-2 text-xs text-bear">Unavailable — {error}</p>
-          ) : (
-            <p className="text-xs text-slate-500">Reading live data…</p>
-          )
         ) : (
-          <>
+          <p className="px-3 py-6 text-center text-xs text-slate-500">Analysing {scanner.instrument.displayName}…</p>
+        )
+      ) : (
+        <>
+          {/* summary */}
+          <div className="border-b border-white/10 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-bold uppercase tracking-wide ${t.chip}`}>{view.label}</span>
+              <div className="text-right">
+                <p className="num text-xl font-bold text-slate-100">{cmp == null ? "—" : num(cmp)}</p>
+                <p className="text-[9px] uppercase text-slate-500">CMP</p>
+              </div>
+            </div>
+            {data && (
+              <div className="mt-2">
+                <div className="mb-1 flex items-center justify-between text-[11px]">
+                  <span className="font-semibold text-bull">Bullish {data.probability.bullishPercent}%</span>
+                  <span className="font-semibold text-bear">{data.probability.bearishPercent}% Bearish</span>
+                </div>
+                <div className="flex h-2 overflow-hidden rounded-full bg-base-700">
+                  <div className="bg-bull" style={{ width: `${data.probability.bullishPercent}%` }} />
+                  <div className="bg-bear" style={{ width: `${data.probability.bearishPercent}%` }} />
+                </div>
+              </div>
+            )}
+            <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
+              <Pill label="Risk" value={view.riskLevel ?? "—"} cls={view.riskLevel ? RISK_CLS[view.riskLevel] : "border-white/10 text-slate-400"} />
+              <Pill label="Confidence" value={view.confidencePercent == null ? "—" : `${view.confidencePercent}%`} cls="border-white/10 text-slate-200" sub="estimated" />
+              <Pill label="R:R" value={view.riskReward ?? "—"} cls="border-white/10 text-slate-200" />
+            </div>
+          </div>
+
+          <div className="flex shrink-0 gap-1 border-b border-white/10 px-2 py-1.5">
+            {(["summary", "time", "risk", "details"] as TabId[]).map((id) => (
+              <button key={id} type="button" onClick={() => setTab(id)} className={`flex-1 rounded-md px-1 py-1 text-[11px] font-semibold capitalize ${tab === id ? "bg-accent/15 text-accent" : "text-slate-400 hover:bg-white/5 hover:text-slate-200"}`}>
+                {id === "time" ? "Time" : id}
+              </button>
+            ))}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
             {tab === "summary" && <TabSummary view={view} data={data} managed={managed} vt={vt} />}
             {tab === "time" && data && <TabTime signal={data} />}
             {tab === "risk" && data && <TabRisk view={view} signal={data} breadth={breadth} />}
             {tab === "details" && data && <TabDetails signal={data} view={view} />}
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
 
       <div className="shrink-0 border-t border-white/10 px-3 py-1.5 text-center text-[10px] text-slate-500">Read-only advisory · No orders placed</div>
     </div>
@@ -400,7 +468,7 @@ function TabSummary({ view, data, managed, vt }: { view: AssistantView; data: Li
       {!managed && data && (
         <button type="button" onClick={() => vt.add(virtualFromSignal(data))} className="w-full rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/20">+ Add AI Virtual Trade from this setup</button>
       )}
-      {managed && <p className="text-[10px] text-slate-500">Managing a {managed.source === "zerodha" ? "Zerodha" : "virtual"} position — guidance above reflects your entry ₹{num(managed.entryPrice)}.</p>}
+      {managed && <p className="text-[10px] text-slate-500">Managing a {managed.source === "zerodha" ? "Zerodha" : "virtual"} position — guidance reflects your entry ₹{num(managed.entryPrice)}.</p>}
     </div>
   );
 }
@@ -512,7 +580,6 @@ function Pill({ label, value, cls, sub }: { label: string; value: string; cls: s
     </div>
   );
 }
-
 function Lvl({ label, value, tone }: { label: string; value: number | null; tone?: "bull" | "bear" | "warn" }) {
   const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : tone === "warn" ? "text-neutralSignal" : "text-slate-100";
   return (
@@ -522,7 +589,6 @@ function Lvl({ label, value, tone }: { label: string; value: number | null; tone
     </div>
   );
 }
-
 function FactorCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-white/10 bg-base-800/60 px-2 py-2">
@@ -531,11 +597,11 @@ function FactorCard({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-
 function cap(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : "—";
 }
 function secsAgo(then: number): string {
+  if (!then) return "now";
   const s = Math.max(0, Math.round((Date.now() - then) / 1000));
   return s < 1 ? "now" : `${s}s ago`;
 }
