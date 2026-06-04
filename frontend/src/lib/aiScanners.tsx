@@ -27,6 +27,8 @@ export interface Scanner {
   pinned: boolean;
   zIndex: number;
   position: { x: number; y: number };
+  /** True once the user has manually dragged the window (free-floating). */
+  dragged: boolean;
   createdAt: number;
   lastViewedAt: number;
 }
@@ -43,6 +45,8 @@ export interface AiScannersApi {
   closeAllUnpinned: () => void;
   bringToFront: (id: string) => void;
   setPosition: (id: string, x: number, y: number) => void;
+  /** Pop a docked window out into free-floating mode at (x,y). */
+  popOut: (id: string, x: number, y: number) => void;
   has: (instrument: string) => boolean;
   /** Bumped whenever a window is opened/focused — consumers pulse/scroll. */
   focusNonce: number;
@@ -95,6 +99,7 @@ function load(): Scanner[] {
       pinned: Boolean(s.pinned),
       zIndex: typeof s.zIndex === "number" ? s.zIndex : Z_BASE + idx,
       position: s.position && typeof s.position.x === "number" && typeof s.position.y === "number" ? s.position : defaultPosition(idx),
+      dragged: Boolean(s.dragged),
       createdAt: typeof s.createdAt === "number" ? s.createdAt : Date.now(),
       lastViewedAt: typeof s.lastViewedAt === "number" ? s.lastViewedAt : Date.now(),
     }))
@@ -136,7 +141,7 @@ export function AiScannersProvider({ children }: { children: React.ReactNode }) 
         ? cur.map((s) => (s.id === id ? { ...s, state: "expanded" as ScannerState, zIndex: maxZ(cur) + 1, lastViewedAt: now } : s))
         : [
             ...cur,
-            { id, instrument: ins, state: "expanded" as ScannerState, pinned: false, zIndex: maxZ(cur) + 1, position: defaultPosition(cur.length), createdAt: now, lastViewedAt: now },
+            { id, instrument: ins, state: "expanded" as ScannerState, pinned: false, zIndex: maxZ(cur) + 1, position: defaultPosition(cur.length), dragged: false, createdAt: now, lastViewedAt: now },
           ].slice(-MAX_SCANNERS);
       commit(next);
       requestFocus(id);
@@ -159,11 +164,12 @@ export function AiScannersProvider({ children }: { children: React.ReactNode }) 
   const close = useCallback((id: string) => commit(ref.current.filter((s) => s.id !== id)), [commit]);
   const closeAllUnpinned = useCallback(() => commit(ref.current.filter((s) => s.pinned)), [commit]);
   const setPosition = useCallback((id: string, x: number, y: number) => commit(ref.current.map((s) => (s.id === id ? { ...s, position: { x, y } } : s))), [commit]);
+  const popOut = useCallback((id: string, x: number, y: number) => commit(ref.current.map((s) => (s.id === id ? { ...s, dragged: true, position: { x, y }, zIndex: maxZ(ref.current) + 1 } : s))), [commit]);
   const has = useCallback((instrument: string) => scanners.some((s) => s.instrument.instrument === instrument), [scanners]);
 
   return (
     <Ctx.Provider
-      value={{ scanners, open, focus: focusFn, minimise, minimiseAll, expand, togglePin, close, closeAllUnpinned, bringToFront, setPosition, has, focusNonce: focus.nonce, focusedId: focus.id }}
+      value={{ scanners, open, focus: focusFn, minimise, minimiseAll, expand, togglePin, close, closeAllUnpinned, bringToFront, setPosition, popOut, has, focusNonce: focus.nonce, focusedId: focus.id }}
     >
       {children}
     </Ctx.Provider>
@@ -185,6 +191,7 @@ export function useAiScanners(): AiScannersApi {
       closeAllUnpinned: () => {},
       bringToFront: () => {},
       setPosition: () => {},
+      popOut: () => {},
       has: () => false,
       focusNonce: 0,
       focusedId: null,

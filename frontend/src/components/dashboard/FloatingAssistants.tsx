@@ -12,25 +12,54 @@ import {
   derivePositionManager,
   factorBreakdown,
   type ActivePosition,
-  type AssistantTone,
   type AssistantView,
   type RiskLevel,
 } from "@/lib/tradeAssistant";
 import type { LiveSignal } from "@/types/api";
 
-const TONE: Record<AssistantTone, { chip: string; dot: string; text: string; border: string }> = {
-  bull: { chip: "border-bull/40 bg-bull-soft text-bull", dot: "bg-bull", text: "text-bull", border: "border-bull/40" },
-  bear: { chip: "border-bear/40 bg-bear-soft text-bear", dot: "bg-bear", text: "text-bear", border: "border-bear/40" },
-  warn: { chip: "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal", dot: "bg-neutralSignal", text: "text-neutralSignal", border: "border-neutralSignal/40" },
-  info: { chip: "border-accent/40 bg-accent/10 text-accent", dot: "bg-accent", text: "text-accent", border: "border-accent/40" },
-  neutral: { chip: "border-white/10 bg-base-800 text-slate-300", dot: "bg-slate-500", text: "text-slate-300", border: "border-white/10" },
-};
 const RISK_CLS: Record<RiskLevel, string> = {
   Low: "border-bull/40 bg-bull-soft text-bull",
   Medium: "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal",
   High: "border-bear/40 bg-bear-soft text-bear",
   Extreme: "border-bear/60 bg-bear/20 text-bear",
 };
+
+// Unified action-state → colour mapping for the OUTER card border, glow, focus
+// ring, header dot and action badge (kept harmonised, neutral card background).
+// green = enter/long/hold-bull · blue = wait-for-breakout/pullback ·
+// grey = no-setup/neutral · amber = avoid/caution · red = short/exit/reduce-risk.
+type ActTone = "green" | "blue" | "grey" | "amber" | "red";
+const ACT: Record<ActTone, { border: string; glow: string; ring: string; badge: string; dot: string; text: string }> = {
+  green: { border: "border-bull/70", glow: "shadow-[0_10px_28px_-12px_rgba(0,0,0,0.55),0_0_16px_-6px_rgba(22,199,132,0.55)]", ring: "ring-bull/60", badge: "border-bull/50 bg-bull-soft text-bull", dot: "bg-bull", text: "text-bull" },
+  blue: { border: "border-accent/70", glow: "shadow-[0_10px_28px_-12px_rgba(0,0,0,0.55),0_0_16px_-6px_rgba(59,130,246,0.55)]", ring: "ring-accent/60", badge: "border-accent/50 bg-accent/10 text-accent", dot: "bg-accent", text: "text-accent" },
+  grey: { border: "border-slate-500/60", glow: "shadow-[0_10px_28px_-12px_rgba(0,0,0,0.5),0_0_14px_-6px_rgba(148,163,184,0.4)]", ring: "ring-slate-400/50", badge: "border-white/15 bg-base-800 text-slate-300", dot: "bg-slate-400", text: "text-slate-300" },
+  amber: { border: "border-neutralSignal/70", glow: "shadow-[0_10px_28px_-12px_rgba(0,0,0,0.55),0_0_16px_-6px_rgba(240,185,11,0.55)]", ring: "ring-neutralSignal/60", badge: "border-neutralSignal/50 bg-neutralSignal-soft text-neutralSignal", dot: "bg-neutralSignal", text: "text-neutralSignal" },
+  red: { border: "border-bear/70", glow: "shadow-[0_10px_28px_-12px_rgba(0,0,0,0.55),0_0_16px_-6px_rgba(234,57,67,0.55)]", ring: "ring-bear/60", badge: "border-bear/50 bg-bear-soft text-bear", dot: "bg-bear", text: "text-bear" },
+};
+
+/** Map an assistant view to its single action tone (drives the outer styling). */
+function actionTone(view: AssistantView): ActTone {
+  const short = view.direction === "SHORT";
+  switch (view.state) {
+    case "ENTER_NOW":
+    case "HOLD":
+    case "TRAIL_SL":
+    case "ADD_MORE_ONLY_IF_SAFE":
+      return short ? "red" : "green";
+    case "WAIT_FOR_BREAKOUT":
+    case "WAIT_FOR_PULLBACK":
+      return "blue";
+    case "AVOID_TRADE":
+    case "BOOK_PARTIAL":
+    case "DATA_STALE":
+      return "amber";
+    case "EXIT_NOW":
+    case "REDUCE_RISK":
+      return "red";
+    default:
+      return "grey"; // WAIT_FOR_SETUP / LOADING / NO_SELECTION / BACKEND_OFFLINE
+  }
+}
 
 type TabId = "summary" | "time" | "risk" | "details";
 interface SignalState { data?: LiveSignal; error?: string; loading: boolean; updatedAt: number }
@@ -61,7 +90,7 @@ function vtToPos(t: { side: "LONG" | "SHORT"; entryPrice: number; quantity: numb
  * windows dock bottom-right; unpinned ones float (draggable). Read-only.
  */
 export function FloatingAssistants() {
-  const { scanners, focus, minimise, close, closeAllUnpinned, minimiseAll, togglePin, bringToFront, setPosition, focusNonce, focusedId } = useAiScanners();
+  const { scanners, focus, minimise, close, closeAllUnpinned, minimiseAll, togglePin, bringToFront, setPosition, popOut, focusNonce, focusedId } = useAiScanners();
   const g = useGlobalControls();
   const vt = useAiVirtualTrades();
   const isMobile = useIsMobile();
@@ -175,6 +204,7 @@ export function FloatingAssistants() {
         onTogglePin={() => togglePin(s.id)}
         onFront={() => bringToFront(s.id)}
         onMove={(x, y) => setPosition(s.id, x, y)}
+        onPopOut={(x, y) => popOut(s.id, x, y)}
         onRefreshCache={refreshCache}
       />
     );
@@ -198,19 +228,20 @@ export function FloatingAssistants() {
     );
   }
 
-  // ---- desktop
-  const pinnedExpanded = expanded.filter((s) => s.pinned);
-  const floatingExpanded = expanded.filter((s) => !s.pinned);
+  // ---- desktop. Auto-aligned dock for every window the user hasn't dragged;
+  // manually-dragged windows keep their own position.
+  const free = expanded.filter((s) => s.dragged);
+  const docked = expanded.filter((s) => !s.dragged).sort((a, b) => a.createdAt - b.createdAt);
 
   return (
     <>
-      {/* Free-floating (unpinned) windows */}
-      {floatingExpanded.map((s) => renderWindow(s, "floating"))}
+      {/* Manually dragged windows (respect user position) */}
+      {free.map((s) => renderWindow(s, "floating"))}
 
-      {/* Pinned windows docked bottom-right, wrapping upward */}
-      {pinnedExpanded.length > 0 && (
-        <div style={{ zIndex: 80 }} className="pointer-events-none fixed bottom-4 right-4 flex max-w-[calc(100vw-1.5rem)] flex-wrap-reverse items-end justify-end gap-3">
-          {pinnedExpanded.map((s) => (
+      {/* Auto-aligned dock, bottom-right, wrapping upward — tops aligned per row */}
+      {docked.length > 0 && (
+        <div style={{ zIndex: 80 }} className="pointer-events-none fixed bottom-4 right-4 flex max-w-[calc(100vw-2rem)] flex-wrap-reverse items-start justify-end gap-4">
+          {docked.map((s) => (
             <div key={s.id} className="pointer-events-auto">
               {renderWindow(s, "docked")}
             </div>
@@ -243,13 +274,13 @@ export function FloatingAssistants() {
 }
 
 function Chip({ scanner, cmp, view, onOpen, onClose }: { scanner: Scanner; cmp: number | null; view: AssistantView | null; onOpen: () => void; onClose: () => void }) {
-  const tone = view ? TONE[view.tone] : TONE.neutral;
+  const a = ACT[view ? actionTone(view) : "grey"];
   return (
-    <button type="button" onClick={onOpen} title={`Open ${scanner.instrument.displayName}`} className={`group inline-flex shrink-0 items-center gap-1.5 rounded-full border bg-base-900/95 px-2.5 py-1.5 shadow-card backdrop-blur ${tone.border}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+    <button type="button" onClick={onOpen} title={`Open ${scanner.instrument.displayName}`} className={`group inline-flex shrink-0 items-center gap-1.5 rounded-full border bg-base-900/95 px-2.5 py-1.5 shadow-card backdrop-blur ${a.border}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${a.dot}`} />
       <span className="max-w-[120px] truncate text-[11px] font-semibold text-slate-100">{scanner.instrument.displayName}</span>
       <span className="num text-[11px] text-slate-400">{cmp == null ? "" : num(cmp)}</span>
-      {view && <span className={`text-[10px] font-semibold uppercase ${tone.text}`}>{view.label}</span>}
+      {view && <span className={`text-[10px] font-semibold uppercase ${a.text}`}>{view.label}</span>}
       {scanner.pinned && <span className="text-[10px]">📌</span>}
       <span role="button" tabIndex={-1} aria-label={`Close ${scanner.instrument.displayName}`} onClick={(e) => { e.stopPropagation(); onClose(); }} className="text-slate-500 hover:text-bear">✕</span>
     </button>
@@ -277,6 +308,7 @@ function AssistantWindow({
   onTogglePin,
   onFront,
   onMove,
+  onPopOut,
   onRefreshCache,
 }: {
   scanner: Scanner;
@@ -297,6 +329,7 @@ function AssistantWindow({
   onTogglePin: () => void;
   onFront: () => void;
   onMove: (x: number, y: number) => void;
+  onPopOut: (x: number, y: number) => void;
   onRefreshCache: () => void;
 }) {
   const [tab, setTab] = useState<TabId>("summary");
@@ -305,25 +338,40 @@ function AssistantWindow({
   const [refreshing, setRefreshing] = useState(false);
   const posRef = useRef(pos);
   posRef.current = pos;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+
+  // Keep local position synced with the store unless the user is dragging.
+  useEffect(() => {
+    if (!draggingRef.current) setPos(scanner.position);
+  }, [scanner.position.x, scanner.position.y]);
 
   useEffect(() => {
     if (!pulseNonce) return;
     setPulse(true);
-    const t = window.setTimeout(() => setPulse(false), 2200);
-    return () => window.clearTimeout(t);
+    const id = window.setTimeout(() => setPulse(false), 2200);
+    return () => window.clearTimeout(id);
   }, [pulseNonce]);
 
+  // Drag the header. A docked window "pops out" into free-floating mode at its
+  // current on-screen position so it keeps where the user grabbed it.
   const onHeaderPointerDown = (e: React.PointerEvent) => {
-    if (layout !== "floating") return;
+    if (layout === "sheet") return; // mobile bottom sheet is not draggable
     if ((e.target as HTMLElement).closest("button")) return;
     onFront();
-    const base = { ...posRef.current };
+    const rect = cardRef.current?.getBoundingClientRect();
+    const startX = rect ? Math.round(rect.left) : posRef.current.x;
+    const startY = rect ? Math.round(rect.top) : posRef.current.y;
+    draggingRef.current = true;
+    if (layout === "docked") onPopOut(startX, startY); // leave the aligned dock
+    setPos({ x: startX, y: startY });
     const sx = e.clientX;
     const sy = e.clientY;
-    const move = (ev: PointerEvent) => setPos({ x: clamp(base.x + ev.clientX - sx, 0, window.innerWidth - 80), y: clamp(base.y + ev.clientY - sy, 0, window.innerHeight - 60) });
+    const move = (ev: PointerEvent) => setPos({ x: clamp(startX + ev.clientX - sx, 0, window.innerWidth - 80), y: clamp(startY + ev.clientY - sy, 0, window.innerHeight - 60) });
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      draggingRef.current = false;
       onMove(posRef.current.x, posRef.current.y);
     };
     window.addEventListener("pointermove", move);
@@ -331,10 +379,12 @@ function AssistantWindow({
     e.preventDefault();
   };
 
-  const t = view ? TONE[view.tone] : TONE.neutral;
   const cmp = data?.currentPrice ?? null;
   const itype = data?.resolvedInstrument.instrumentType ?? "";
-  const ringCls = pulse ? "border-accent ring-2 ring-accent/60 shadow-[0_0_0_4px_rgba(59,130,246,0.18)]" : t.border;
+  const friendly = !!error && /(not found|resolve|unsupported|invalid|no candle|instrument|unavailable|cache)/i.test(error);
+  // Single action tone drives the outer border, glow, focus ring, dot and badge.
+  const at: ActTone = view ? actionTone(view) : error && !data ? (friendly ? "grey" : "red") : "grey";
+  const a = ACT[at];
 
   const frameStyle: React.CSSProperties =
     layout === "floating" ? { zIndex: scanner.zIndex, left: pos.x, top: pos.y, width: 360 } : layout === "sheet" ? { zIndex: scanner.zIndex } : {};
@@ -343,15 +393,13 @@ function AssistantWindow({
       ? "fixed flex max-h-[78vh] w-[360px] flex-col"
       : layout === "sheet"
         ? "fixed inset-x-2 bottom-2 flex max-h-[82vh] flex-col"
-        : "flex max-h-[70vh] w-[340px] flex-col"; // docked
-
-  const friendly = !!error && /(not found|resolve|unsupported|invalid|no candle|instrument|unavailable|cache)/i.test(error);
+        : "flex max-h-[72vh] w-[340px] flex-col"; // docked
 
   return (
-    <div style={frameStyle} className={`${frameCls} overflow-hidden rounded-2xl border ${ringCls} bg-base-900/95 shadow-card backdrop-blur transition-shadow`} onMouseDown={() => { if (!isFront && layout !== "docked") onFront(); }}>
+    <div ref={cardRef} style={frameStyle} className={`${frameCls} overflow-hidden rounded-2xl border-2 ${a.border} ${a.glow} ${pulse ? `ring-2 ${a.ring}` : ""} bg-base-900/95 backdrop-blur transition-shadow`} onMouseDown={() => { if (!isFront && layout === "floating") onFront(); }}>
       {/* header */}
-      <div onPointerDown={onHeaderPointerDown} className={`flex items-center gap-2 border-b border-white/10 px-3 py-2 ${layout === "floating" ? "cursor-move" : ""}`}>
-        <span className={`h-2 w-2 rounded-full ${t.dot}`} />
+      <div onPointerDown={onHeaderPointerDown} className={`flex items-center gap-2 border-b border-white/10 px-3 py-2 ${layout === "sheet" ? "" : "cursor-move"}`}>
+        <span className={`h-2 w-2 rounded-full ${a.dot}`} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold text-slate-100">{scanner.instrument.displayName}</p>
           <p className="num truncate text-[10px] text-slate-500">
@@ -394,7 +442,7 @@ function AssistantWindow({
           {/* summary */}
           <div className="border-b border-white/10 px-3 py-2">
             <div className="flex items-center justify-between gap-2">
-              <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-bold uppercase tracking-wide ${t.chip}`}>{view.label}</span>
+              <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-bold uppercase tracking-wide ${a.badge}`}>{view.label}</span>
               <div className="text-right">
                 <p className="num text-xl font-bold text-slate-100">{cmp == null ? "—" : num(cmp)}</p>
                 <p className="text-[9px] uppercase text-slate-500">CMP</p>
@@ -444,10 +492,10 @@ function AssistantWindow({
 // =============================== tabs ===============================
 
 function TabSummary({ view, data, managed, vt }: { view: AssistantView; data: LiveSignal | null; managed: ActivePosition | null; vt: ReturnType<typeof useAiVirtualTrades> }) {
-  const t = TONE[view.tone];
+  const a = ACT[actionTone(view)];
   return (
     <div className="space-y-2.5">
-      <p className={`rounded-lg border px-3 py-2 text-xs font-semibold ${t.chip}`}>{view.action}</p>
+      <p className={`rounded-lg border px-3 py-2 text-xs font-semibold ${a.badge}`}>{view.action}</p>
       {view.pnl && <p className={`text-center text-xs font-bold ${view.pnl.total >= 0 ? "text-bull" : "text-bear"}`}>Live P/L {view.pnl.total >= 0 ? "+" : ""}₹{num(view.pnl.total)} ({view.pnl.percent >= 0 ? "+" : ""}{num(view.pnl.percent)}%)</p>}
       <div className="grid grid-cols-3 gap-1.5 text-center">
         <Lvl label="Entry" value={view.levels.entry} />
