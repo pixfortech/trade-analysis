@@ -11,6 +11,16 @@
 
 import type { Instrument } from "./instruments.service";
 
+// Exchanges Kite Connect can quote/serve for retail. Anything else (e.g. NSEIX /
+// GIFT NIFTY, or other special segments) is excluded from search so the app
+// never hands a backend endpoint an unquotable EXCHANGE:SYMBOL key.
+const SUPPORTED_EXCHANGES = new Set(["NSE", "BSE", "NFO", "BFO", "CDS", "BCD", "MCX", "INDICES"]);
+
+/** True if an instrument's exchange is one Kite can actually quote/serve. */
+export function isSupportedExchange(exchange: string): boolean {
+  return SUPPORTED_EXCHANGES.has((exchange || "").toUpperCase());
+}
+
 export type UiSegment = "equity" | "indices" | "futures" | "options";
 export type UiInstrumentType = "EQ" | "INDEX" | "FUT" | "CE" | "PE";
 
@@ -165,6 +175,9 @@ export function groupedSearch(list: Instrument[], filters: GroupedSearchFilters)
 
   for (const ins of list) {
     const { uiSegment, uiType } = classify(ins);
+
+    // Skip instruments on exchanges Kite can't quote (e.g. NSEIX / GIFT NIFTY).
+    if (!isSupportedExchange(ins.exchange)) continue;
 
     if (segFilter !== "all" && uiSegment !== segFilter) continue;
     if (wantType && uiType !== wantType) continue;

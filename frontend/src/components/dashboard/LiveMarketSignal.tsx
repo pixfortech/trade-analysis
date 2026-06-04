@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
-import { EmptyState, ErrorState } from "@/components/ui/States";
+import { EmptyState } from "@/components/ui/States";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { num } from "@/lib/format";
@@ -97,6 +97,16 @@ export function LiveMarketSignal() {
     return () => timers.forEach((t) => window.clearTimeout(t));
   }, [signal.data]);
 
+  // Refresh the Kite instruments cache, then re-analyse (used by the error state).
+  const refreshCache = useCallback(async () => {
+    try {
+      await api.kite.instrumentsRefresh();
+    } catch {
+      /* ignore — run() surfaces any remaining issue */
+    }
+    void run();
+  }, [run]);
+
   return (
     <Card
       id="live-market-signal"
@@ -126,15 +136,24 @@ export function LiveMarketSignal() {
       <InstrumentSearch onSelect={onSelect} autoFocus={false} segment={segment === "all" ? undefined : segment} />
 
       {/* Selected instrument + controls */}
-      <div className="mt-3 flex flex-col gap-2 lg:flex-row lg:items-end">
-        <div className="min-w-0 flex-1 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
-          <p className="text-xs text-slate-500">Selected instrument</p>
-          <p className="truncate text-base font-semibold text-slate-100">
-            {sel ? sel.displayName : "None"}{" "}
-            <span className="num text-xs text-slate-500">
-              {sel ? `· ${sel.instrument}${sel.lotSize ? ` · lot ${sel.lotSize}` : ""}` : ""}
-            </span>
-          </p>
+      <div className="mt-3 flex flex-col gap-2.5 lg:flex-row lg:items-end">
+        <div className={`min-w-0 flex-1 rounded-lg border px-3 py-2.5 ${sel ? "border-accent/20 bg-accent/5" : "border-white/5 bg-base-800/60"}`}>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Selected instrument</p>
+            {sel && (
+              <button type="button" onClick={() => global.setSelectedInstrument(null)} className="text-[11px] font-medium text-slate-500 hover:text-bear">
+                Clear ✕
+              </button>
+            )}
+          </div>
+          {sel ? (
+            <p className="truncate text-base font-bold text-slate-100">
+              {sel.displayName}
+              <span className="num ml-1 text-xs font-medium text-slate-500">· {sel.instrument}{sel.lotSize ? ` · lot ${sel.lotSize}` : ""}</span>
+            </p>
+          ) : (
+            <p className="text-sm font-medium text-slate-400">None — search above to select</p>
+          )}
         </div>
         <label className="block">
           <span className="mb-1 block text-xs text-slate-500">Timeframe</span>
@@ -198,21 +217,18 @@ export function LiveMarketSignal() {
       </div>
 
       <div className="mt-4">
-        {signal.isIdle && (
+        {!sel ? (
           <EmptyState
-            title="Search and analyze"
-            message="Pick an instrument above (equity, index, future or option) and click Analyze for a live read-only signal. Needs Kite enabled & authorised."
+            title="Search and select an instrument to analyse"
+            message="Pick an equity, index, future or option above. Nothing is selected by default."
           />
-        )}
-        {signal.isLoading && !signal.data && <p className="text-sm text-slate-400">Fetching live data and computing the signal…</p>}
-        {signal.isError && (
-          <ErrorState
-            message={signal.error ?? "Analysis failed."}
-            hint="Enable & authorise Kite (Status card). If search is empty, refresh the instruments cache. Live signal needs live Kite data."
-            onRetry={() => void run()}
-          />
-        )}
-        {signal.data && (
+        ) : signal.isIdle ? (
+          <EmptyState title={`Ready: ${sel.displayName}`} message="Click Analyze for a live read-only signal. Needs Kite enabled & authorised." />
+        ) : signal.isLoading && !signal.data ? (
+          <p className="text-sm text-slate-400">Fetching live data and computing the signal…</p>
+        ) : signal.isError ? (
+          <InstrumentError name={sel.displayName} message={signal.error} onRetry={() => void run()} onRefresh={() => void refreshCache()} onClear={() => global.setSelectedInstrument(null)} />
+        ) : signal.data ? (
           <>
             <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
               <span>Source: Zerodha Kite (live/historical)</span>
@@ -235,7 +251,7 @@ export function LiveMarketSignal() {
               <TimeBasedPlan signal={signal.data} />
             </Expandable>
           </>
-        )}
+        ) : null}
       </div>
 
       <AlertToasts toasts={alerts.toasts} onDismiss={alerts.dismiss} />
@@ -248,6 +264,26 @@ function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+/** Friendly error/unavailable state for a selected instrument (e.g. GIFT/NSEIX). */
+function InstrumentError({ name, message, onRetry, onRefresh, onClear }: { name: string; message: string | null; onRetry: () => void; onRefresh: () => void; onClear: () => void }) {
+  const friendly = !!message && /(not found|resolve|unsupported|invalid|no candle|instrument|unavailable|cache|nseix|gift)/i.test(message);
+  return (
+    <div className="rounded-xl border border-neutralSignal/30 bg-neutralSignal-soft p-4">
+      <p className="text-sm font-bold text-neutralSignal">{friendly ? `${name} is currently unavailable in Kite data` : "Couldn't compute the signal"}</p>
+      <p className="mt-1 text-xs leading-relaxed text-slate-400">
+        {friendly
+          ? "It may not be quotable via Kite (e.g. GIFT / NSEIX), or the instruments cache is stale. Refresh the cache, or clear the selection and pick another instrument."
+          : "Enable & authorise Kite (see the Kite Status card), then retry. The live signal needs live Kite data."}
+      </p>
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <button type="button" onClick={onRetry} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/5">Retry</button>
+        <button type="button" onClick={onRefresh} className="rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/20">Refresh instruments cache</button>
+        <button type="button" onClick={onClear} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-bear">Clear selection</button>
+      </div>
+    </div>
+  );
 }
 
 /** Entry/SL/target price lines for the chart, from the preferred setup. */

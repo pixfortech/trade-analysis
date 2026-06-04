@@ -39,8 +39,9 @@ export function LiveAIRecommendation() {
   const onSelect = (ins: SelectedInstrument) =>
     global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize });
   const run = useCallback(() => {
+    if (!sel) return;
     void rec.run({ instrument: sel.instrument, interval, riskProfile: mode });
-  }, [sel.instrument, interval, mode, rec]);
+  }, [sel, interval, mode, rec]);
 
   // Auto-refresh when global live updates are ON (and a recommendation exists).
   useEffect(() => {
@@ -77,7 +78,7 @@ export function LiveAIRecommendation() {
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="min-w-0 flex-1 rounded-lg border border-white/5 bg-base-800/60 px-3 py-2">
           <p className="text-xs text-slate-500">Selected</p>
-          <p className="truncate text-sm font-semibold text-slate-100">{sel.displayName}</p>
+          <p className="truncate text-sm font-bold text-slate-100">{sel?.displayName ?? "None — search to select"}</p>
         </div>
         <ThemedSelect
           value={interval}
@@ -96,15 +97,19 @@ export function LiveAIRecommendation() {
         <button
           type="button"
           onClick={run}
-          disabled={rec.isLoading}
-          className="rounded-lg bg-accent/20 px-4 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/30 disabled:opacity-40"
+          disabled={rec.isLoading || !sel}
+          className="rounded-lg bg-accent/20 px-4 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {rec.isLoading ? "Analyzing…" : "Get recommendation"}
         </button>
       </div>
 
       <div className="mt-4">
-        {rec.isIdle && <EmptyState title="No recommendation yet" message="Pick an instrument and click Get recommendation. Needs live Kite data." />}
+        {!sel ? (
+          <EmptyState title="No instrument selected" message="Search and pick an instrument above to get an AI recommendation. Nothing is selected by default." />
+        ) : (
+          rec.isIdle && <EmptyState title={`Ready: ${sel.displayName}`} message="Click Get recommendation for a live, explained advisory. Needs live Kite data." />
+        )}
         {rec.isLoading && !rec.data && <p className="text-sm text-slate-400">Reading live data…</p>}
         {rec.isError && <ErrorState message={rec.error ?? "Failed."} hint="Enable & authorise Kite. This uses live data only." onRetry={run} />}
         {rec.data && (

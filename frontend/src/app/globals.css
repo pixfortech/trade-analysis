@@ -68,6 +68,8 @@
   .num {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+    /* Crisper numbers; explicit font-bold/semibold utilities still win. */
+    font-weight: 500;
   }
   /* Nudge the very small helper labels up to ~12px so they stay readable,
      without changing every component. (Tailwind text-[11px] → 12px.) */

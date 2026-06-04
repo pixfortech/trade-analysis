@@ -19,8 +19,8 @@ export function Card({ id, title, subtitle, icon, action, children, className = 
           <div className="flex min-w-0 items-center gap-2.5">
             {icon && <span className="shrink-0 text-slate-400">{icon}</span>}
             <div className="min-w-0">
-              {title && <h2 className="truncate text-sm font-semibold tracking-wide text-slate-100">{title}</h2>}
-              {subtitle && <p className="truncate text-xs text-slate-500">{subtitle}</p>}
+              {title && <h2 className="truncate text-[15px] font-bold tracking-tight text-slate-100">{title}</h2>}
+              {subtitle && <p className="truncate text-xs font-medium text-slate-500">{subtitle}</p>}
             </div>
           </div>
           {action && <div className="shrink-0">{action}</div>}

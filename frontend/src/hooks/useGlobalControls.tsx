@@ -22,7 +22,16 @@ export interface SharedInstrument {
   lotSize: number | null;
 }
 
-const DEFAULT_INSTRUMENT: SharedInstrument = { instrument: "NSE:RELIANCE", displayName: "RELIANCE", lotSize: null };
+// Exchanges the backend/Kite can actually quote — used to validate a persisted
+// selection so an invalid key (e.g. NSEIX:GIFT NIFTY) is cleared, not restored.
+const SUPPORTED_EXCHANGES = new Set(["NSE", "BSE", "NFO", "BFO", "CDS", "BCD", "MCX", "INDICES"]);
+
+/** A selectable instrument key must be EXCHANGE:SYMBOL on a quotable exchange. */
+export function isValidInstrumentKey(key: string): boolean {
+  const i = key.indexOf(":");
+  if (i <= 0 || i >= key.length - 1) return false;
+  return SUPPORTED_EXCHANGES.has(key.slice(0, i).toUpperCase());
+}
 
 export interface GlobalControls {
   liveUpdates: boolean;
@@ -44,9 +53,9 @@ export interface GlobalControls {
   increaseFont: () => void;
   decreaseFont: () => void;
   resetFont: () => void;
-  // Shared selected instrument (Phase 3L)
-  selectedInstrument: SharedInstrument;
-  setSelectedInstrument: (ins: SharedInstrument) => void;
+  // Shared selected instrument (Phase 3L) — null until the user picks one.
+  selectedInstrument: SharedInstrument | null;
+  setSelectedInstrument: (ins: SharedInstrument | null) => void;
 }
 
 const LIVE_KEY = "global.liveUpdates.v1";
@@ -85,7 +94,7 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
   const [sidebarMode, setSidebarModeState] = useState<SidebarMode>("expanded");
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [fontSizePx, setFontSizePxState] = useState<number>(FONT_DEFAULT);
-  const [selectedInstrument, setSelectedInstrumentState] = useState<SharedInstrument>(DEFAULT_INSTRUMENT);
+  const [selectedInstrument, setSelectedInstrumentState] = useState<SharedInstrument | null>(null);
 
   // Hydrate from storage + current permission.
   useEffect(() => {
@@ -109,12 +118,16 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
       const ins = window.localStorage.getItem(INSTRUMENT_KEY);
       if (ins) {
         const parsed = JSON.parse(ins) as Partial<SharedInstrument>;
-        if (parsed && typeof parsed.instrument === "string" && parsed.instrument) {
+        // Restore a previous selection ONLY if it's still a valid, quotable Kite
+        // key — otherwise clear it (no auto-default, no invalid key like NSEIX).
+        if (parsed && typeof parsed.instrument === "string" && isValidInstrumentKey(parsed.instrument)) {
           setSelectedInstrumentState({
             instrument: parsed.instrument,
             displayName: typeof parsed.displayName === "string" && parsed.displayName ? parsed.displayName : parsed.instrument,
             lotSize: typeof parsed.lotSize === "number" ? parsed.lotSize : null,
           });
+        } else {
+          window.localStorage.removeItem(INSTRUMENT_KEY);
         }
       }
     } catch {
@@ -190,10 +203,11 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
   const decreaseFont = useCallback(() => setFontSizePx(fontSizePx - 1), [fontSizePx, setFontSizePx]);
   const resetFont = useCallback(() => setFontSizePx(FONT_DEFAULT), [setFontSizePx]);
 
-  const setSelectedInstrument = useCallback((ins: SharedInstrument) => {
+  const setSelectedInstrument = useCallback((ins: SharedInstrument | null) => {
     setSelectedInstrumentState(ins);
     try {
-      window.localStorage.setItem(INSTRUMENT_KEY, JSON.stringify(ins));
+      if (ins) window.localStorage.setItem(INSTRUMENT_KEY, JSON.stringify(ins));
+      else window.localStorage.removeItem(INSTRUMENT_KEY);
     } catch {
       /* ignore */
     }
@@ -250,7 +264,7 @@ export function useGlobalControls(): GlobalControls {
       increaseFont: () => {},
       decreaseFont: () => {},
       resetFont: () => {},
-      selectedInstrument: DEFAULT_INSTRUMENT,
+      selectedInstrument: null,
       setSelectedInstrument: () => {},
     };
   }
