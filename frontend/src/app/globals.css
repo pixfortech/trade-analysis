@@ -29,10 +29,6 @@
        the global font scale (html.font-*) applies to everything. */
     font-size: 1rem;
     line-height: 1.55;
-    background-image:
-      radial-gradient(900px 500px at 100% -10%, rgba(59, 130, 246, 0.08), transparent 60%),
-      radial-gradient(700px 400px at -10% 110%, rgba(22, 199, 132, 0.06), transparent 60%);
-    background-attachment: fixed;
   }
 
   ::selection {
@@ -55,8 +51,10 @@
 }
 
 @layer components {
+  /* Flat design: solid surface + thin border, no heavy shadow/blur. Floating
+     overlays (assistant windows, dropdowns) keep their own shadow for elevation. */
   .card {
-    @apply rounded-xl border border-white/5 bg-base-850/70 shadow-card backdrop-blur-sm;
+    @apply rounded-xl border border-white/10 bg-base-850;
     /* Never let a card or its content force horizontal overflow. */
     min-width: 0;
     max-width: 100%;
@@ -117,13 +115,10 @@
 html.light body {
   @apply text-slate-800;
   background-color: #f1f5f9;
-  background-image:
-    radial-gradient(900px 500px at 100% -10%, rgba(59, 130, 246, 0.06), transparent 60%),
-    radial-gradient(700px 400px at -10% 110%, rgba(22, 199, 132, 0.05), transparent 60%);
 }
 html.light .card {
-  @apply border-slate-200 bg-white/90;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.06);
+  @apply border-slate-200 bg-white;
+  box-shadow: none;
 }
 /* Background tokens → light surfaces */
 html.light .bg-base-950 { background-color: #f1f5f9 !important; }

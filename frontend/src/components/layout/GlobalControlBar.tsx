@@ -7,15 +7,15 @@ import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { FontSizeControl } from "./FontSizeControl";
 
 /**
- * Global live-monitoring / alerts / font-size bar (Phase 3M redesign).
- * A clean, elevated card (not a flat grey strip) that adapts to light & dark
- * via the shared base tokens + html.light overrides. Shows colour-coded Kite /
- * market / live / alerts status, a numeric font-size control, and an advisory
- * note. Responsive: one row on desktop, wrapped/stacked on small screens.
+ * Global live-monitoring / alerts / font-size bar (flat redesign). Shows
+ * colour-coded Kite / market / live / alerts status, a Connect Kite login
+ * button when authorisation is needed, a minimal font-size control, and an
+ * advisory note. Flat: solid surface + thin border, no shadow/blur. Responsive.
  */
 export function GlobalControlBar() {
   const kite = useAsync(api.kite.status);
   const market = useAsync(api.marketStatus);
+  const login = useAsync(api.kite.loginUrl);
   const g = useGlobalControls();
 
   useEffect(() => {
@@ -35,8 +35,13 @@ export function GlobalControlBar() {
   const m = market.data;
   const marketOpen = m?.status === "open";
 
+  const onConnect = async () => {
+    const res = await login.run();
+    if (res?.loginUrl) window.open(res.loginUrl, "_blank", "noopener,noreferrer");
+  };
+
   return (
-    <section className="mb-5 rounded-2xl border border-white/10 bg-base-850/70 px-3 py-2.5 shadow-card backdrop-blur sm:px-4">
+    <section className="mb-5 rounded-xl border border-white/10 bg-base-850 px-3 py-2.5 sm:px-4">
       <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
         {/* Status + live/alerts toggles */}
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -45,7 +50,18 @@ export function GlobalControlBar() {
           ) : authed ? (
             <Badge tone="blue" dot>Live Kite · Read-Only</Badge>
           ) : loginRequired ? (
-            <Badge tone="amber">Login required</Badge>
+            <button
+              type="button"
+              onClick={onConnect}
+              disabled={login.isLoading}
+              title="Open Zerodha Kite login (read-only)"
+              className="inline-flex items-center gap-1.5 rounded-full border border-neutralSignal/40 bg-neutralSignal-soft px-3 py-1 text-xs font-semibold text-neutralSignal transition hover:brightness-110 disabled:opacity-50"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {login.isLoading ? "Opening…" : "Connect Kite"}
+            </button>
           ) : (
             <Badge tone="grey">Live data off</Badge>
           )}
@@ -100,6 +116,7 @@ export function GlobalControlBar() {
           <span className="text-[11px] text-slate-500">Advisory · read-only · no order execution</span>
         </div>
       </div>
+      {login.isError && <p className="mt-1.5 text-[11px] text-bear">{login.error}</p>}
     </section>
   );
 }

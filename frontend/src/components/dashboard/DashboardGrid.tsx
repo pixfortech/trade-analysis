@@ -25,6 +25,7 @@ import {
   BREAKPOINTS,
   COLS,
   DASHBOARD_CARDS,
+  GRID_COLS,
   GRID_MARGIN,
   LAYOUT_STORAGE_KEY,
   ROW_HEIGHT,
@@ -106,6 +107,35 @@ export function DashboardGrid() {
     [setValue],
   );
 
+  // Auto-arrange: re-flow the visible widgets into a clean, gap-free packed grid
+  // (keeps each card's size, removes holes, aligns rows). Persists like a normal
+  // layout edit; hidden cards keep their geometry.
+  const autoArrange = useCallback(() => {
+    setValue((cur) => {
+      const base = reconcileState(cur);
+      const visible = base.layout.filter((it) => base.visible[it.i]);
+      const ordered = [...visible].sort((a, b) => a.y - b.y || a.x - b.x);
+      const placed = new Map<string, RglItem>();
+      let x = 0;
+      let y = 0;
+      let rowH = 0;
+      for (const it of ordered) {
+        const w = Math.min(it.w, GRID_COLS);
+        if (x + w > GRID_COLS) {
+          x = 0;
+          y += rowH;
+          rowH = 0;
+        }
+        placed.set(it.i, { ...it, x, y, w });
+        x += w;
+        rowH = Math.max(rowH, it.h);
+      }
+      const layout = base.layout.map((it) => placed.get(it.i) ?? it);
+      return { ...base, layout };
+    });
+    [0, 80, 240].forEach((ms) => window.setTimeout(() => window.dispatchEvent(new Event("resize")), ms));
+  }, [setValue]);
+
   // After hydration the sidebar (hidden lg:flex) appears without firing a
   // window resize, so WidthProvider can keep a stale/narrow measurement → thin
   // cards + blank right side. Force a few remeasures once mounted.
@@ -126,20 +156,17 @@ export function DashboardGrid() {
 
   return (
     <>
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-slate-400">
-          {visibleItems.length} widget{visibleItems.length === 1 ? "" : "s"} shown · live read-only data
+      <div className="sticky top-0 z-30 -mx-4 mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-base-900/95 px-4 py-2.5 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+        <p className="text-sm font-medium text-slate-400">
+          {visibleItems.length} widget{visibleItems.length === 1 ? "" : "s"} · live read-only
         </p>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setEditing((v) => !v)}
-            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-              editing ? "border-accent/40 bg-accent/10 text-accent" : "border-white/10 bg-base-800/70 text-slate-200 hover:bg-base-700"
-            }`}
-          >
-            {editing ? "Done arranging" : "Arrange widgets"}
-          </button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ToolButton onClick={autoArrange} label="Auto-arrange" title="Tidy widgets into a clean packed grid">
+            <path d="M4 5h6v6H4zM14 5h6v4h-6zM14 13h6v6h-6zM4 15h6v4H4z" />
+          </ToolButton>
+          <ToolButton onClick={() => setEditing((v) => !v)} label={editing ? "Done" : "Arrange"} active={editing} title="Drag & resize widgets">
+            <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" strokeLinecap="round" />
+          </ToolButton>
           <CustomizePanel visible={state.visible} onToggle={toggle} onReset={reset} />
         </div>
       </div>
@@ -186,6 +213,38 @@ export function DashboardGrid() {
         </ResponsiveGridLayout>
       )}
     </>
+  );
+}
+
+/** Flat icon+label toolbar button. Label hides on mobile (icon-only). */
+function ToolButton({
+  onClick,
+  label,
+  title,
+  active,
+  children,
+}: {
+  onClick: () => void;
+  label: string;
+  title?: string;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={label}
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm font-medium transition-colors ${
+        active ? "border-accent/40 bg-accent/10 text-accent" : "border-white/10 bg-base-800 text-slate-200 hover:bg-base-700"
+      }`}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden>
+        {children}
+      </svg>
+      <span className="hidden sm:inline">{label}</span>
+    </button>
   );
 }
 
