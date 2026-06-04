@@ -38,6 +38,9 @@ export interface InstrumentResult {
   strike: number;
   optionType: string; // CE | PE | ""
   lotSize: number;
+  tickSize: number;
+  /** True if Kite can quote/serve this exchange (false → reference-only, e.g. NSEIX). */
+  quotable: boolean;
 }
 
 export interface SearchGroups {
@@ -111,6 +114,8 @@ export function toResult(ins: Instrument): InstrumentResult {
     strike: ins.strike,
     optionType: uiType === "CE" || uiType === "PE" ? uiType : "",
     lotSize: ins.lotSize,
+    tickSize: ins.tickSize,
+    quotable: isSupportedExchange(ins.exchange),
   };
 }
 
@@ -175,9 +180,6 @@ export function groupedSearch(list: Instrument[], filters: GroupedSearchFilters)
 
   for (const ins of list) {
     const { uiSegment, uiType } = classify(ins);
-
-    // Skip instruments on exchanges Kite can't quote (e.g. NSEIX / GIFT NIFTY).
-    if (!isSupportedExchange(ins.exchange)) continue;
 
     if (segFilter !== "all" && uiSegment !== segFilter) continue;
     if (wantType && uiType !== wantType) continue;

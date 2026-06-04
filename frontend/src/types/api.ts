@@ -272,6 +272,9 @@ export interface InstrumentResult {
   strike: number;
   optionType: string;
   lotSize: number;
+  tickSize: number;
+  /** False for reference-only instruments Kite can't quote (e.g. NSEIX/GIFT). */
+  quotable: boolean;
 }
 
 export interface SearchResponse {

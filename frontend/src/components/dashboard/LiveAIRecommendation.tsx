@@ -37,7 +37,7 @@ export function LiveAIRecommendation() {
   const rec = useAsync(api.liveSignal);
 
   const onSelect = (ins: SelectedInstrument) =>
-    global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize });
+    global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize, quotable: ins.quotable, name: ins.name });
   const run = useCallback(() => {
     if (!sel) return;
     void rec.run({ instrument: sel.instrument, interval, riskProfile: mode });

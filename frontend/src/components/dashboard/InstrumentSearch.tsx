@@ -170,13 +170,18 @@ export function InstrumentSearch({
                         idx === activeIndex ? "bg-accent/10" : "hover:bg-white/5"
                       }`}
                     >
-                      <span>
-                        <span className="block text-[15px] font-medium text-slate-100">{ins.displayName}</span>
-                        <span className="num block text-xs text-slate-500">{ins.instrument}</span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-[15px] font-semibold text-slate-100">{ins.displayName}</span>
+                        <span className="num block truncate text-xs text-slate-500">{ins.instrument}</span>
                       </span>
-                      <span className="shrink-0 text-right text-[11px] text-slate-500">
+                      <span className="flex shrink-0 items-center gap-1 text-right text-[11px] text-slate-500">
+                        {!ins.quotable && (
+                          <span className="rounded border border-neutralSignal/40 bg-neutralSignal-soft px-1.5 py-0.5 font-semibold text-neutralSignal" title="Visible but not directly quotable via Kite — resolve to a tradable future for live analysis.">
+                            Reference
+                          </span>
+                        )}
                         <span className="rounded border border-white/10 px-1.5 py-0.5">{ins.exchange}</span>
-                        {ins.lotSize ? <span className="ml-1">lot {num(ins.lotSize, 0)}</span> : null}
+                        {ins.lotSize ? <span>lot {num(ins.lotSize, 0)}</span> : null}
                       </span>
                     </button>
                   );

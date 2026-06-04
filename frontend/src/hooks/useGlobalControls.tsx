@@ -20,17 +20,28 @@ export interface SharedInstrument {
   instrument: string; // EXCHANGE:TRADINGSYMBOL
   displayName: string;
   lotSize: number | null;
+  /** False for reference-only instruments Kite can't quote (e.g. NSEIX/GIFT). */
+  quotable: boolean;
+  /** Underlying name — used to resolve a nearest tradable future. */
+  name?: string;
 }
 
-// Exchanges the backend/Kite can actually quote — used to validate a persisted
-// selection so an invalid key (e.g. NSEIX:GIFT NIFTY) is cleared, not restored.
-const SUPPORTED_EXCHANGES = new Set(["NSE", "BSE", "NFO", "BFO", "CDS", "BCD", "MCX", "INDICES"]);
+// Exchanges Kite can actually quote/serve. Reference-only instruments (e.g.
+// NSEIX / GIFT NIFTY) stay VISIBLE and selectable, just marked not quotable.
+const QUOTABLE_EXCHANGES = new Set(["NSE", "BSE", "NFO", "BFO", "CDS", "BCD", "MCX", "INDICES"]);
 
-/** A selectable instrument key must be EXCHANGE:SYMBOL on a quotable exchange. */
-export function isValidInstrumentKey(key: string): boolean {
+export function exchangeOfKey(key: string): string {
   const i = key.indexOf(":");
-  if (i <= 0 || i >= key.length - 1) return false;
-  return SUPPORTED_EXCHANGES.has(key.slice(0, i).toUpperCase());
+  return i > 0 ? key.slice(0, i).toUpperCase() : "";
+}
+/** Kite can quote/serve this instrument key directly (else reference-only). */
+export function isQuotableKey(key: string): boolean {
+  return QUOTABLE_EXCHANGES.has(exchangeOfKey(key));
+}
+/** A usable EXCHANGE:SYMBOL key (format only — reference instruments are kept). */
+function isWellFormedKey(key: string): boolean {
+  const i = key.indexOf(":");
+  return i > 0 && i < key.length - 1;
 }
 
 export interface GlobalControls {
@@ -118,13 +129,16 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
       const ins = window.localStorage.getItem(INSTRUMENT_KEY);
       if (ins) {
         const parsed = JSON.parse(ins) as Partial<SharedInstrument>;
-        // Restore a previous selection ONLY if it's still a valid, quotable Kite
-        // key — otherwise clear it (no auto-default, no invalid key like NSEIX).
-        if (parsed && typeof parsed.instrument === "string" && isValidInstrumentKey(parsed.instrument)) {
+        // Restore a previous selection if the key is well-formed (reference-only
+        // instruments like GIFT NIFTY are KEPT, just flagged not quotable). No
+        // auto-default on a fresh profile.
+        if (parsed && typeof parsed.instrument === "string" && isWellFormedKey(parsed.instrument)) {
           setSelectedInstrumentState({
             instrument: parsed.instrument,
             displayName: typeof parsed.displayName === "string" && parsed.displayName ? parsed.displayName : parsed.instrument,
             lotSize: typeof parsed.lotSize === "number" ? parsed.lotSize : null,
+            quotable: typeof parsed.quotable === "boolean" ? parsed.quotable : isQuotableKey(parsed.instrument),
+            name: typeof parsed.name === "string" ? parsed.name : undefined,
           });
         } else {
           window.localStorage.removeItem(INSTRUMENT_KEY);

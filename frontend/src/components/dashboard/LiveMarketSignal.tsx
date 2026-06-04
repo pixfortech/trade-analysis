@@ -15,7 +15,7 @@ import { AlertToasts } from "./AlertToasts";
 import { ThemedSelect, InfoTooltip, InstrumentTypeSelector, type InstrumentSegment } from "@/components/ui/Inputs";
 import { STRATEGY_MODES, modeBlurb } from "@/lib/strategyModes";
 import { TimeBasedPlan } from "./TimeBasedPlan";
-import { useGlobalControls } from "@/hooks/useGlobalControls";
+import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { Expandable } from "@/components/ui/Expandable";
 import { computeRiskLevel, type RiskLevel } from "@/lib/tradeAssistant";
 
@@ -40,11 +40,40 @@ export function LiveMarketSignal() {
   const signal = useAsync(api.liveSignal);
   const alerts = useAlerts();
   const prevTrend = useRef<string | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [resolveNote, setResolveNote] = useState<string | null>(null);
+
+  // Reference-only instruments (e.g. GIFT NIFTY on NSEIX) are visible/selectable
+  // but Kite can't quote them, so we never call live-signal with them.
+  const referenceOnly = !!sel && sel.quotable === false;
 
   const onSelect = (ins: SelectedInstrument) => {
-    global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize });
+    global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize, quotable: ins.quotable, name: ins.name });
     prevTrend.current = null;
+    setResolveNote(null);
   };
+
+  // Map a reference instrument to its nearest tradable future via Kite search.
+  const chooseNearestTradable = useCallback(async () => {
+    if (!sel) return;
+    setResolving(true);
+    setResolveNote(null);
+    try {
+      const underlying = underlyingFor(sel);
+      const res = await api.kite.instrumentsSearch({ q: underlying, segment: "futures", limit: 3 });
+      const fut = res.groups.futures.find((f) => f.quotable) ?? res.groups.futures[0];
+      if (fut) {
+        global.setSelectedInstrument({ instrument: fut.instrument, displayName: fut.displayName, lotSize: fut.lotSize, quotable: fut.quotable, name: fut.name });
+        prevTrend.current = null;
+      } else {
+        setResolveNote(`No tradable ${underlying} future found in the Kite cache. Try refreshing the instruments cache.`);
+      }
+    } catch {
+      setResolveNote("Couldn't resolve a nearest future. Refresh the instruments cache and try again.");
+    } finally {
+      setResolving(false);
+    }
+  }, [sel, global]);
 
   const toggleIndicator = (id: IndicatorId) =>
     setActive((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...ALL_INDICATORS].filter((x) => cur.includes(x) || x === id)));
@@ -62,7 +91,7 @@ export function LiveMarketSignal() {
   );
 
   const run = useCallback(async () => {
-    if (!sel) return;
+    if (!sel || sel.quotable === false) return; // never analyse a reference-only key
     const res = await signal.run({ instrument: sel.instrument, interval, riskProfile, activeIndicators: active.join(",") });
     if (res) {
       // Trend reversal detection (vs the previous successful read).
@@ -147,10 +176,15 @@ export function LiveMarketSignal() {
             )}
           </div>
           {sel ? (
-            <p className="truncate text-base font-bold text-slate-100">
-              {sel.displayName}
-              <span className="num ml-1 text-xs font-medium text-slate-500">· {sel.instrument}{sel.lotSize ? ` · lot ${sel.lotSize}` : ""}</span>
-            </p>
+            <>
+              <p className="truncate text-base font-bold text-slate-100">
+                {sel.displayName}
+                <span className="num ml-1 text-xs font-medium text-slate-500">· {sel.instrument}{sel.lotSize ? ` · lot ${sel.lotSize}` : ""}</span>
+              </p>
+              <span className={`mt-1 inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold ${sel.quotable ? "border-bull/40 bg-bull-soft text-bull" : "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal"}`}>
+                {sel.quotable ? "Kite direct" : "Reference only — map to tradable"}
+              </span>
+            </>
           ) : (
             <p className="text-sm font-medium text-slate-400">None — search above to select</p>
           )}
@@ -189,7 +223,8 @@ export function LiveMarketSignal() {
         <button
           type="button"
           onClick={() => void run()}
-          disabled={signal.isLoading || !sel}
+          disabled={signal.isLoading || !sel || referenceOnly}
+          title={referenceOnly ? "Reference-only instrument — choose a nearest tradable instrument first" : undefined}
           className="rounded-lg bg-accent/20 px-5 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {signal.isLoading ? "Analyzing…" : "Analyze"}
@@ -221,6 +256,15 @@ export function LiveMarketSignal() {
           <EmptyState
             title="Search and select an instrument to analyse"
             message="Pick an equity, index, future or option above. Nothing is selected by default."
+          />
+        ) : referenceOnly ? (
+          <ReferenceCard
+            sel={sel}
+            resolving={resolving}
+            note={resolveNote}
+            onMap={() => void chooseNearestTradable()}
+            onRefresh={() => void refreshCache()}
+            onClear={() => global.setSelectedInstrument(null)}
           />
         ) : signal.isIdle ? (
           <EmptyState title={`Ready: ${sel.displayName}`} message="Click Analyze for a live read-only signal. Needs Kite enabled & authorised." />
@@ -284,6 +328,40 @@ function InstrumentError({ name, message, onRetry, onRefresh, onClear }: { name:
       </div>
     </div>
   );
+}
+
+/** Reference-only instrument (e.g. GIFT NIFTY / NSEIX): visible, not quotable. */
+function ReferenceCard({ sel, resolving, note, onMap, onRefresh, onClear }: { sel: SharedInstrument; resolving: boolean; note: string | null; onMap: () => void; onRefresh: () => void; onClear: () => void }) {
+  const ex = exchangeOfKey(sel.instrument);
+  return (
+    <div className="rounded-xl border border-neutralSignal/30 bg-neutralSignal-soft p-4">
+      <div className="flex items-center gap-2">
+        <span className="rounded border border-neutralSignal/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-neutralSignal">Reference</span>
+        <p className="text-sm font-bold text-neutralSignal">Index / reference instrument</p>
+      </div>
+      <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
+        <strong className="text-slate-200">{sel.displayName}</strong> is visible, but not directly quoteable via the current Kite instrument cache
+        {ex ? ` (exchange ${ex})` : ""}. Choose a mapped / nearest tradable instrument for live analysis.
+      </p>
+      {note && <p className="mt-1.5 text-xs font-medium text-bear">{note}</p>}
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <button type="button" onClick={onMap} disabled={resolving} className="rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/20 disabled:opacity-50">
+          {resolving ? "Finding nearest future…" : "Choose nearest tradable instrument"}
+        </button>
+        <button type="button" onClick={onRefresh} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/5">Refresh instruments cache</button>
+        <button type="button" onClick={onClear} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-bear">Clear selection</button>
+      </div>
+    </div>
+  );
+}
+
+/** Best-effort underlying name for resolving a reference instrument to a future. */
+function underlyingFor(sel: SharedInstrument): string {
+  const key = sel.instrument.toUpperCase();
+  const n = (sel.name || sel.displayName || "").toUpperCase();
+  if (key.includes("GIFT") || n.includes("GIFT") || n.includes("SGX")) return "NIFTY";
+  const cleaned = n.replace(/\(INDEX\)/g, "").replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  return cleaned || "NIFTY";
 }
 
 /** Entry/SL/target price lines for the chart, from the preferred setup. */
