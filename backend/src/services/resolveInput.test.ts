@@ -32,6 +32,18 @@ test("rejects a bare symbol with no exchange", async () => {
   await assert.rejects(() => resolveInstrumentInput({ instrument: "RELIANCE" }), /not a valid Kite instrument/i);
 });
 
+test("returns REFERENCE_ONLY (not a raw error) for a non-quoteable exchange (NSEIX:GIFT NIFTY)", async () => {
+  await assert.rejects(
+    () => resolveInstrumentInput({ instrument: "NSEIX:GIFT NIFTY" }),
+    (err: unknown) => {
+      assert.ok(err instanceof KiteError);
+      assert.equal((err as KiteError).code, "KITE_REFERENCE_ONLY");
+      assert.match((err as KiteError).message, /reference-only|not directly quoteable|tradable/i);
+      return true;
+    },
+  );
+});
+
 test("requires either instrument or underlying", async () => {
   await assert.rejects(
     () => resolveInstrumentInput({}),

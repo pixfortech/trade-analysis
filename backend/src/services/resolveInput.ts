@@ -4,6 +4,16 @@
 
 import * as instruments from "./instruments.service";
 import { KiteError } from "./kite.service";
+import { isSupportedExchange } from "./instrumentSearch";
+
+/** Best-effort underlying for suggesting a tradable future for a reference symbol. */
+function refUnderlying(name: string): string {
+  const n = (name || "").toUpperCase();
+  if (n.includes("BANK")) return "BANKNIFTY";
+  if (n.includes("SENSEX")) return "SENSEX";
+  if (n.includes("FIN")) return "FINNIFTY";
+  return "NIFTY"; // GIFT NIFTY, SGX NIFTY, NIFTY, etc.
+}
 
 export interface ResolvedInstrument {
   instrument: string; // EXCHANGE:TRADINGSYMBOL
@@ -38,22 +48,50 @@ export async function resolveInstrumentInput(q: ResolveQuery): Promise<ResolvedI
 
   if (exact) {
     const parts = exact.split(":");
-    const tradingsymbol = parts.slice(1).join(":");
-    // A valid Kite key is EXCHANGE:TRADINGSYMBOL with no spaces in the symbol.
-    // Inputs like "NSE:MIDCPNIFTY FUT JUN" are NOT valid Kite symbols — guide
-    // the user to the F&O resolver instead of sending a bad key to Kite.
-    if (parts.length !== 2 || !parts[0] || !tradingsymbol || /\s/.test(tradingsymbol)) {
+    const exchange = (parts[0] ?? "").trim().toUpperCase();
+    const tradingsymbol = parts.slice(1).join(":").trim();
+    // Best-effort enrichment from the cache (does not force a download). Real
+    // instruments are trusted even if the symbol contains spaces — index names
+    // legitimately do, e.g. "NSE:NIFTY 50", "BSE:SENSEX".
+    const hit = instruments.isLoaded() ? instruments.lookupByKey(exact) : undefined;
+
+    // 1) Must be EXCHANGE:TRADINGSYMBOL.
+    if (parts.length !== 2 || !exchange || !tradingsymbol) {
       throw new KiteError(
-        `"${exact}" is not a valid Kite instrument. Use EXCHANGE:TRADINGSYMBOL with no spaces ` +
+        `"${exact}" is not a valid Kite instrument. Use EXCHANGE:TRADINGSYMBOL ` +
           '(e.g. "NSE:RELIANCE" or "NFO:MIDCPNIFTY26JUNFUT"). For futures/options, pass resolver ' +
-          "params instead: underlying, instrumentType (FUT/CE/PE), expiry and (for options) strike — " +
+          "params: underlying, instrumentType (FUT/CE/PE), expiry and (for options) strike — " +
           "or call /api/kite/instruments/resolve.",
         400,
         "KITE_BAD_INSTRUMENT",
       );
     }
-    // Best-effort enrichment from the cache (does not force a download).
-    const hit = instruments.isLoaded() ? instruments.lookupByKey(exact) : undefined;
+
+    // 2) Reference-only exchanges (e.g. NSEIX / BSEIX — GIFT NIFTY) exist in the
+    // dump but Kite can't quote them. Return a CONTROLLED status instead of
+    // letting Kite throw a raw "not a valid instrument" error.
+    if (!isSupportedExchange(exchange)) {
+      throw new KiteError(
+        `${exact} is a reference-only instrument (exchange ${exchange}) and is not directly quoteable via Kite. ` +
+          `Choose a tradable instrument — e.g. the nearest ${refUnderlying(hit?.name || tradingsymbol)} future — for live analysis.`,
+        422,
+        "KITE_REFERENCE_ONLY",
+      );
+    }
+
+    // 3) On a quoteable exchange but NOT a real cached symbol and clearly
+    // free-text (has spaces) → guide to the F&O resolver, don't send a bad key.
+    if (!hit && /\s/.test(tradingsymbol)) {
+      throw new KiteError(
+        `"${exact}" is not a valid Kite instrument. Use EXCHANGE:TRADINGSYMBOL with no spaces ` +
+          '(e.g. "NSE:RELIANCE" or "NFO:MIDCPNIFTY26JUNFUT"). For futures/options, pass resolver ' +
+          "params: underlying, instrumentType (FUT/CE/PE), expiry and (for options) strike — " +
+          "or call /api/kite/instruments/resolve. If you expected this symbol, refresh the instruments cache.",
+        400,
+        "KITE_BAD_INSTRUMENT",
+      );
+    }
+
     return {
       instrument: exact,
       instrumentToken: hit?.instrumentToken ?? null,

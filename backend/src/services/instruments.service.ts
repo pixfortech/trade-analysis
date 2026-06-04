@@ -13,7 +13,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve as resolvePath } from "node:path";
-import { env } from "../config/env";
+import { env, isProd } from "../config/env";
 import * as kite from "./kite.service";
 import { KiteError } from "./kite.service";
 import { groupedSearch, type GroupedSearchFilters, type SearchGroups } from "./instrumentSearch";
@@ -248,6 +248,14 @@ export async function refreshCache(segment?: string): Promise<number> {
   }
   setCache(parsed, "kite");
   persistToDisk();
+  if (!isProd) {
+    // Dev-only debug: show how many instruments came from each exchange/segment
+    // (incl. NSEIX/BSEIX) so we can verify the FULL Kite dump is loaded.
+    const byEx: Record<string, number> = {};
+    for (const i of parsed) byEx[i.exchange] = (byEx[i.exchange] ?? 0) + 1;
+    const summary = ["NSE", "NFO", "BSE", "BFO", "NSEIX", "BSEIX", "CDS", "MCX"].map((e) => `${e}=${byEx[e] ?? 0}`).join(" ");
+    console.info(`[instruments] loaded ${parsed.length} instruments — ${summary}`);
+  }
   return parsed.length;
 }
 
