@@ -15,6 +15,7 @@ import { AlertToasts } from "./AlertToasts";
 import { ThemedSelect, InfoTooltip, InstrumentTypeSelector, type InstrumentSegment } from "@/components/ui/Inputs";
 import { STRATEGY_MODES, modeBlurb } from "@/lib/strategyModes";
 import { TimeBasedPlan } from "./TimeBasedPlan";
+import { TradeGuidance } from "./TradeGuidance";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { Expandable } from "@/components/ui/Expandable";
 import { computeRiskLevel, type RiskLevel } from "@/lib/tradeAssistant";
@@ -289,6 +290,10 @@ export function LiveMarketSignal() {
                   <LiveChart data={chart} priceLines={priceLinesFor(signal.data)} />
                 </div>
               )}
+            </div>
+            {/* Precise indicator-driven Enter → Hold → Exit plan (loss control). */}
+            <div className="mb-4">
+              <TradeGuidance signal={signal.data} />
             </div>
             <Expandable title={`Live Market Signal — ${signal.data.resolvedInstrument.displayName || signal.data.instrument}`}>
               <SignalView s={signal.data} />
