@@ -105,6 +105,31 @@ export function getPublicStatus(): KitePublicStatus {
   };
 }
 
+// --- Token validity ---------------------------------------------------------
+// `authenticated` must reflect a USABLE session, not just a token's presence: a
+// stale env-seeded or expired access token would otherwise report "connected"
+// forever. We probe a cheap read-only quote; a 403 nulls the token inside
+// kiteRequest (→ authenticated:false). Cached briefly so status polls don't
+// hammer Kite. Transient/network errors leave the token intact (no false logout).
+let lastVerifyAt = 0;
+async function verifyToken(): Promise<void> {
+  if (!isLiveDataEnabled() || !isConfigured() || !hasAccessToken()) return;
+  const now = Date.now();
+  if (now - lastVerifyAt < 20_000) return;
+  lastVerifyAt = now;
+  try {
+    await kiteRequest<{ data?: unknown }>("GET", "/quote?i=NSE:INFY", undefined, true);
+  } catch {
+    /* 403 already cleared the token; other errors are ignored on purpose. */
+  }
+}
+
+/** Status with a VERIFIED `authenticated` flag (probes token validity, cached). */
+export async function getVerifiedStatus(): Promise<KitePublicStatus> {
+  await verifyToken();
+  return getPublicStatus();
+}
+
 /** Guard used by data endpoints: throws a clean, secret-free error when not ready. */
 function assertReady(): void {
   if (!isLiveDataEnabled()) {

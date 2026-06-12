@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { DsCard, DsBadge, Icon } from "@/components/terminal/ds";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { api } from "@/lib/apiClient";
 import { num, pct } from "@/lib/format";
 import { useAiScanners } from "@/lib/aiScanners";
@@ -34,6 +35,7 @@ const DEFAULT_ITEMS: WatchItem[] = [
 export function LiveWatchlist() {
   const { value: items, setValue: setItems, hydrated } = useLocalStorage<WatchItem[]>(STORAGE_KEY, DEFAULT_ITEMS);
   const scanners = useAiScanners();
+  const g = useGlobalControls();
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
   const [live, setLive] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -66,6 +68,14 @@ export function LiveWatchlist() {
     if (hydrated) void refreshQuotes();
   }, [hydrated, refreshQuotes]);
 
+  // Live-gated quote polling — paused when the global Live toggle is OFF. The
+  // manual Refresh button still works regardless.
+  useEffect(() => {
+    if (!hydrated || !g.liveUpdates) return;
+    const id = window.setInterval(() => void refreshQuotes(), 12_000);
+    return () => window.clearInterval(id);
+  }, [hydrated, g.liveUpdates, refreshQuotes]);
+
   const [openedNote, setOpenedNote] = useState<string | null>(null);
   const handleAnalyse = (it: WatchItem) => {
     const existed = scanners.has(it.instrument);
@@ -89,7 +99,15 @@ export function LiveWatchlist() {
       padding="none"
       eyebrow="Watchlist"
       title="Tracked instruments"
-      headerRight={<DsBadge tone={live ? "enter" : "neutral"} dot>{live ? "Live" : "Saved"}</DsBadge>}
+      headerRight={
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <DsBadge tone={!g.liveUpdates ? "avoid" : live ? "enter" : "neutral"} dot>{!g.liveUpdates ? "Paused" : live ? "Live" : "Saved"}</DsBadge>
+          <button type="button" onClick={() => void refreshQuotes()} title="Refresh quotes now" aria-label="Refresh quotes"
+            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: "var(--radius-sm)", border: "1px solid var(--border-2)", background: "var(--surface-card)", color: "var(--ink-2)", cursor: "pointer", flexShrink: 0 }}>
+            <Icon n="refresh" size={14} />
+          </button>
+        </span>
+      }
     >
       <div style={{ padding: "12px 12px 4px" }}>
         <InstrumentSearch onSelect={add} placeholder="Add… (TCS, NIFTY, BANKNIFTY FUT)" />

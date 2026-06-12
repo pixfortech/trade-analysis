@@ -30,7 +30,23 @@ export interface TopMoversResult {
   gainers: Mover[];
   losers: Mover[];
   timestamp: string;
+  scanned: number; // instruments that returned a usable live quote
+  total: number; // instruments in the bounded scan list
   message: string;
+}
+
+/** Human label for the bounded scan list per segment (it is not user-selected). */
+function scanListLabel(segment: MoverSegment): string {
+  switch (segment) {
+    case "equity":
+      return "curated large-cap instruments";
+    case "indices":
+      return "index instruments";
+    case "futures":
+      return "near-expiry futures";
+    default:
+      return "near-expiry option strikes";
+  }
 }
 
 // Curated NSE large caps (kept small to respect rate limits).
@@ -87,7 +103,7 @@ export async function getTopMovers(segment: MoverSegment): Promise<TopMoversResu
   const { keys, partial } = await pickInstruments(segment);
   const timestamp = new Date().toISOString();
   if (keys.length === 0) {
-    return { segment, source: "kite", partialData: true, gainers: [], losers: [], timestamp, message: "No instruments available for this segment in the cache." };
+    return { segment, source: "kite", partialData: true, gainers: [], losers: [], timestamp, scanned: 0, total: 0, message: "No instruments available for this segment in the cache." };
   }
 
   const nameByKey = new Map(keys.map((k) => [k.key, k.name]));
@@ -98,19 +114,24 @@ export async function getTopMovers(segment: MoverSegment): Promise<TopMoversResu
     const m = buildMover(key, nameByKey.get(key) ?? key, q as Record<string, unknown>);
     if (m) movers.push(m);
   }
+  // Gainers: most positive first. Losers: most negative first. Losers are NOT
+  // hidden when few — only empty when the scanned set has no negative movers.
   const sorted = [...movers].sort((a, b) => b.changePercent - a.changePercent);
   const gainers = sorted.filter((m) => m.changePercent > 0).slice(0, 10);
   const losers = sorted.filter((m) => m.changePercent < 0).reverse().slice(0, 10);
 
+  const scanned = movers.length;
+  const total = keys.length;
+  const universe = segment === "equity" ? "NSE equity" : `${segment}`;
   return {
     segment,
     source: "kite",
-    partialData: partial || movers.length < keys.length,
+    partialData: partial || scanned < total,
     gainers,
     losers,
     timestamp,
-    message: partial
-      ? `Showing a bounded set (${movers.length}/${keys.length}) to respect Kite rate limits — not the full ${segment} universe.`
-      : "",
+    scanned,
+    total,
+    message: `Limited scan: ${scanned} of ${total} ${scanListLabel(segment)} scanned to respect Kite rate limits. This is not the full ${universe} universe.`,
   };
 }

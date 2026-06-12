@@ -28,9 +28,14 @@ function handleError(res: Response, err: unknown) {
   res.status(500).json({ error: { message: "Unexpected Kite error.", code: "KITE_INTERNAL" }, readOnly: true });
 }
 
-/** GET /api/kite/status — secret-free status for the UI. */
-export function getStatus(_req: Request, res: Response) {
-  res.json({ ...kite.getPublicStatus(), notice: READ_ONLY_NOTICE });
+/** GET /api/kite/status — secret-free status for the UI. `authenticated` is
+ *  VERIFIED against Kite (a stale/expired token reports authenticated:false). */
+export async function getStatus(_req: Request, res: Response) {
+  try {
+    res.json({ ...(await kite.getVerifiedStatus()), notice: READ_ONLY_NOTICE });
+  } catch {
+    res.json({ ...kite.getPublicStatus(), notice: READ_ONLY_NOTICE });
+  }
 }
 
 /** GET /api/kite/login-url — returns the hosted Kite login URL (public api_key only). */

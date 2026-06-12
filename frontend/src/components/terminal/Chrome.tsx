@@ -31,10 +31,19 @@ export function TopBar({ onNav }: { onNav: (s: Screen) => void }) {
   const { theme, toggle } = useTheme();
   const kite = useAsync(api.kite.status);
 
+  // Poll status every 20s, and re-check whenever the tab regains focus (e.g.
+  // returning from the Kite login tab) so the badge updates promptly.
   useEffect(() => {
     void kite.run();
-    const id = window.setInterval(() => void kite.run(), 30_000);
-    return () => window.clearInterval(id);
+    const id = window.setInterval(() => void kite.run(), 20_000);
+    const onFocus = () => { if (document.visibilityState === "visible") void kite.run(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -69,6 +78,7 @@ export function TopBar({ onNav }: { onNav: (s: Screen) => void }) {
       <ConnectKite status={kite.data ?? null} error={kite.isError} onRetry={() => void kite.run()} />
       <span style={{ width: 1, height: 24, background: "rgba(255,255,255,.12)" }} className="hide-sm" />
       <Switch checked={g.liveUpdates} onChange={g.toggleLiveUpdates} label="Live updates" />
+      <span title={g.liveUpdates ? "Live updates on — polling active" : "Live updates paused — manual refresh only"} style={{ fontSize: 11, fontWeight: 700, color: g.liveUpdates ? "var(--status-live)" : "#f7a957", whiteSpace: "nowrap", flexShrink: 0 }}>{g.liveUpdates ? "Live" : "Paused"}</span>
       <IconBtn label="Toggle theme" onClick={toggle}><Icon n={theme === "dark" ? "sun" : "moon"} size={17} /></IconBtn>
       <IconBtn label="Settings & status" onClick={() => onNav("status")}><Icon n="settings" size={17} /></IconBtn>
       <span className="hide-sm" style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--brand-500)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, flexShrink: 0 }}>A</span>
@@ -100,34 +110,44 @@ function ConnectKite({ status, error, onRetry }: { status: KiteStatus | null; er
     if (res?.loginUrl) window.open(res.loginUrl, "_blank", "noopener,noreferrer");
   };
 
-  const connected = !!status?.authenticated;
-  const expired = !connected && (wasAuth.current || (!!status && /expire|reconnect|again|token|session|invalid/i.test(status.message)));
+  // State comes STRICTLY from /api/kite/status (the backend now verifies token
+  // validity, so authenticated:true means a usable session). Offline = backend
+  // down OR live data disabled/unconfigured. Connected = authenticated. Reconnect
+  // = we had a session this visit but it's gone (expired/cleared).
+  const hardOffline = error || (!!status && (!status.liveDataEnabled || !status.configured));
+  const connected = !hardOffline && !!status?.authenticated;
+  const expired = !hardOffline && !connected && (wasAuth.current || (!!status && /expire|reconnect|again|token|session|invalid/i.test(status.message)));
 
-  let label: string, bg: string, border: string, color: string, dot: string | null, icon: string | null, onClick: () => void;
-  if (error) {
-    label = "Kite offline"; bg = "rgba(249,112,102,.15)"; border = "rgba(249,112,102,.45)"; color = "#f97066"; dot = null; icon = "refresh"; onClick = onRetry;
+  const tip = error
+    ? "Kite status unavailable — backend offline. Click to retry."
+    : status
+      ? `Kite — mode: ${status.mode} · live data: ${status.liveDataEnabled ? "on" : "off"} · configured: ${status.configured ? "yes" : "no"} · authenticated: ${status.authenticated ? "yes" : "no"}`
+      : "Checking Kite status…";
+
+  let label: string, ro = false, bg: string, border: string, color: string, dot: string | null = null, icon: string | null = null, onClick: () => void;
+  if (hardOffline) {
+    label = "Kite Offline"; bg = "rgba(249,112,102,.15)"; border = "rgba(249,112,102,.45)"; color = "#f97066"; icon = "refresh"; onClick = onRetry;
   } else if (connected) {
-    label = "Kite Connected"; bg = "rgba(18,183,106,.15)"; border = "rgba(18,183,106,.45)"; color = "#2bd48f"; dot = "var(--status-live)"; icon = null; onClick = connect;
+    label = "Kite Connected"; ro = true; bg = "rgba(18,183,106,.15)"; border = "rgba(18,183,106,.45)"; color = "#2bd48f"; dot = "var(--status-live)"; onClick = connect;
   } else if (expired) {
-    label = login.isLoading ? "Opening…" : "Reconnect Kite"; bg = "rgba(247,144,9,.16)"; border = "rgba(247,144,9,.45)"; color = "#f7a957"; dot = "var(--status-stale)"; icon = "log-in"; onClick = connect;
+    label = login.isLoading ? "Opening…" : "Reconnect Kite"; bg = "rgba(247,144,9,.16)"; border = "rgba(247,144,9,.45)"; color = "#f7a957"; icon = "log-in"; onClick = connect;
   } else {
-    label = login.isLoading ? "Opening…" : "Connect Kite"; bg = "var(--brand-500)"; border = "transparent"; color = "#fff"; dot = null; icon = "log-in"; onClick = connect;
+    label = login.isLoading ? "Opening…" : "Connect Kite"; bg = "var(--brand-500)"; border = "transparent"; color = "#fff"; icon = "log-in"; onClick = connect;
   }
 
   return (
-    <button type="button" onClick={onClick} title={label} disabled={login.isLoading}
+    <button type="button" onClick={onClick} title={tip} disabled={login.isLoading}
       style={{ display: "inline-flex", alignItems: "center", gap: 7, height: 30, padding: "0 13px", borderRadius: "var(--radius-pill)", border: `1px solid ${border}`, background: bg, color, fontSize: 12, fontWeight: 700, cursor: login.isLoading ? "default" : "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
       {connected && dot ? (
         <span className="relative flex h-2 w-2">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full" style={{ background: dot, opacity: 0.55 }} />
           <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: dot }} />
         </span>
-      ) : dot ? (
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot }} />
       ) : icon ? (
         <Icon n={icon} size={14} />
       ) : null}
       {label}
+      {ro && <span className="hide-sm" style={{ fontWeight: 600, opacity: 0.8 }}> · Read-only</span>}
     </button>
   );
 }
@@ -141,6 +161,7 @@ export function StatusStrip() {
         gap: 24, padding: "0 20px", overflowX: "auto", position: "sticky", top: "var(--bar-height)", zIndex: 39,
       }}
     >
+      <span title="Static sample indices — not live Kite data" style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".08em", color: "#f7a957", border: "1px solid rgba(247,144,9,.4)", background: "rgba(247,144,9,.14)", borderRadius: "var(--radius-pill)", padding: "2px 7px", whiteSpace: "nowrap", flexShrink: 0 }}>SAMPLE</span>
       {marketIndices.map((ix) => {
         const down = ix.change < 0;
         return (
@@ -154,7 +175,7 @@ export function StatusStrip() {
         );
       })}
       <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 11, color: "#5d6b82", whiteSpace: "nowrap" }} className="hide-sm">
-        NSE · read-only · indices sample
+        static sample · not live
       </span>
     </div>
   );

@@ -282,14 +282,16 @@ export function LiveMarketSignal() {
 
       {/* Live status — controlled globally from the top control bar */}
       <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-        {global.liveUpdates && signal.data ? (
+        {!global.liveUpdates ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-neutralSignal/40 bg-neutralSignal-soft px-2.5 py-0.5 font-semibold text-neutralSignal">
+            ⏸ Live paused — manual refresh only (toggle in top bar)
+          </span>
+        ) : signal.data ? (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-bull/40 bg-bull-soft px-2.5 py-0.5 font-semibold text-bull">
             <span className="h-1.5 w-1.5 rounded-full bg-bull" /> Live (auto-refresh 5s)
           </span>
         ) : (
-          <span className="rounded-full border border-white/10 bg-base-800/60 px-2.5 py-0.5">
-            Live updates {global.liveUpdates ? "ON" : "OFF"} — toggle in the top bar
-          </span>
+          <span className="rounded-full border border-white/10 bg-base-800/60 px-2.5 py-0.5">Live updates ON</span>
         )}
         <span>· Reversal alerts are advisory only.</span>
       </div>

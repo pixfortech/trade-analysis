@@ -110,6 +110,8 @@ export interface TopMoversResponse {
   gainers: Mover[];
   losers: Mover[];
   timestamp: string;
+  scanned: number;
+  total: number;
   message: string;
 }
 
