@@ -15,7 +15,7 @@ import {
   type AssistantView,
   type RiskLevel,
 } from "@/lib/tradeAssistant";
-import { MIN_ACTION_CONFIDENCE, computeConfidence, confirmationChecks } from "@/lib/tradePlan";
+import { MIN_SETUP_STRENGTH, MIN_WIN_ESTIMATE, confirmationChecks, setupStrength } from "@/lib/tradePlan";
 import type { LiveSignal } from "@/types/api";
 
 const RISK_CLS: Record<RiskLevel, string> = {
@@ -83,13 +83,16 @@ function vtToPos(t: { side: "LONG" | "SHORT"; entryPrice: number; quantity: numb
   return { source: "ai-virtual", side: t.side, entryPrice: t.entryPrice, quantity: t.quantity, stopLoss: t.stopLoss, target: t.target, id: t.id };
 }
 
-/** Apply the composite confidence + the >=75% ENTER NOW gate to a derived view. */
+/** ENTER NOW gate: backend win estimate >=75% AND locked setup strength >=60%.
+ *  The pill shows the backend win estimate (not a blended number). */
 function gateConfidence(view: AssistantView, sig: LiveSignal): AssistantView {
   if (view.direction !== "LONG" && view.direction !== "SHORT") return view;
-  const conf = computeConfidence(sig, view.direction, confirmationChecks(sig, view.direction));
-  const v: AssistantView = { ...view, confidencePercent: conf };
-  if (view.state === "ENTER_NOW" && conf < MIN_ACTION_CONFIDENCE) {
-    return { ...v, state: "WAIT_FOR_SETUP", label: "Wait — confirm (≥75%)", tone: "warn", action: `Confidence ${conf}% (need ≥${MIN_ACTION_CONFIDENCE}%) — no confirmed entry yet.`, alert: null };
+  const winEstimate = sig.probability.estimatedWinPercent;
+  const strength = setupStrength(confirmationChecks(sig, view.direction));
+  const v: AssistantView = { ...view, confidencePercent: winEstimate };
+  if (view.state === "ENTER_NOW" && !(winEstimate >= MIN_WIN_ESTIMATE && strength >= MIN_SETUP_STRENGTH)) {
+    const why = winEstimate < MIN_WIN_ESTIMATE ? `win est. ${winEstimate}% < ${MIN_WIN_ESTIMATE}%` : `only ${strength}% indicators confirm`;
+    return { ...v, state: "WAIT_FOR_SETUP", label: "No approval — wait", tone: "warn", action: `No entry approval — ${why}. Re-analyse if structure changed.`, alert: null };
   }
   return v;
 }
@@ -513,7 +516,7 @@ function AssistantWindow({
             )}
             <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
               <Pill label="Risk" value={view.riskLevel ?? "—"} cls={view.riskLevel ? RISK_CLS[view.riskLevel] : "border-white/10 text-slate-400"} />
-              <Pill label="Confidence" value={view.confidencePercent == null ? "—" : `${view.confidencePercent}%`} cls="border-white/10 text-slate-200" sub="estimated" />
+              <Pill label="Win est." value={view.confidencePercent == null ? "—" : `${view.confidencePercent}%`} cls="border-white/10 text-slate-200" sub="backend prob." />
               <Pill label="R:R" value={view.riskReward ?? "—"} cls="border-white/10 text-slate-200" />
             </div>
           </div>
@@ -608,7 +611,7 @@ function TabRisk({ view, signal, breadth }: { view: AssistantView; signal: LiveS
         <p className={`text-sm font-bold ${bt}`}>{breadth ? `${breadth.up} up / ${breadth.down} down` : "unavailable (needs live Kite)"}</p>
         <p className="text-[10px] text-slate-500">News sentiment: unavailable</p>
       </div>
-      <p className="text-[11px] leading-relaxed text-slate-400">Confidence is an <span className="font-semibold text-slate-200">estimated probability</span> ({view.confidencePercent == null ? "—" : `${view.confidencePercent}%`}) from indicator alignment — never guaranteed.</p>
+      <p className="text-[11px] leading-relaxed text-slate-400"><span className="font-semibold text-slate-200">Win estimate</span> ({view.confidencePercent == null ? "—" : `${view.confidencePercent}%`}) is the backend probability. ENTER NOW needs win est. ≥{MIN_WIN_ESTIMATE}% AND setup strength ≥{MIN_SETUP_STRENGTH}% — never a guarantee.</p>
       <button type="button" onClick={() => setOpen((v) => !v)} className="text-[11px] font-semibold text-accent">{open ? "Hide" : "Show"} calculation basis</button>
       {open && (
         <div className="space-y-1">

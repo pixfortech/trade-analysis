@@ -15,8 +15,12 @@
 
 import type { LiveSignal } from "@/types/api";
 
-/** Confidence required before an ENTER NOW / EXIT NOW approval is shown. */
-export const MIN_ACTION_CONFIDENCE = 75;
+// Final ENTER approval requires ALL of: backend win estimate >= MIN_WIN_ESTIMATE,
+// locked indicator setup strength >= MIN_SETUP_STRENGTH, setup not invalidated,
+// and CMP inside the safe entry zone. EXIT NOW needs a hard-stop breach or live
+// exit confidence >= MIN_EXIT_CONFIDENCE.
+export const MIN_WIN_ESTIMATE = 75; // backend win probability needed to approve
+export const MIN_SETUP_STRENGTH = 60; // % of indicator checks that must confirm
 export const MIN_EXIT_CONFIDENCE = 75;
 
 export type PlanDirection = "LONG" | "SHORT" | "WAIT";
@@ -40,7 +44,8 @@ export interface TradePlanSnapshot {
   targets: (number | null)[];
   trailStop: number | null;
   invalidation: number | null;
-  confidence: number; // 0..99, LOCKED at generation
+  winEstimate: number; // backend win probability, LOCKED at generation
+  setupStrength: number; // % of indicator checks confirmed at generation, LOCKED
   riskReward: string | null;
   reason: string;
   cmpAtGen: number;
@@ -91,6 +96,9 @@ export interface PlanEval {
   state: PlanState;
   label: string;
   approved: boolean; // true only for ENTER/EXIT/BOOK at/over threshold or hard level
+  /** Final tradable approval (0..100) computed LIVE; 0 when no action is approved. */
+  currentApproval: number;
+  approvalLabel: string; // e.g. "Approved", "No approval", "Invalidated", "Wait"
   tone: PlanTone;
   reason: string;
   cmp: number | null;
@@ -127,19 +135,12 @@ export function confirmationChecks(s: LiveSignal, side: "LONG" | "SHORT"): Guida
   ];
 }
 
-/** Composite confidence (0..99) from real indicator alignment + confirmations. */
-export function computeConfidence(s: LiveSignal, side: "LONG" | "SHORT", checks: GuidanceCheck[]): number {
-  const directional = side === "LONG" ? s.probability.bullishPercent : s.probability.bearishPercent;
+/** Locked indicator-checklist strength: % of AVAILABLE checks that confirmed.
+ *  This is "Initial setup strength" — distinct from the backend win estimate. */
+export function setupStrength(checks: GuidanceCheck[]): number {
   const avail = checks.filter((c) => c.met != null);
-  const confirmed = avail.filter((c) => c.met === true).length;
-  const ratio = avail.length ? confirmed / avail.length : 0.5;
-  let c = directional + (ratio - 0.5) * 50; // strong confirmations add up to +25, weak −25
-  if (s.probability.dataQuality === "quote-only") c -= 15;
-  else if (s.probability.dataQuality === "strong") c += 5;
-  if (s.trend.strength === "strong") c += 5;
-  else if (s.trend.strength === "weak") c -= 8;
-  if ((side === "LONG" && s.trend.direction === "bearish") || (side === "SHORT" && s.trend.direction === "bullish")) c -= 20;
-  return Math.max(0, Math.min(99, Math.round(c)));
+  if (avail.length === 0) return 0;
+  return Math.round((avail.filter((c) => c.met === true).length / avail.length) * 100);
 }
 
 /** Build a LOCKED plan snapshot from a signal (called on Analyze / Re-analyse). */
@@ -183,7 +184,8 @@ export function buildTradePlan(s: LiveSignal, timeframe: string, mode: string): 
       stopLoss: null,
       targets: [null, null, null],
       trailStop: null,
-      confidence: 0,
+      winEstimate: 0,
+      setupStrength: 0,
       riskReward: null,
       checks: confirmationChecks(s, "LONG"),
     };
@@ -200,7 +202,6 @@ export function buildTradePlan(s: LiveSignal, timeframe: string, mode: string): 
   const safeLow = entry == null ? null : long ? entry : r2(entry - b);
   const safeHigh = entry == null ? null : long ? r2(entry + b) : entry;
   const checks = confirmationChecks(s, long ? "LONG" : "SHORT");
-  const confidence = computeConfidence(s, long ? "LONG" : "SHORT", checks);
   const trail = atr != null && atr > 0 ? r2(long ? Math.max(s.currentPrice - atr, setup.stopLoss) : Math.min(s.currentPrice + atr, setup.stopLoss)) : setup.stopLoss;
 
   return {
@@ -212,7 +213,8 @@ export function buildTradePlan(s: LiveSignal, timeframe: string, mode: string): 
     stopLoss: setup.stopLoss,
     targets: [setup.target1, setup.target2, setup.target3],
     trailStop: trail,
-    confidence,
+    winEstimate: s.probability.estimatedWinPercent,
+    setupStrength: setupStrength(checks),
     riskReward: setup.riskReward,
     checks,
   };
@@ -221,6 +223,8 @@ export function buildTradePlan(s: LiveSignal, timeframe: string, mode: string): 
 function mk(p: Partial<PlanEval> & { state: PlanState; label: string; tone: PlanTone; reason: string }, ctx: { cmp: number | null; distToEntry: number | null; distToStop: number | null; distToTarget: number | null }): PlanEval {
   return {
     approved: false,
+    currentApproval: 0,
+    approvalLabel: "—",
     exitConfidence: null,
     pnlPerUnit: null,
     pnlPercent: null,
@@ -249,7 +253,8 @@ function exitSignals(live: LiveSignal | null, isLong: boolean, cmp: number | nul
 /**
  * Evaluate a LOCKED plan against live CMP + live indicators (+ optional active
  * position). Levels stay locked; this only decides the live action/approval and
- * the distances. ENTER/EXIT approvals are gated at MIN_ACTION_CONFIDENCE.
+ * the distances. ENTER approval needs win estimate ≥ MIN_WIN_ESTIMATE AND setup
+ * strength ≥ MIN_SETUP_STRENGTH AND CMP in zone AND not invalidated.
  */
 export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: LiveSignal | null, position: PlanPosition | null): PlanEval {
   const long = plan.direction === "LONG";
@@ -270,47 +275,68 @@ export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: 
     const exitConfidence = hardStopHit ? 100 : ex.total > 0 ? Math.round((ex.triggered / ex.total) * 100) : 0;
 
     if (hardStopHit) {
-      return mk({ state: "EXIT_NOW", label: "Exit now", approved: true, tone: "bear", reason: `Price hit the locked stop-loss ₹${f(stop)} — exit to cap the loss.`, exitConfidence, ...pnl }, ctx);
+      return mk({ state: "EXIT_NOW", label: "Exit now", approved: true, currentApproval: 100, approvalLabel: "Exit approved", tone: "bear", reason: `Price hit the locked stop-loss ₹${f(stop)} — exit to cap the loss.`, exitConfidence, ...pnl }, ctx);
     }
     if (exitConfidence >= MIN_EXIT_CONFIDENCE && ex.triggered > 0) {
-      return mk({ state: "EXIT_NOW", label: "Exit now", approved: true, tone: "bear", reason: `Exit: ${ex.reasons.join(", ")} (${exitConfidence}% exit confidence ≥ ${MIN_EXIT_CONFIDENCE}%).`, exitConfidence, ...pnl }, ctx);
+      return mk({ state: "EXIT_NOW", label: "Exit now", approved: true, currentApproval: exitConfidence, approvalLabel: "Exit approved", tone: "bear", reason: `Exit: ${ex.reasons.join(", ")} (${exitConfidence}% exit confidence ≥ ${MIN_EXIT_CONFIDENCE}%).`, exitConfidence, ...pnl }, ctx);
     }
     if (targetHit) {
-      return mk({ state: "BOOK_PARTIAL", label: "Book partial", approved: true, tone: "warn", reason: `Target ₹${f(target)} reached — book partial and trail the rest to ₹${f(plan.trailStop)}.`, exitConfidence, ...pnl }, ctx);
+      return mk({ state: "BOOK_PARTIAL", label: "Book partial", approved: true, currentApproval: 100, approvalLabel: "Book approved", tone: "warn", reason: `Target ₹${f(target)} reached — book partial and trail the rest to ₹${f(plan.trailStop)}.`, exitConfidence, ...pnl }, ctx);
     }
     if (ex.triggered > 0) {
-      return mk({ state: "REDUCE_RISK", label: "Reduce risk", approved: false, tone: "warn", reason: `Warning signs (${exitConfidence}%): ${ex.reasons.join(", ")}. Tighten stop / reduce — a full exit needs ≥${MIN_EXIT_CONFIDENCE}%.`, exitConfidence, ...pnl }, ctx);
+      return mk({ state: "REDUCE_RISK", label: "Reduce risk", approved: false, currentApproval: 0, approvalLabel: "No full-exit approval", tone: "warn", reason: `Warning signs (${exitConfidence}%): ${ex.reasons.join(", ")}. Tighten stop / reduce — a full exit needs ≥${MIN_EXIT_CONFIDENCE}%.`, exitConfidence, ...pnl }, ctx);
     }
     if (perUnit != null && perUnit > 0) {
-      return mk({ state: "TRAIL_SL", label: "Trail stop", approved: false, tone: "bull", reason: `In profit (${percent}%). Trail stop to ₹${f(plan.trailStop)}; hold while structure holds. Hard stop stays ₹${f(stop)}.`, exitConfidence, ...pnl }, ctx);
+      return mk({ state: "TRAIL_SL", label: "Trail stop", approved: false, currentApproval: 0, approvalLabel: "Holding (trail)", tone: "bull", reason: `In profit (${percent}%). Trail stop to ₹${f(plan.trailStop)}; hold while structure holds. Hard stop stays ₹${f(stop)}.`, exitConfidence, ...pnl }, ctx);
     }
-    return mk({ state: "HOLD_CAUTION", label: "Hold with caution", approved: false, tone: "neutral", reason: `Holding against locked stop ₹${f(stop)}. Exit only if it breaks or exit confidence ≥${MIN_EXIT_CONFIDENCE}%.`, exitConfidence, ...pnl }, ctx);
+    return mk({ state: "HOLD_CAUTION", label: "Hold with caution", approved: false, currentApproval: 0, approvalLabel: "Holding", tone: "neutral", reason: `Holding against locked stop ₹${f(stop)}. Exit only if it breaks or exit confidence ≥${MIN_EXIT_CONFIDENCE}%.`, exitConfidence, ...pnl }, ctx);
   }
 
   // ----- ENTRY SCANNER: CMP vs LOCKED entry/zone, gated by confidence -----
   if (plan.direction === "WAIT") {
-    return mk({ state: "WAIT_SETUP", label: "Wait — no setup", tone: "neutral", reason: plan.reason }, ctx);
+    return mk({ state: "WAIT_SETUP", label: "Wait — no setup", tone: "neutral", approvalLabel: "No setup", reason: plan.reason }, ctx);
   }
   const invLevel = plan.invalidation ?? plan.stopLoss;
   if (cmp != null && invLevel != null && (long ? cmp <= invLevel : cmp >= invLevel)) {
-    return mk({ state: "INVALIDATED", label: "Setup invalidated", tone: "warn", reason: `CMP ₹${f(cmp)} broke the locked invalidation ₹${f(invLevel)}. The plan is void — Re-analyse for a fresh one.` }, ctx);
+    return mk({ state: "INVALIDATED", label: "Setup invalidated", tone: "warn", currentApproval: 0, approvalLabel: "Invalidated — plan void", reason: `CMP ₹${f(cmp)} broke the locked invalidation ₹${f(invLevel)}. The plan is void — Re-analyse for a fresh one.` }, ctx);
   }
   if (plan.entry != null && plan.safeLow != null && plan.safeHigh != null && cmp != null) {
     const reached = long ? cmp >= plan.entry : cmp <= plan.entry;
     const inZone = cmp >= plan.safeLow && cmp <= plan.safeHigh;
     const past = long ? cmp > plan.safeHigh : cmp < plan.safeLow;
     if (!reached) {
-      return mk({ state: "WAIT_BREAKOUT", label: long ? "Wait for breakout" : "Wait for breakdown", tone: "info", reason: `Wait until price ${long ? "breaks above" : "breaks below"} the locked entry ₹${f(plan.entry)} (${f(Math.abs(ctx.distToEntry ?? 0))} pts away).` }, ctx);
+      return mk({ state: "WAIT_BREAKOUT", label: long ? "Wait for breakout" : "Wait for breakdown", tone: "info", approvalLabel: "Wait for breakout", reason: `Wait until price ${long ? "breaks above" : "breaks below"} the locked entry ₹${f(plan.entry)} (${f(Math.abs(ctx.distToEntry ?? 0))} pts away).` }, ctx);
     }
     if (past) {
-      return mk({ state: "WAIT_PULLBACK", label: "Do not chase", tone: "warn", reason: `CMP ₹${f(cmp)} is past the safe zone (₹${f(plan.safeLow)}–₹${f(plan.safeHigh)}). Don't chase — wait for a pullback toward ₹${f(plan.entry)}.` }, ctx);
+      return mk({ state: "WAIT_PULLBACK", label: "Do not chase", tone: "warn", approvalLabel: "Do not chase", reason: `CMP ₹${f(cmp)} is past the safe zone (₹${f(plan.safeLow)}–₹${f(plan.safeHigh)}). Don't chase — wait for a pullback toward ₹${f(plan.entry)}.` }, ctx);
     }
     if (inZone) {
-      if (plan.confidence >= MIN_ACTION_CONFIDENCE) {
-        return mk({ state: "ENTER_NOW", label: `Enter ${plan.direction} now`, approved: true, tone: long ? "bull" : "bear", reason: `CMP is in the locked safe zone and confidence is ${plan.confidence}% (≥${MIN_ACTION_CONFIDENCE}%). Enter with stop ₹${f(plan.stopLoss)}.` }, ctx);
+      // Approval requires BOTH the backend win estimate AND the locked indicator
+      // setup strength to clear their thresholds (and CMP in zone, not invalidated).
+      const winOk = plan.winEstimate >= MIN_WIN_ESTIMATE;
+      const strengthOk = plan.setupStrength >= MIN_SETUP_STRENGTH;
+      if (winOk && strengthOk) {
+        return mk(
+          {
+            state: "ENTER_NOW",
+            label: `Enter ${plan.direction} now`,
+            approved: true,
+            currentApproval: Math.min(plan.winEstimate, plan.setupStrength),
+            approvalLabel: "Approved",
+            tone: long ? "bull" : "bear",
+            reason: `Approved: win estimate ${plan.winEstimate}% (≥${MIN_WIN_ESTIMATE}%), setup strength ${plan.setupStrength}% (≥${MIN_SETUP_STRENGTH}%), CMP in the locked zone. Enter with stop ₹${f(plan.stopLoss)}.`,
+          },
+          ctx,
+        );
       }
-      return mk({ state: "WAIT_CONFIRMATION", label: "Wait — confirm (≥75%)", tone: "warn", reason: `CMP is in the zone but confidence is ${plan.confidence}% (need ≥${MIN_ACTION_CONFIDENCE}%). No confirmed entry yet.` }, ctx);
+      const why =
+        !winOk && !strengthOk
+          ? `win estimate ${plan.winEstimate}% (<${MIN_WIN_ESTIMATE}%) and setup strength ${plan.setupStrength}% (<${MIN_SETUP_STRENGTH}%)`
+          : !winOk
+            ? `win estimate ${plan.winEstimate}% is below ${MIN_WIN_ESTIMATE}%`
+            : `only ${plan.setupStrength}% of indicators confirm (<${MIN_SETUP_STRENGTH}%)`;
+      return mk({ state: "WAIT_CONFIRMATION", label: "No approval — wait", currentApproval: 0, approvalLabel: "No approval", tone: "warn", reason: `CMP is in the zone but ${why}. No entry approval — wait or Re-analyse.` }, ctx);
     }
   }
-  return mk({ state: "WAIT_SETUP", label: "Wait", tone: "neutral", reason: plan.reason }, ctx);
+  return mk({ state: "WAIT_SETUP", label: "Wait", tone: "neutral", approvalLabel: "Wait", reason: plan.reason }, ctx);
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { num } from "@/lib/format";
-import { MIN_ACTION_CONFIDENCE, type GuidanceCheck, type PlanEval, type PlanTone, type TradePlanSnapshot } from "@/lib/tradePlan";
+import { MIN_SETUP_STRENGTH, MIN_WIN_ESTIMATE, type GuidanceCheck, type PlanEval, type PlanTone, type TradePlanSnapshot } from "@/lib/tradePlan";
 
 const TONE: Record<PlanTone, { chip: string; text: string }> = {
   bull: { chip: "border-bull/50 bg-bull-soft text-bull", text: "text-bull" },
@@ -19,7 +19,7 @@ const TONE: Record<PlanTone, { chip: string; text: string }> = {
 export function TradeGuidance({ plan, evalResult, onReanalyse }: { plan: TradePlanSnapshot; evalResult: PlanEval; onReanalyse: () => void }) {
   const t = TONE[evalResult.tone];
   const long = plan.direction === "LONG";
-  const confOk = plan.confidence >= MIN_ACTION_CONFIDENCE;
+  const invalid = evalResult.state === "INVALIDATED";
   const zone = plan.safeLow != null && plan.safeHigh != null ? `₹${num(plan.safeLow)}–₹${num(plan.safeHigh)}` : "—";
 
   return (
@@ -58,17 +58,27 @@ export function TradeGuidance({ plan, evalResult, onReanalyse }: { plan: TradePl
         </div>
       </div>
 
-      {/* confidence vs threshold */}
+      {/* invalidated → de-emphasise old confidence, require re-analyse */}
+      {invalid && (
+        <p className="mt-2 rounded-lg border border-bear/50 bg-bear-soft px-3 py-2 text-xs font-bold text-bear">
+          ⚠️ Plan void — Re-analyse required. The locked setup is no longer valid; the old confidence no longer applies.
+        </p>
+      )}
+
+      {/* three clearly-labelled, distinct metrics */}
       {plan.direction !== "WAIT" && (
-        <div className="mt-2">
-          <div className="mb-1 flex items-center justify-between text-[11px]">
-            <span className="font-medium text-slate-400">Confidence (locked) <span className={confOk ? "font-bold text-bull" : "font-bold text-neutralSignal"}>{plan.confidence}%</span></span>
-            <span className="text-slate-500">Approval requires ≥{MIN_ACTION_CONFIDENCE}%</span>
+        <>
+          <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
+            <Metric label="Win estimate" value={`${plan.winEstimate}%`} sub="backend probability" tone={invalid ? "dim" : plan.winEstimate >= MIN_WIN_ESTIMATE ? "ok" : "warn"} />
+            <Metric label="Setup strength" value={`${plan.setupStrength}%`} sub="indicators @ analysis" tone={invalid ? "dim" : plan.setupStrength >= MIN_SETUP_STRENGTH ? "ok" : "warn"} />
+            <Metric label="Current approval" value={invalid ? "Void" : evalResult.approved ? `${evalResult.currentApproval}%` : "No"} sub={evalResult.approvalLabel} tone={invalid ? "bad" : evalResult.approved ? "ok" : "warn"} />
           </div>
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-base-700">
-            <div className={`h-full ${confOk ? "bg-bull" : "bg-neutralSignal"}`} style={{ width: `${Math.min(100, plan.confidence)}%` }} />
-          </div>
-        </div>
+          {!invalid && (
+            <p className="mt-1 text-center text-[10px] text-slate-500">
+              Approval needs <span className="font-semibold text-slate-400">win estimate ≥{MIN_WIN_ESTIMATE}%</span> AND <span className="font-semibold text-slate-400">setup strength ≥{MIN_SETUP_STRENGTH}%</span> AND CMP in the safe zone.
+            </p>
+          )}
+        </>
       )}
 
       {/* reason */}
@@ -112,6 +122,24 @@ export function TradeGuidance({ plan, evalResult, onReanalyse }: { plan: TradePl
       <p className="mt-2.5 rounded-md border border-neutralSignal/20 bg-neutralSignal-soft px-3 py-2 text-[10px] leading-relaxed text-neutralSignal">
         🔒 Levels are locked for this analysis cycle (CMP stays live). Re-analyse to refresh. Disciplined risk control, not a guarantee. {plan.disclaimer}
       </p>
+    </div>
+  );
+}
+
+function Metric({ label, value, sub, tone }: { label: string; value: string; sub: string; tone: "ok" | "warn" | "bad" | "dim" }) {
+  const cls =
+    tone === "ok"
+      ? "border-bull/30 bg-bull-soft text-bull"
+      : tone === "bad"
+        ? "border-bear/40 bg-bear-soft text-bear"
+        : tone === "dim"
+          ? "border-white/10 bg-base-800/40 text-slate-500 opacity-60"
+          : "border-neutralSignal/30 bg-neutralSignal-soft text-neutralSignal";
+  return (
+    <div className={`rounded-md border px-1.5 py-1.5 ${cls}`}>
+      <p className="text-[9px] font-semibold uppercase tracking-wide opacity-80">{label}</p>
+      <p className="text-sm font-bold leading-tight">{value}</p>
+      <p className="text-[8px] leading-tight opacity-70">{sub}</p>
     </div>
   );
 }
