@@ -1,8 +1,9 @@
 "use client";
 
 import { num } from "@/lib/format";
-import { toneVisual } from "@/lib/actionStyles";
+import { toneVisual, type ActionTone } from "@/lib/actionStyles";
 import { Metric } from "@/components/ui/Metric";
+import { Icon } from "@/components/terminal/ds";
 import { MIN_SETUP_STRENGTH, MIN_WIN_ESTIMATE, type GuidanceCheck, type PlanEval, type TradePlanSnapshot } from "@/lib/tradePlan";
 
 /**
@@ -16,6 +17,13 @@ export function TradeGuidance({ plan, evalResult, onReanalyse }: { plan: TradePl
   const dirV = toneVisual(long ? "bull" : "bear");
   const invalid = evalResult.state === "INVALIDATED";
   const zone = plan.safeLow != null && plan.safeHigh != null ? `₹${num(plan.safeLow)}–₹${num(plan.safeHigh)}` : "—";
+
+  // Enter → Hold → Exit guidance, derived from the LOCKED levels (direction-aware
+  // so shorts read "break below"). Text only — the levels themselves stay locked.
+  const f = (n: number | null) => (n == null ? "—" : `₹${num(n)}`);
+  const enterTxt = `${long ? "Break above" : "Break below"} ${f(plan.entry)}${zone !== "—" ? ` into ${zone}` : ""}. Approval needs win ≥${MIN_WIN_ESTIMATE}% & setup ≥${MIN_SETUP_STRENGTH}%.`;
+  const holdTxt = `Hold while structure holds${plan.trailStop != null ? `; trail stop to ${f(plan.trailStop)}` : ""}. Hard stop ${f(plan.stopLoss)}.`;
+  const exitTxt = `Exit at stop ${f(plan.stopLoss)}${plan.targets[0] != null ? `, or book ${f(plan.targets[0])}${plan.targets[1] != null ? ` / ${f(plan.targets[1])}` : ""}` : ""}. Invalidation ${f(plan.invalidation)}.`;
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-white/10 bg-base-850">
@@ -79,6 +87,18 @@ export function TradeGuidance({ plan, evalResult, onReanalyse }: { plan: TradePl
               </p>
             )}
           </>
+        )}
+
+        {/* Enter → Hold → Exit cockpit guidance */}
+        {plan.direction !== "WAIT" && (
+          <div className="mt-3 rounded-xl border border-white/10 bg-base-900/30 p-3">
+            <p className="eyebrow mb-2.5 text-slate-400">Enter → Hold → Exit</p>
+            <div className="space-y-2.5">
+              <GuidanceStep icon="log-in" tone="bull" label="Enter" text={enterTxt} />
+              <GuidanceStep icon="hold" tone="info" label="Hold" text={holdTxt} />
+              <GuidanceStep icon="log-out" tone="bear" label="Exit" text={exitTxt} />
+            </div>
+          </div>
         )}
 
         {/* reason */}
@@ -162,5 +182,20 @@ function Check({ c }: { c: GuidanceCheck }) {
       <span className={`mt-0.5 w-3 shrink-0 text-center font-bold ${iconCls}`}>{icon}</span>
       <span className={textCls}>{c.label}</span>
     </li>
+  );
+}
+
+function GuidanceStep({ icon, tone, label, text }: { icon: string; tone: ActionTone; label: string; text: string }) {
+  const v = toneVisual(tone);
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className={`grid h-7 w-7 shrink-0 place-items-center rounded-md border ${v.chip}`}>
+        <Icon n={icon} size={15} />
+      </span>
+      <div className="min-w-0">
+        <p className={`text-[11px] font-extrabold uppercase tracking-[0.06em] ${v.text}`}>{label}</p>
+        <p className="text-xs leading-snug text-slate-300">{text}</p>
+      </div>
+    </div>
   );
 }

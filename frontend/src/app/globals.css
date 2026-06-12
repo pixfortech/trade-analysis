@@ -12,6 +12,56 @@
 
     /* Claude Design handoff — cool navy fintech terminal tokens. */
     --shadow-card: 0 1px 3px rgba(12, 17, 29, 0.07), 0 1px 2px rgba(12, 17, 29, 0.04);
+
+    /* ===================================================================
+       Terminal design system (Claude Design). Light = base here; dark
+       overrides live in `html.dark` below. The cockpit shell + trading
+       primitives are built directly on these CSS variables.
+       =================================================================== */
+    --ink-1: #0c111d; --ink-2: #344054; --ink-3: #5d6b82; --ink-4: #98a2b3; --ink-inverse: #ffffff;
+    --surface-app: #f4f6f9; --surface-card: #ffffff; --surface-raised: #ffffff; --surface-sunken: #eef1f5;
+    --surface-terminal: #0c111d; --surface-terminal-2: #161e2e;
+    --border-1: #e4e8ee; --border-2: #d0d7e2; --border-focus: #2e5ce6;
+    --brand-900: #0a1a4a; --brand-700: #16308f; --brand-600: #1f44c4; --brand-500: #2e5ce6; --brand-400: #5b82ee; --brand-100: #dde6fc; --brand-50: #eef3fe;
+    --action-enter: #0a8f5b; --action-enter-strong: #067647; --action-enter-soft: #e3f6ee; --action-enter-border: #9fdec4;
+    --action-exit: #d92d20; --action-exit-strong: #b42318; --action-exit-soft: #feeae8; --action-exit-border: #f5b6b0;
+    --action-wait: #2e5ce6; --action-wait-strong: #1f44c4; --action-wait-soft: #eef3fe; --action-wait-border: #b6c8f7;
+    --action-avoid: #b54708; --action-avoid-strong: #93370d; --action-avoid-soft: #fdf0e0; --action-avoid-border: #f3cd9a;
+    --action-none: #5d6b82; --action-none-strong: #344054; --action-none-soft: #eef1f5; --action-none-border: #d0d7e2;
+    --price-up: #0a8f5b; --price-down: #d92d20; --price-flat: #5d6b82;
+    --confidence-high: #0a8f5b; --confidence-mid: #b54708; --confidence-low: #98a2b3;
+    --status-live: #12b76a; --status-stale: #f79009; --status-off: #98a2b3;
+    --font-ui: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-numeric: "IBM Plex Mono", ui-monospace, monospace;
+    --radius-xs: 4px; --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px; --radius-xl: 18px; --radius-2xl: 24px; --radius-pill: 999px;
+    --shadow-xs: 0 1px 2px rgba(12, 17, 29, 0.05);
+    --shadow-sm: 0 1px 3px rgba(12, 17, 29, 0.07), 0 1px 2px rgba(12, 17, 29, 0.04);
+    --shadow-md: 0 4px 12px rgba(12, 17, 29, 0.08), 0 2px 4px rgba(12, 17, 29, 0.04);
+    --shadow-lg: 0 12px 28px rgba(12, 17, 29, 0.12), 0 4px 8px rgba(12, 17, 29, 0.06);
+    --shadow-float: 0 18px 44px rgba(12, 17, 29, 0.18), 0 6px 12px rgba(12, 17, 29, 0.08);
+    --ring: 0 0 0 3px rgba(46, 92, 230, 0.22);
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1); --dur-fast: 120ms; --dur-base: 180ms; --dur-slow: 260ms;
+    --bar-height: 56px; --status-height: 32px; --content-max: 1440px;
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px; --space-8: 32px;
+    --text-2xs: 11px; --text-xs: 12px; --text-sm: 13px; --text-base: 14px; --text-md: 15px; --text-lg: 17px; --text-xl: 20px; --text-2xl: 24px; --text-3xl: 30px; --text-4xl: 38px;
+    --weight-medium: 500; --weight-semibold: 600; --weight-bold: 700; --weight-extrabold: 800;
+    --tracking-tight: -0.02em; --tracking-caps: 0.06em;
+  }
+
+  /* Dark overrides — applied via html.dark (the app's default theme). */
+  html.dark {
+    --ink-1: #f2f5f9; --ink-2: #c3cbd9; --ink-3: #8b97ab; --ink-4: #5d6b82; --ink-inverse: #0c111d;
+    --surface-app: #090d16; --surface-card: #11182a; --surface-raised: #161e2e; --surface-sunken: #0c111d;
+    --surface-terminal: #060910; --surface-terminal-2: #11182a;
+    --border-1: #1f2a3f; --border-2: #2b3850;
+    --brand-500: #5b82ee; --brand-100: #1a2a55; --brand-50: #131f3d;
+    --action-enter: #2bd48f; --action-enter-soft: #0c2b1f; --action-enter-border: #1a5c41;
+    --action-exit: #f97066; --action-exit-soft: #371311; --action-exit-border: #7a271a;
+    --action-wait: #6e93f2; --action-wait-soft: #131f3d; --action-wait-border: #2a4288;
+    --action-avoid: #f7a957; --action-avoid-soft: #321c06; --action-avoid-border: #7a4708;
+    --action-none: #8b97ab; --action-none-soft: #161e2e; --action-none-border: #2b3850;
+    --price-up: #2bd48f; --price-down: #f97066;
+    --confidence-high: #2bd48f; --confidence-mid: #f7a957; --confidence-low: #5d6b82;
   }
 
   html {
@@ -86,6 +136,7 @@
     font-weight: 700;
     font-size: 0.6875rem;
     line-height: 1.4;
+    color: var(--ink-3);
   }
   /* Nudge the very small helper labels up to ~12px so they stay readable,
      without changing every component. (Tailwind text-[11px] → 12px.) */
@@ -166,3 +217,18 @@ html.light input,
 html.light select,
 html.light textarea { color: #1e293b; }
 html.light input::placeholder { color: #94a3b8; }
+
+/* =====================================================================
+   Terminal cockpit layout (design redesign). Two-column dashboard with a
+   372px right rail that collapses to a single column on narrow screens.
+   ===================================================================== */
+.cockpit-main { padding: var(--space-6) var(--space-6) 120px; }
+@media (max-width: 640px) { .cockpit-main { padding: var(--space-4) var(--space-4) 96px; } }
+
+.cockpit-grid { display: grid; grid-template-columns: minmax(0, 1fr) 372px; gap: var(--space-6); align-items: start; }
+@media (max-width: 1120px) { .cockpit-grid { grid-template-columns: 1fr; } }
+
+.cockpit-twocol { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); align-items: start; }
+@media (max-width: 900px) { .cockpit-twocol { grid-template-columns: 1fr; } }
+
+@media (max-width: 640px) { .hide-sm { display: none !important; } }
