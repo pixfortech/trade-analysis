@@ -235,4 +235,13 @@ html.light input::placeholder { color: #94a3b8; }
 .modules-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--space-6); }
 @media (max-width: 720px) { .modules-grid { grid-template-columns: 1fr; } }
 
-@media (max-width: 640px) { .hide-sm { display: none !important; } }
+/* Compact top-bar search — overrides the shared InstrumentSearch input so it
+   doesn't dominate the header. Unlayered, so it wins over Tailwind utilities. */
+.terminal-search input { padding-top: 6px; padding-bottom: 6px; padding-left: 32px; padding-right: 10px; font-size: 13px; border-radius: var(--radius-md); }
+.terminal-search svg { width: 16px; height: 16px; left: 9px; }
+
+@media (max-width: 640px) {
+  .hide-sm { display: none !important; }
+  /* Collapse the top-bar search on phones — in-card search remains available. */
+  .terminal-search { display: none !important; }
+}

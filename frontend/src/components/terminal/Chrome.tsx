@@ -52,15 +52,15 @@ export function TopBar({ onNav }: { onNav: (s: Screen) => void }) {
         <span style={{ display: "inline-flex", width: 32, height: 32, borderRadius: 9, background: "rgba(255,255,255,.06)", alignItems: "center", justifyContent: "center" }}>
           <Mark />
         </span>
-        <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1, whiteSpace: "nowrap" }}>
+        <div className="hide-sm" style={{ display: "flex", flexDirection: "column", lineHeight: 1.1, whiteSpace: "nowrap" }}>
           <span style={{ color: "#fff", fontWeight: 800, fontSize: 14, letterSpacing: "-0.01em" }}>Trade Analysis</span>
           <span style={{ color: "#6e93f2", fontFamily: "var(--font-mono)", fontSize: 9.5, fontWeight: 600, letterSpacing: "0.14em" }}>AI ENGINE</span>
         </div>
       </div>
 
-      {/* live instrument search (real backend search) */}
-      <div className="terminal-search" style={{ flex: 1, maxWidth: 460, minWidth: 0, marginLeft: 4 }}>
-        <InstrumentSearch onSelect={onPick} placeholder="Search instrument — NIFTY, RELIANCE, options…" />
+      {/* live instrument search — compact; collapses on mobile (in-card search remains) */}
+      <div className="terminal-search" style={{ flex: "0 1 440px", minWidth: 0, marginLeft: 4 }}>
+        <InstrumentSearch onSelect={onPick} placeholder="Search instrument…" />
       </div>
 
       <div style={{ flex: 1 }} />
@@ -71,7 +71,7 @@ export function TopBar({ onNav }: { onNav: (s: Screen) => void }) {
       <Switch checked={g.liveUpdates} onChange={g.toggleLiveUpdates} label="Live updates" />
       <IconBtn label="Toggle theme" onClick={toggle}><Icon n={theme === "dark" ? "sun" : "moon"} size={17} /></IconBtn>
       <IconBtn label="Settings & status" onClick={() => onNav("status")}><Icon n="settings" size={17} /></IconBtn>
-      <span style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--brand-500)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, flexShrink: 0 }}>A</span>
+      <span className="hide-sm" style={{ width: 32, height: 32, borderRadius: "50%", background: "var(--brand-500)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, flexShrink: 0 }}>A</span>
     </header>
   );
 }

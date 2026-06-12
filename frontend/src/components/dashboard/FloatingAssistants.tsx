@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/apiClient";
 import { num } from "@/lib/format";
 import { ActionPill, Icon, type DsAction } from "@/components/terminal/ds";
+import { IndicatorGroups } from "./MarketContext";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { useAiScanners, type Scanner } from "@/lib/aiScanners";
 import { useAiVirtualTrades, type NewVirtualTrade } from "@/lib/aiVirtualTrades";
@@ -636,29 +637,9 @@ function TabRisk({ view, signal, breadth }: { view: AssistantView; signal: LiveS
 }
 
 function TabDetails({ signal, view }: { signal: LiveSignal; view: AssistantView }) {
-  const i = signal.indicators;
-  const cells: [string, string][] = [
-    ["VWAP", signal.marketData.vwap == null ? "—" : num(signal.marketData.vwap)],
-    ["EMA20", i.ema20 == null ? "—" : num(i.ema20)],
-    ["EMA50", i.ema50 == null ? "—" : num(i.ema50)],
-    ["RSI", i.rsi == null ? "—" : num(i.rsi)],
-    ["MACD", i.macd == null ? "—" : num(i.macd.histogram)],
-    ["ADX", i.adx == null ? "—" : num(i.adx.adx)],
-    ["ATR", i.atr == null ? "—" : num(i.atr)],
-    ["Supertrend", i.supertrend == null ? "—" : i.supertrend.direction],
-    ["Volume", i.volumeConfirmed == null ? "—" : i.volumeConfirmed ? "Confirmed" : "Low"],
-    ["OI", i.oi == null ? "—" : num(i.oi)],
-  ];
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-3 gap-1">
-        {cells.map(([k, v]) => (
-          <div key={k} className="rounded border border-white/10 bg-base-800/60 px-1.5 py-1">
-            <p className="text-[8px] uppercase text-slate-500">{k}</p>
-            <p className="num text-[11px] font-semibold text-slate-100">{v}</p>
-          </div>
-        ))}
-      </div>
+      <IndicatorGroups signal={signal} />
       <p className="text-[10px] text-slate-500">Data quality: {signal.probability.dataQuality} · updated {new Date(signal.timestamp).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
       <p className="rounded-lg border border-white/5 bg-base-800/40 px-3 py-2 text-[11px] leading-relaxed text-slate-300"><span className="font-semibold text-slate-100">Reason: </span>{view.reason}</p>
       <p className="rounded-lg border border-neutralSignal/20 bg-neutralSignal-soft px-3 py-2 text-[10px] leading-relaxed text-neutralSignal">⚠️ {signal.disclaimer}</p>

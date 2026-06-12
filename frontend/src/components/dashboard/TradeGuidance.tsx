@@ -4,6 +4,8 @@ import { num } from "@/lib/format";
 import { toneVisual, type ActionTone } from "@/lib/actionStyles";
 import { Metric } from "@/components/ui/Metric";
 import { Icon } from "@/components/terminal/ds";
+import { TimingEstimate } from "./MarketContext";
+import type { LiveSignal } from "@/types/api";
 import { MIN_SETUP_STRENGTH, MIN_WIN_ESTIMATE, type GuidanceCheck, type PlanEval, type TradePlanSnapshot } from "@/lib/tradePlan";
 
 /**
@@ -11,7 +13,7 @@ import { MIN_SETUP_STRENGTH, MIN_WIN_ESTIMATE, type GuidanceCheck, type PlanEval
  * live action from CMP vs those levels. CMP and distances update live; the levels
  * do not move until Re-analyse / invalidation. ENTER/EXIT approvals need ≥75%.
  */
-export function TradeGuidance({ plan, evalResult, onReanalyse }: { plan: TradePlanSnapshot; evalResult: PlanEval; onReanalyse: () => void }) {
+export function TradeGuidance({ plan, evalResult, signal, vix, onReanalyse }: { plan: TradePlanSnapshot; evalResult: PlanEval; signal: LiveSignal | null; vix: number | null; onReanalyse: () => void }) {
   const v = toneVisual(evalResult.tone);
   const long = plan.direction === "LONG";
   const dirV = toneVisual(long ? "bull" : "bear");
@@ -100,6 +102,11 @@ export function TradeGuidance({ plan, evalResult, onReanalyse }: { plan: TradePl
             </div>
           </div>
         )}
+
+        {/* Estimated entry / exit timing window (advisory; levels stay locked) */}
+        <div className="mt-3">
+          <TimingEstimate plan={plan} ev={evalResult} signal={signal} vix={vix} />
+        </div>
 
         {/* reason */}
         <p className={`mt-3 rounded-lg border px-3 py-2 text-xs font-medium ${v.chip}`}>{evalResult.reason}</p>

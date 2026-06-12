@@ -17,6 +17,7 @@ import { ThemedSelect, InfoTooltip, InstrumentTypeSelector, type InstrumentSegme
 import { STRATEGY_MODES, modeBlurb } from "@/lib/strategyModes";
 import { TimeBasedPlan } from "./TimeBasedPlan";
 import { TradeGuidance } from "./TradeGuidance";
+import { OhlcStrip, IndicatorGroups } from "./MarketContext";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { Expandable } from "@/components/ui/Expandable";
 import { buildTradePlan, evaluatePlan, type TradePlanSnapshot } from "@/lib/tradePlan";
@@ -47,6 +48,9 @@ export function LiveMarketSignal() {
   // The LOCKED trade plan (entry/SL/targets/confidence) for this analysis cycle.
   // CMP/indicators keep updating via `signal`; these levels do NOT move per tick.
   const [plan, setPlan] = useState<TradePlanSnapshot | null>(null);
+  // Best-effort India VIX (volatility context for the timing estimate). Unavailable
+  // → the estimate falls back to ATR and labels VIX unavailable; never fabricated.
+  const [vix, setVix] = useState<number | null>(null);
 
   // Reference-only instruments (e.g. GIFT NIFTY on NSEIX) are visible/selectable
   // but Kite can't quote them, so we never call live-signal with them.
@@ -137,6 +141,26 @@ export function LiveMarketSignal() {
     const id = window.setInterval(() => void run(), 5000);
     return () => window.clearInterval(id);
   }, [global.liveUpdates, sel, signal.data, run]);
+
+  // Best-effort India VIX via the existing quote endpoint (read-only). Resilient:
+  // if it isn't quotable / subscribed, vix stays null and timing computes without it.
+  useEffect(() => {
+    if (!signal.data) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await api.kite.quote("NSE:INDIA VIX");
+        const first = res?.data ? (Object.values(res.data)[0] as { last_price?: number } | undefined) : undefined;
+        const lp = first?.last_price;
+        if (!cancelled) setVix(typeof lp === "number" && lp > 0 ? lp : null);
+      } catch {
+        if (!cancelled) setVix(null);
+      }
+    };
+    void load();
+    const id = window.setInterval(load, 60_000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, [signal.data]);
 
   // Reflow the grid once a result arrives so the summary/indicators fit cleanly.
   useEffect(() => {
@@ -304,10 +328,14 @@ export function LiveMarketSignal() {
               <span>· Mode: <span className="capitalize">{riskProfile}</span></span>
               <span>· Updated: {formatTime(signal.data.timestamp)}</span>
             </div>
+            {/* OHLC + event-time context strip (high/low times derived from candles) */}
+            <div className="mb-4">
+              <OhlcStrip signal={signal.data} chart={chart} />
+            </div>
             {/* LOCKED trade plan — entry/SL/targets stay fixed; CMP stays live. */}
             {plan ? (
               <div className="mb-4">
-                <TradeGuidance plan={plan} evalResult={evaluatePlan(plan, signal.data.currentPrice, signal.data, null)} onReanalyse={() => void analyze()} />
+                <TradeGuidance plan={plan} evalResult={evaluatePlan(plan, signal.data.currentPrice, signal.data, null)} signal={signal.data} vix={vix} onReanalyse={() => void analyze()} />
               </div>
             ) : (
               <div className="mb-4 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3 text-sm text-slate-300">
@@ -456,13 +484,8 @@ function SignalView({ s }: { s: LiveSignal }) {
         </p>
       </div>
 
-      {/* Indicators + levels */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Tile label="RSI 14" value={s.indicators.rsi == null ? "—" : num(s.indicators.rsi)} />
-        <Tile label="EMA 9 / 20" value={pair(s.indicators.ema9, s.indicators.ema20)} />
-        <Tile label="ATR 14" value={s.indicators.atr == null ? "—" : num(s.indicators.atr)} />
-        <Tile label="Volume" value={s.indicators.volumeConfirmed == null ? "—" : s.indicators.volumeConfirmed ? "Confirmed" : "Low"} />
-      </div>
+      {/* Indicators auto-grouped by bullish / bearish / neutral (count-ordered) */}
+      <IndicatorGroups signal={s} />
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-lg border border-bull/20 bg-bull-soft px-3 py-2.5">
           <p className="text-slate-400">Support</p>
@@ -568,16 +591,3 @@ function Level({
   );
 }
 
-function Tile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="text-[15px] font-semibold text-slate-100">{value}</p>
-    </div>
-  );
-}
-
-function pair(a: number | null, b: number | null): string {
-  if (a == null && b == null) return "—";
-  return `${a == null ? "—" : num(a)} / ${b == null ? "—" : num(b)}`;
-}
