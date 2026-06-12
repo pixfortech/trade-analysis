@@ -1,13 +1,16 @@
 import { TerminalApp } from "@/components/terminal/TerminalApp";
 import { GlobalControlsProvider } from "@/hooks/useGlobalControls";
+import { ModulesProvider } from "@/hooks/useModules";
 import { AiScannersProvider } from "@/lib/aiScanners";
 
 export default function DashboardPage() {
   return (
     <GlobalControlsProvider>
-      <AiScannersProvider>
-        <TerminalApp />
-      </AiScannersProvider>
+      <ModulesProvider>
+        <AiScannersProvider>
+          <TerminalApp />
+        </AiScannersProvider>
+      </ModulesProvider>
     </GlobalControlsProvider>
   );
 }

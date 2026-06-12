@@ -231,4 +231,8 @@ html.light input::placeholder { color: #94a3b8; }
 .cockpit-twocol { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); align-items: start; }
 @media (max-width: 900px) { .cockpit-twocol { grid-template-columns: 1fr; } }
 
+/* Settings → Modules visibility list. */
+.modules-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--space-6); }
+@media (max-width: 720px) { .modules-grid { grid-template-columns: 1fr; } }
+
 @media (max-width: 640px) { .hide-sm { display: none !important; } }

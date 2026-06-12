@@ -163,7 +163,7 @@ export function RiskManagementCard() {
           </div>
           <PriceStat label={`CMP ${live ? "· live" : signal.isLoading ? "· loading" : "· n/a"}`} value={cmp == null ? "—" : num(cmp)} size="md" align="right" />
         </div>
-        <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-center sm:grid-cols-6">
+        <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-center">
           <Sum label="Entry" value={entry} />
           <Sum label="Stop-loss" value={stop} tone="bear" />
           <Sum label="Target 1" value={targets[0]} tone="bull" />

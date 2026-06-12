@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
@@ -8,6 +8,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { marketIndices } from "@/lib/mockData";
 import { num, signed } from "@/lib/format";
 import { InstrumentSearch, type SelectedInstrument } from "@/components/dashboard/InstrumentSearch";
+import type { KiteStatus } from "@/types/api";
 import { Icon, Switch } from "./ds";
 
 export type Screen = "dashboard" | "positions" | "movers" | "status";
@@ -37,7 +38,6 @@ export function TopBar({ onNav }: { onNav: (s: Screen) => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const live = !!kite.data?.liveDataEnabled && !!kite.data?.authenticated;
   const onPick = (ins: SelectedInstrument) =>
     g.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize, quotable: ins.quotable, name: ins.name });
 
@@ -65,11 +65,8 @@ export function TopBar({ onNav }: { onNav: (s: Screen) => void }) {
 
       <div style={{ flex: 1 }} />
 
-      {/* kite status */}
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 600, color: "#c3cbd9", whiteSpace: "nowrap" }}>
-        <span style={{ width: 8, height: 8, borderRadius: "50%", background: live ? "var(--status-live)" : "var(--status-off)", boxShadow: live ? "0 0 0 3px rgba(18,183,106,.25)" : "none" }} />
-        <span className="hide-sm">Kite {live ? "connected · streaming" : "read-only"}</span>
-      </span>
+      {/* Connect Kite / Kite Connected / Reconnect — always available */}
+      <ConnectKite status={kite.data ?? null} error={kite.isError} onRetry={() => void kite.run()} />
       <span style={{ width: 1, height: 24, background: "rgba(255,255,255,.12)" }} className="hide-sm" />
       <Switch checked={g.liveUpdates} onChange={g.toggleLiveUpdates} label="Live updates" />
       <IconBtn label="Toggle theme" onClick={toggle}><Icon n={theme === "dark" ? "sun" : "moon"} size={17} /></IconBtn>
@@ -84,6 +81,53 @@ function IconBtn({ children, label, onClick }: { children: React.ReactNode; labe
     <button type="button" aria-label={label} title={label} onClick={onClick}
       style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "var(--radius-sm)", border: "none", background: "transparent", color: "#c3cbd9", cursor: "pointer", flexShrink: 0 }}>
       {children}
+    </button>
+  );
+}
+
+/**
+ * Top-bar Kite connection button — always visible on every screen. Calls the
+ * existing backend login-url flow and opens Zerodha's hosted login. Read-only:
+ * this only authorises market-data access, never order placement.
+ */
+function ConnectKite({ status, error, onRetry }: { status: KiteStatus | null; error: boolean; onRetry: () => void }) {
+  const login = useAsync(api.kite.loginUrl);
+  const wasAuth = useRef(false);
+  if (status?.authenticated) wasAuth.current = true;
+
+  const connect = async () => {
+    const res = await login.run();
+    if (res?.loginUrl) window.open(res.loginUrl, "_blank", "noopener,noreferrer");
+  };
+
+  const connected = !!status?.authenticated;
+  const expired = !connected && (wasAuth.current || (!!status && /expire|reconnect|again|token|session|invalid/i.test(status.message)));
+
+  let label: string, bg: string, border: string, color: string, dot: string | null, icon: string | null, onClick: () => void;
+  if (error) {
+    label = "Kite offline"; bg = "rgba(249,112,102,.15)"; border = "rgba(249,112,102,.45)"; color = "#f97066"; dot = null; icon = "refresh"; onClick = onRetry;
+  } else if (connected) {
+    label = "Kite Connected"; bg = "rgba(18,183,106,.15)"; border = "rgba(18,183,106,.45)"; color = "#2bd48f"; dot = "var(--status-live)"; icon = null; onClick = connect;
+  } else if (expired) {
+    label = login.isLoading ? "Opening…" : "Reconnect Kite"; bg = "rgba(247,144,9,.16)"; border = "rgba(247,144,9,.45)"; color = "#f7a957"; dot = "var(--status-stale)"; icon = "log-in"; onClick = connect;
+  } else {
+    label = login.isLoading ? "Opening…" : "Connect Kite"; bg = "var(--brand-500)"; border = "transparent"; color = "#fff"; dot = null; icon = "log-in"; onClick = connect;
+  }
+
+  return (
+    <button type="button" onClick={onClick} title={label} disabled={login.isLoading}
+      style={{ display: "inline-flex", alignItems: "center", gap: 7, height: 30, padding: "0 13px", borderRadius: "var(--radius-pill)", border: `1px solid ${border}`, background: bg, color, fontSize: 12, fontWeight: 700, cursor: login.isLoading ? "default" : "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
+      {connected && dot ? (
+        <span className="relative flex h-2 w-2">
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full" style={{ background: dot, opacity: 0.55 }} />
+          <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: dot }} />
+        </span>
+      ) : dot ? (
+        <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot }} />
+      ) : icon ? (
+        <Icon n={icon} size={14} />
+      ) : null}
+      {label}
     </button>
   );
 }
@@ -124,14 +168,15 @@ const NAV: { id: Screen; icon: string; label: string }[] = [
   { id: "status", icon: "gauge", label: "Status" },
 ];
 
-export function NavRail({ active, onNav }: { active: Screen; onNav: (s: Screen) => void }) {
+export function NavRail({ active, onNav, stripVisible = true }: { active: Screen; onNav: (s: Screen) => void; stripVisible?: boolean }) {
+  const offset = stripVisible ? "calc(var(--bar-height) + var(--status-height))" : "var(--bar-height)";
   return (
     <nav
       style={{
         width: 64, flexShrink: 0, background: "var(--surface-card)", borderRight: "1px solid var(--border-1)",
         display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 0",
-        position: "sticky", top: "calc(var(--bar-height) + var(--status-height))",
-        height: "calc(100vh - var(--bar-height) - var(--status-height))", zIndex: 20,
+        position: "sticky", top: offset,
+        height: `calc(100vh - ${stripVisible ? "var(--bar-height) - var(--status-height)" : "var(--bar-height)"})`, zIndex: 20,
       }}
     >
       {NAV.map((it) => {
