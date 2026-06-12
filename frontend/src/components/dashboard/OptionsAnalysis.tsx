@@ -1,71 +1,78 @@
-import { Card } from "@/components/ui/Card";
-import { SignalPill } from "@/components/ui/SignalPill";
+import { DsCard, DsBadge } from "@/components/terminal/ds";
 import { optionsSummary as o } from "@/lib/mockData";
 import { compact, num } from "@/lib/format";
 
+/**
+ * Options chain — design OptionsChainScreen layout (analytics rail + CE / strike
+ * / PE table with OI bars and ATM highlight). Built on the bundled sample
+ * snapshot (clearly badged) until a live options-chain feed is wired.
+ */
 export function OptionsAnalysis() {
   const maxOI = Math.max(...o.chain.flatMap((s) => [s.callOI, s.putOI]));
+  const atm = o.chain.find((s) => s.isATM)?.strike ?? o.maxPain;
+  const pcrTone = o.pcr < 1 ? "enter" : "exit";
 
   return (
-    <Card
-      id="options"
-      title="Options Analysis"
-      subtitle={`${o.symbol} · ${o.expiry} · OI snapshot`}
-      action={<SignalPill signal={o.signal} />}
-    >
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Metric label="Spot" value={num(o.spot, 0)} />
-        <Metric label="PCR" value={o.pcr.toFixed(2)} />
-        <Metric label="Max Pain" value={num(o.maxPain, 0)} />
-        <Metric label="Bias" value={o.signal} className="capitalize" />
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
+      {/* analytics rail */}
+      <DsCard
+        eyebrow="Chain analytics"
+        title={`${o.symbol} · ${o.expiry}`}
+        headerRight={
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <DsBadge tone="brand" dot>Spot {num(o.spot, 0)}</DsBadge>
+            <DsBadge tone="neutral">Sample</DsBadge>
+          </span>
+        }
+      >
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+          <Stat label="PCR" value={o.pcr.toFixed(2)} tone={pcrTone} />
+          <Stat label="Max pain" value={num(o.maxPain, 0)} />
+          <Stat label="ATM strike" value={num(atm, 0)} tone="wait" />
+          <Stat label="Support" value={o.support.map((s) => num(s, 0)).join(" · ")} tone="enter" />
+          <Stat label="Resistance" value={o.resistance.map((s) => num(s, 0)).join(" · ")} tone="exit" />
+        </div>
+      </DsCard>
 
-      <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
-        <div className="rounded-lg border border-bull/20 bg-bull-soft px-3 py-2">
-          <p className="text-slate-400">Support</p>
-          <p className="num font-semibold text-bull">{o.support.map((s) => num(s, 0)).join(" · ")}</p>
+      {/* chain table */}
+      <DsCard padding="none" eyebrow="Option chain" title="Strikes — CE / PE" headerRight={<span style={{ fontSize: 11, color: "var(--ink-3)" }}>OI snapshot · max ≈ {compact(maxOI)}</span>}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 1fr", alignItems: "center", padding: "10px 18px", background: "var(--surface-sunken)", borderBottom: "1px solid var(--border-1)" }}>
+          <span className="eyebrow" style={{ textAlign: "left" }}>Calls (CE) · OI</span>
+          <span className="eyebrow" style={{ textAlign: "center" }}>Strike</span>
+          <span className="eyebrow" style={{ textAlign: "right" }}>Puts (PE) · OI</span>
         </div>
-        <div className="rounded-lg border border-bear/20 bg-bear-soft px-3 py-2">
-          <p className="text-slate-400">Resistance</p>
-          <p className="num font-semibold text-bear">{o.resistance.map((s) => num(s, 0)).join(" · ")}</p>
-        </div>
-      </div>
-
-      <div className="mt-4">
-        <div className="mb-2 flex items-center justify-between text-[11px] uppercase tracking-wide text-slate-500">
-          <span>Call OI</span>
-          <span>Strike</span>
-          <span>Put OI</span>
-        </div>
-        <div className="space-y-1.5">
-          {o.chain.map((s) => (
-            <div key={s.strike} className="flex items-center gap-2 text-xs">
-              <div className="flex flex-1 justify-end">
-                <div className="h-4 rounded-l bg-bear/40" style={{ width: `${(s.callOI / maxOI) * 100}%` }} />
+        {o.chain.map((r) => {
+          const isAtm = r.strike === atm;
+          return (
+            <div key={r.strike} style={{ display: "grid", gridTemplateColumns: "1fr 120px 1fr", alignItems: "center", gap: 10, padding: "12px 18px", borderBottom: "1px solid var(--border-1)", background: isAtm ? "var(--brand-50)" : "transparent", position: "relative" }}>
+              {/* CE leg — bar anchored right */}
+              <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "flex-start", paddingRight: 6 }}>
+                <span style={{ position: "absolute", top: 0, bottom: 0, right: 0, width: `${(r.callOI / maxOI) * 100}%`, background: "var(--action-enter-soft)", borderRadius: 3, zIndex: 0 }} />
+                <span className="num" style={{ position: "relative", zIndex: 1, fontSize: 13, fontWeight: 700, color: "var(--ink-2)" }}>{compact(r.callOI)}</span>
               </div>
-              <span className={`num w-14 text-center ${s.isATM ? "font-bold text-accent" : "text-slate-300"}`}>
-                {num(s.strike, 0)}
-              </span>
-              <div className="flex flex-1">
-                <div className="h-4 rounded-r bg-bull/40" style={{ width: `${(s.putOI / maxOI) * 100}%` }} />
+              <div style={{ textAlign: "center" }}>
+                <span className="num" style={{ fontSize: 15, fontWeight: 800, color: isAtm ? "var(--brand-600)" : "var(--ink-1)" }}>{num(r.strike, 0)}</span>
+                {isAtm && <div style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.06em", color: "var(--brand-600)" }}>ATM</div>}
+              </div>
+              {/* PE leg — bar anchored left */}
+              <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "flex-end", paddingLeft: 6 }}>
+                <span style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: `${(r.putOI / maxOI) * 100}%`, background: "var(--action-exit-soft)", borderRadius: 3, zIndex: 0 }} />
+                <span className="num" style={{ position: "relative", zIndex: 1, fontSize: 13, fontWeight: 700, color: "var(--ink-2)" }}>{compact(r.putOI)}</span>
               </div>
             </div>
-          ))}
-        </div>
-        <div className="mt-2 flex justify-between text-[10px] text-slate-600">
-          <span>OI in contracts (mock, max ≈ {compact(maxOI)})</span>
-          <span>ATM highlighted</span>
-        </div>
-      </div>
-    </Card>
+          );
+        })}
+      </DsCard>
+    </div>
   );
 }
 
-function Metric({ label, value, className = "" }: { label: string; value: string; className?: string }) {
+function Stat({ label, value, tone }: { label: string; value: string; tone?: "enter" | "exit" | "wait" }) {
+  const c = tone === "enter" ? "var(--action-enter)" : tone === "exit" ? "var(--action-exit)" : tone === "wait" ? "var(--action-wait)" : "var(--ink-1)";
   return (
-    <div className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2">
-      <p className="text-[11px] text-slate-500">{label}</p>
-      <p className={`num text-sm font-semibold text-slate-100 ${className}`}>{value}</p>
+    <div style={{ minWidth: 92 }}>
+      <div className="eyebrow" style={{ marginBottom: 4 }}>{label}</div>
+      <div className="num" style={{ fontSize: 18, fontWeight: 800, color: c }}>{value}</div>
     </div>
   );
 }

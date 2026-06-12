@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Card } from "@/components/ui/Card";
+import { DsCard, PriceStat } from "@/components/terminal/ds";
 import { useAsync } from "@/hooks/useAsync";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { api } from "@/lib/apiClient";
@@ -143,29 +143,25 @@ export function RiskManagementCard() {
   const riskTone = s.riskPercent <= 0.5 ? "bull" : s.riskPercent <= 1 ? "accent" : s.riskPercent <= 1.5 ? "amber" : "bear";
 
   return (
-    <Card
-      id="risk-management"
-      eyebrow="Position sizing"
-      title="Trade Size & Risk Planner"
-      subtitle="Plan lots/qty from capital, entry, stop-loss and targets before entering"
-      action={<span className="rounded-full border border-white/10 bg-base-800 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.06em] text-slate-400">{capitalSource}</span>}
+    <DsCard
+      eyebrow="Risk planner"
+      title="Trade size & risk"
+      headerRight={<span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "var(--ink-3)", border: "1px solid var(--border-2)", borderRadius: "var(--radius-pill)", padding: "3px 10px" }}>{capitalSource}</span>}
     >
       {/* ---------- Top summary ---------- */}
-      <div className="rounded-xl border border-white/10 bg-base-800/50 p-3">
-        <div className="flex flex-wrap items-start justify-between gap-2">
+      <div style={{ borderRadius: "var(--radius-lg)", border: "1px solid var(--border-1)", background: "var(--surface-sunken)", padding: 14 }}>
+        <div className="flex flex-wrap items-end justify-between gap-2">
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-slate-100">{sel?.displayName ?? "No instrument"}</p>
-            <p className="num truncate text-[11px] text-slate-500">
+            <p className="eyebrow" style={{ marginBottom: 2 }}>Instrument</p>
+            <p className="truncate text-sm font-bold" style={{ color: "var(--ink-1)" }}>{sel?.displayName ?? "No instrument"}</p>
+            <p className="num truncate text-[11px]" style={{ color: "var(--ink-3)" }}>
               {sel?.instrument}
               {itype ? ` · ${itype}` : ""}
               {live?.resolvedInstrument.expiry ? ` · exp ${live.resolvedInstrument.expiry}` : ""}
               {live && live.resolvedInstrument.strike > 0 ? ` · ${num(live.resolvedInstrument.strike, 0)} ${live.resolvedInstrument.optionType}` : ""}
             </p>
           </div>
-          <div className="text-right">
-            <p className="num text-2xl font-bold leading-none tracking-tight text-slate-100">{cmp == null ? "—" : num(cmp)}</p>
-            <p className="eyebrow mt-0.5 text-slate-500">CMP {live ? "· Zerodha live" : signal.isLoading ? "· loading" : "· unavailable"}</p>
-          </div>
+          <PriceStat label={`CMP ${live ? "· live" : signal.isLoading ? "· loading" : "· n/a"}`} value={cmp == null ? "—" : num(cmp)} size="md" align="right" />
         </div>
         <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-center sm:grid-cols-6">
           <Sum label="Entry" value={entry} />
@@ -349,7 +345,7 @@ export function RiskManagementCard() {
       <p className="mt-3 text-[10px] leading-relaxed text-slate-500">
         Advisory position-sizing only — not a recommendation to trade and no orders are placed. Capital source: {capitalSource}. Live data via Zerodha Kite.
       </p>
-    </Card>
+    </DsCard>
   );
 }
 
@@ -437,26 +433,27 @@ function toneCls(tone: "bull" | "accent" | "amber" | "bear"): string {
 }
 
 function Sum({ label, value, text, tone, money, tag }: { label: string; value: number | null; text?: string; tone?: "bull" | "bear" | "accent"; money?: boolean; tag?: string | null }) {
-  const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : tone === "accent" ? "text-accent" : "text-slate-100";
+  const c = tone === "bull" ? "var(--action-enter)" : tone === "bear" ? "var(--action-exit)" : tone === "accent" ? "var(--action-wait)" : "var(--ink-1)";
   const display = text != null ? text : value == null ? "—" : money ? inr(value) : num(value);
+  const dim = value == null && text == null;
   return (
-    <div className="rounded-md border border-white/10 bg-base-800/60 px-1.5 py-1.5">
-      <p className="text-[9px] uppercase tracking-wide text-slate-500">{label}</p>
-      <p className={`num text-xs font-bold ${value == null && text == null ? "text-slate-500" : c}`}>{display}</p>
-      {tag && <p className="text-[9px] text-slate-500">{tag}</p>}
+    <div style={{ borderRadius: "var(--radius-sm)", border: "1px solid var(--border-1)", background: "var(--surface-card)", padding: "7px 8px" }}>
+      <p className="eyebrow" style={{ fontSize: 9 }}>{label}</p>
+      <p className="num" style={{ fontSize: 12, fontWeight: 700, color: dim ? "var(--ink-4)" : c }}>{display}</p>
+      {tag && <p style={{ fontSize: 9, color: "var(--ink-3)" }}>{tag}</p>}
     </div>
   );
 }
 
 function Step({ n, title, hint, right, children }: { n: number; title: string; hint: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="mt-3 rounded-xl border border-white/5 bg-base-800/30 p-3">
+    <div style={{ marginTop: 12, borderRadius: "var(--radius-lg)", border: "1px solid var(--border-1)", background: "var(--surface-sunken)", padding: 14 }}>
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/20 text-[11px] font-bold text-accent">{n}</span>
+          <span style={{ display: "grid", placeItems: "center", height: 22, width: 22, flexShrink: 0, borderRadius: "50%", background: "var(--brand-100)", color: "var(--brand-600)", fontSize: 11, fontWeight: 800 }}>{n}</span>
           <div>
-            <p className="text-xs font-semibold text-slate-200">{title}</p>
-            <p className="text-[10px] leading-snug text-slate-500">{hint}</p>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-1)" }}>{title}</p>
+            <p style={{ fontSize: 11, lineHeight: 1.3, color: "var(--ink-3)" }}>{hint}</p>
           </div>
         </div>
         {right}
@@ -467,11 +464,14 @@ function Step({ n, title, hint, right, children }: { n: number; title: string; h
 }
 
 function Proj({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone: "bull" | "bear" }) {
+  const c = tone === "bull" ? "var(--action-enter)" : "var(--action-exit)";
+  const soft = tone === "bull" ? "var(--action-enter-soft)" : "var(--action-exit-soft)";
+  const bd = tone === "bull" ? "var(--action-enter-border)" : "var(--action-exit-border)";
   return (
-    <div className={`rounded-lg border px-2.5 py-1.5 ${tone === "bull" ? "border-bull/20 bg-bull-soft" : "border-bear/20 bg-bear-soft"}`}>
-      <p className="text-[10px] text-slate-500">{label}</p>
-      <p className={`num text-sm font-bold ${tone === "bull" ? "text-bull" : "text-bear"}`}>{value}</p>
-      {sub && <p className="num text-[10px] text-slate-500">R:R {sub}</p>}
+    <div style={{ borderRadius: "var(--radius-md)", border: `1px solid ${bd}`, background: soft, padding: "6px 10px" }}>
+      <p className="eyebrow" style={{ fontSize: 10 }}>{label}</p>
+      <p className="num" style={{ fontSize: 14, fontWeight: 700, color: c }}>{value}</p>
+      {sub && <p className="num" style={{ fontSize: 10, color: "var(--ink-3)" }}>R:R {sub}</p>}
     </div>
   );
 }

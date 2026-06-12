@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/apiClient";
 import { num } from "@/lib/format";
+import { ActionPill, Icon, type DsAction } from "@/components/terminal/ds";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { useAiScanners, type Scanner } from "@/lib/aiScanners";
 import { useAiVirtualTrades, type NewVirtualTrade } from "@/lib/aiVirtualTrades";
@@ -38,6 +39,11 @@ const ACT: Record<ActTone, { border: string; glow: string; ring: string; badge: 
   amber: { border: "border-neutralSignal/70", glow: "shadow-[0_10px_28px_-12px_rgba(9,13,22,0.55),0_0_16px_-6px_rgba(247,144,9,0.55)]", ring: "ring-neutralSignal/60", badge: "border-neutralSignal/50 bg-neutralSignal-soft text-neutralSignal", dot: "bg-neutralSignal", text: "text-neutralSignal" },
   red: { border: "border-bear/70", glow: "shadow-[0_10px_28px_-12px_rgba(9,13,22,0.55),0_0_16px_-6px_rgba(240,68,56,0.55)]", ring: "ring-bear/60", badge: "border-bear/50 bg-bear-soft text-bear", dot: "bg-bear", text: "text-bear" },
 };
+
+// Bridge the assistant's 5 action tones to the design action-colour system.
+const DS_ACTION: Record<ActTone, DsAction> = { green: "enter", blue: "wait", grey: "none", amber: "avoid", red: "exit" };
+const DS_COLOR: Record<ActTone, string> = { green: "var(--action-enter)", blue: "var(--action-wait)", grey: "var(--action-none)", amber: "var(--action-avoid)", red: "var(--action-exit)" };
+const hdrBtn: React.CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, border: "none", background: "transparent", borderRadius: "var(--radius-sm)", cursor: "pointer", color: "var(--ink-3)", fontSize: 12, flexShrink: 0 };
 
 /** Map an assistant view to its single action tone (drives the outer styling). */
 function actionTone(view: AssistantView): ActTone {
@@ -325,16 +331,19 @@ export function FloatingAssistants() {
 }
 
 function Chip({ scanner, cmp, view, onOpen, onClose }: { scanner: Scanner; cmp: number | null; view: AssistantView | null; onOpen: () => void; onClose: () => void }) {
-  const a = ACT[view ? actionTone(view) : "grey"];
+  const at: ActTone = view ? actionTone(view) : "grey";
+  const border = DS_COLOR[at];
   return (
-    <button type="button" onClick={onOpen} title={`Open ${scanner.instrument.displayName}`} className={`group inline-flex shrink-0 items-center gap-1.5 rounded-full border bg-base-900/95 px-2.5 py-1.5 shadow-card backdrop-blur ${a.border}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${a.dot}`} />
-      <span className="max-w-[120px] truncate text-[11px] font-semibold text-slate-100">{scanner.instrument.displayName}</span>
-      <span className="num text-[11px] text-slate-400">{cmp == null ? "" : num(cmp)}</span>
-      {view && <span className={`text-[10px] font-semibold uppercase ${a.text}`}>{view.label}</span>}
-      {scanner.pinned && <span className="text-[10px]">📌</span>}
-      <span role="button" tabIndex={-1} aria-label={`Close ${scanner.instrument.displayName}`} onClick={(e) => { e.stopPropagation(); onClose(); }} className="text-slate-500 hover:text-bear">✕</span>
-    </button>
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, height: 46, padding: "0 8px 0 12px", background: "var(--surface-raised)", border: `2px solid ${border}`, borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-float)" }}>
+      <button type="button" onClick={onOpen} title={`Open ${scanner.instrument.displayName}`} style={{ display: "inline-flex", alignItems: "center", gap: 8, border: "none", background: "transparent", cursor: "pointer", padding: 0 }}>
+        <Icon n="bot" size={14} color={border} />
+        <span style={{ maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, fontWeight: 700, color: "var(--ink-1)" }}>{scanner.instrument.displayName}</span>
+        <span className="num" style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-2)" }}>{cmp == null ? "" : num(cmp)}</span>
+        {view && <ActionPill action={DS_ACTION[at]} size="sm" showIcon={false} variant="soft" />}
+      </button>
+      {scanner.pinned && <span style={{ fontSize: 10 }}>📌</span>}
+      <button type="button" aria-label={`Close ${scanner.instrument.displayName}`} onClick={onClose} style={{ ...hdrBtn, width: 22, height: 22 }}><Icon n="x" size={13} /></button>
+    </div>
   );
 }
 
@@ -439,7 +448,8 @@ function AssistantWindow({
   const friendly = !!error && /(not found|resolve|unsupported|invalid|no candle|instrument|unavailable|cache)/i.test(error);
   // Single action tone drives the outer border, glow, focus ring, dot and badge.
   const at: ActTone = view ? actionTone(view) : error && !data ? (friendly ? "grey" : "red") : "grey";
-  const a = ACT[at];
+  const dsBorder = DS_COLOR[at];
+  const dsAction = DS_ACTION[at];
 
   const frameStyle: React.CSSProperties =
     layout === "floating" ? { zIndex: scanner.zIndex, left: pos.x, top: pos.y, width: 360 } : layout === "sheet" ? { zIndex: scanner.zIndex } : {};
@@ -451,20 +461,20 @@ function AssistantWindow({
         : "flex max-h-[72vh] w-[340px] flex-col"; // docked
 
   return (
-    <div ref={cardRef} style={frameStyle} className={`${frameCls} overflow-hidden rounded-2xl border-2 ${a.border} ${a.glow} ${pulse ? `ring-2 ${a.ring}` : ""} bg-base-900/95 backdrop-blur transition-shadow`} onMouseDown={() => { if (!isFront && layout === "floating") onFront(); }}>
+    <div ref={cardRef} style={{ ...frameStyle, border: `2px solid ${dsBorder}`, borderRadius: "var(--radius-xl)", background: "var(--surface-raised)", boxShadow: pulse ? `var(--shadow-float), 0 0 0 3px ${dsBorder}` : "var(--shadow-float)" }} className={`${frameCls} overflow-hidden`} onMouseDown={() => { if (!isFront && layout === "floating") onFront(); }}>
       {/* header */}
-      <div onPointerDown={onHeaderPointerDown} className={`flex items-center gap-2 border-b border-white/10 px-3 py-2 ${layout === "sheet" ? "" : "cursor-move"}`}>
-        <span className={`h-2 w-2 rounded-full ${a.dot}`} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-semibold text-slate-100">{scanner.instrument.displayName}</p>
-          <p className="num truncate text-[10px] text-slate-500">
+      <div onPointerDown={onHeaderPointerDown} className={layout === "sheet" ? "" : "cursor-move"} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 10px 10px 14px", borderBottom: "1px solid var(--border-1)" }}>
+        <Icon n="bot" size={16} color={dsBorder} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 13, fontWeight: 800, color: "var(--ink-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{scanner.instrument.displayName}</p>
+          <p className="num" style={{ fontSize: 10, fontWeight: 600, color: "var(--ink-3)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {scanner.instrument.exchange}{itype ? ` · ${itype}` : ""} · {lockedAt ? `🔒 ${new Date(lockedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : data ? `updated ${secsAgo(updatedAt)}` : loading ? "analysing…" : liveOn ? "—" : "live off"}
           </p>
         </div>
-        {view && <span className="rounded-md border border-white/15 bg-base-800 px-1.5 py-0.5 text-[9px] font-semibold text-slate-300">{view.mode === "POSITION_MANAGER" ? `Managing · ${managed?.source === "zerodha" ? "Zerodha" : "Virtual"}` : "Scanner"}</span>}
-        <button type="button" onClick={onTogglePin} title={scanner.pinned ? "Unpin" : "Pin (dock bottom-right · restores on reload)"} className={`grid h-6 w-6 place-items-center rounded ${scanner.pinned ? "bg-accent/20 text-accent" : "text-slate-500 hover:text-slate-300"}`}>📌</button>
-        <button type="button" onClick={onMinimise} title="Minimise" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:text-slate-300">▁</button>
-        <button type="button" onClick={onClose} title="Close" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:text-bear">✕</button>
+        {view && <span style={{ fontSize: 9, fontWeight: 700, color: "var(--ink-3)", border: "1px solid var(--border-2)", background: "var(--surface-sunken)", borderRadius: "var(--radius-sm)", padding: "2px 6px", whiteSpace: "nowrap", flexShrink: 0 }}>{view.mode === "POSITION_MANAGER" ? `Mng · ${managed?.source === "zerodha" ? "Zerodha" : "Virtual"}` : "Scanner"}</span>}
+        <button type="button" onClick={onTogglePin} title={scanner.pinned ? "Unpin" : "Pin (dock bottom-right · restores on reload)"} style={{ ...hdrBtn, color: scanner.pinned ? "var(--brand-500)" : "var(--ink-4)" }}>📌</button>
+        <button type="button" onClick={onMinimise} title="Minimise" style={hdrBtn}>▁</button>
+        <button type="button" onClick={onClose} title="Close" style={hdrBtn}><Icon n="x" size={14} /></button>
       </div>
 
       {/* states */}
@@ -497,7 +507,7 @@ function AssistantWindow({
           {/* summary */}
           <div className="border-b border-white/10 px-3 py-2">
             <div className="flex items-center justify-between gap-2">
-              <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-base font-extrabold uppercase tracking-tight ${a.badge}`}>{view.label}</span>
+              <ActionPill action={dsAction} label={view.label} size="md" variant="soft" />
               <div className="text-right">
                 <p className="num text-2xl font-bold leading-none tracking-tight text-slate-100">{cmp == null ? "—" : num(cmp)}</p>
                 <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">CMP</p>

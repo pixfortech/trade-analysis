@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Card } from "@/components/ui/Card";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { DsCard, DsBadge, Icon } from "@/components/terminal/ds";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { api } from "@/lib/apiClient";
-import { changeTextClass, num, pct } from "@/lib/format";
+import { num, pct } from "@/lib/format";
 import { useAiScanners } from "@/lib/aiScanners";
 
 interface WatchItem {
@@ -26,9 +26,10 @@ const DEFAULT_ITEMS: WatchItem[] = [
 ];
 
 /**
- * Live watchlist (Phase 3D). Add instruments via the shared search, remove
- * them, and (when Kite is authorised) show live LTP via the batch-quote
- * endpoint. Persists to localStorage. READ-ONLY — no trade buttons.
+ * Live watchlist — modern terminal table built from the design's WatchlistRow.
+ * Add instruments via the shared search, remove them, and (when Kite is
+ * authorised) show live LTP via the batch-quote endpoint. Persists to
+ * localStorage. READ-ONLY — Analyse opens a floating assistant, no trade buttons.
  */
 export function LiveWatchlist() {
   const { value: items, setValue: setItems, hydrated } = useLocalStorage<WatchItem[]>(STORAGE_KEY, DEFAULT_ITEMS);
@@ -84,92 +85,79 @@ export function LiveWatchlist() {
   const remove = (instrument: string) => setItems((cur) => cur.filter((i) => i.instrument !== instrument));
 
   return (
-    <Card
-      id="watchlist"
-      eyebrow="Live list"
-      title="Watchlist"
-      subtitle="Add any instrument · live LTP when Kite is authorised"
-      action={
-        <span
-          className={`rounded-full border px-2.5 py-1 text-[11px] font-medium ${
-            live ? "border-bull/30 bg-bull-soft text-bull" : "border-white/10 bg-base-800 text-slate-400"
-          }`}
-        >
-          {live ? "LIVE" : "SAVED"}
-        </span>
-      }
+    <DsCard
+      padding="none"
+      eyebrow="Watchlist"
+      title="Tracked instruments"
+      headerRight={<DsBadge tone={live ? "enter" : "neutral"} dot>{live ? "Live" : "Saved"}</DsBadge>}
     >
-      <InstrumentSearch onSelect={add} placeholder="Add to watchlist… (e.g. TCS, NIFTY, BANKNIFTY FUT)" />
+      <div style={{ padding: "12px 12px 4px" }}>
+        <InstrumentSearch onSelect={add} placeholder="Add… (TCS, NIFTY, BANKNIFTY FUT)" />
+      </div>
 
-      {note && <p className="mt-2 text-xs text-slate-500">{note}</p>}
-
+      {note && <p style={{ padding: "4px 14px", fontSize: 11, color: "var(--ink-3)" }}>{note}</p>}
       {openedNote && (
-        <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-xs text-accent">
+        <div style={{ margin: "4px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", borderRadius: "var(--radius-md)", background: "var(--action-wait-soft)", border: "1px solid var(--action-wait-border)", color: "var(--action-wait-strong)", fontSize: 12 }}>
           <span>🪟 {openedNote}</span>
-          <button type="button" onClick={() => setOpenedNote(null)} aria-label="Dismiss" className="shrink-0 text-accent/70 hover:text-accent">✕</button>
+          <button type="button" onClick={() => setOpenedNote(null)} aria-label="Dismiss" style={iconBtn}>✕</button>
         </div>
       )}
 
-      <div className="mt-3 overflow-x-auto">
+      <div style={{ padding: "6px 6px 10px", maxHeight: 460, overflowY: "auto" }}>
         {items.length === 0 ? (
-          <p className="py-6 text-center text-sm text-slate-500">
-            Your watchlist is empty. Search above to add instruments.
-          </p>
+          <p style={{ padding: "28px 12px", textAlign: "center", fontSize: 13, color: "var(--ink-3)" }}>Your watchlist is empty. Search above to add instruments.</p>
         ) : (
-          <table className="w-full min-w-[300px] text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="px-2 py-2 font-medium">Instrument</th>
-                <th className="px-2 py-2 text-right font-medium">LTP</th>
-                <th className="px-2 py-2 text-right font-medium">Chg</th>
-                <th className="px-2 py-2 text-right font-medium"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {items.map((it) => {
-                const q = quotes[it.instrument];
-                return (
-                  <tr key={it.instrument} className="transition-colors hover:bg-white/5">
-                    <td className="px-2 py-2.5">
-                      <p className="text-[15px] font-semibold text-slate-100">{it.displayName}</p>
-                      <p className="num text-[11px] text-slate-500">{it.instrument}</p>
-                    </td>
-                    <td className="num px-2 py-2.5 text-right text-[15px] font-semibold text-slate-100">
-                      {q ? num(q.ltp) : "—"}
-                    </td>
-                    <td className={`num px-2 py-2.5 text-right ${q?.changePercent != null ? changeTextClass(q.changePercent) : "text-slate-500"}`}>
-                      {q?.changePercent != null ? pct(q.changePercent) : "—"}
-                    </td>
-                    <td className="px-2 py-2.5 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleAnalyse(it)}
-                          title="Open floating AI Trade Assistant"
-                          aria-label={`Analyse ${it.displayName}`}
-                          className={`rounded-md border px-2 py-1 text-xs font-semibold transition-colors ${
-                            scanners.has(it.instrument) ? "border-accent/40 bg-accent/10 text-accent" : "border-accent/30 text-accent hover:bg-accent/10"
-                          }`}
-                        >
-                          {scanners.has(it.instrument) ? "Open ▸" : "Analyse"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => remove(it.instrument)}
-                          aria-label={`Remove ${it.displayName}`}
-                          className="rounded-md border border-white/10 px-2 py-1 text-xs text-slate-400 transition-colors hover:border-bear/30 hover:text-bear"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          items.map((it) => (
+            <WatchRow
+              key={it.instrument}
+              symbol={it.displayName}
+              segment={it.exchange}
+              quote={quotes[it.instrument]}
+              open={scanners.has(it.instrument)}
+              onAnalyse={() => handleAnalyse(it)}
+              onRemove={() => remove(it.instrument)}
+            />
+          ))
         )}
       </div>
-    </Card>
+    </DsCard>
+  );
+}
+
+const iconBtn: CSSProperties = { border: "none", background: "transparent", cursor: "pointer", color: "var(--ink-4)", fontSize: 12, lineHeight: 1, padding: 2 };
+
+/** One watchlist row — design WatchlistRow layout (symbol · price · action). */
+function WatchRow({ symbol, segment, quote, open, onAnalyse, onRemove }: {
+  symbol: string; segment: string; quote?: LiveQuote; open: boolean; onAnalyse: () => void; onRemove: () => void;
+}) {
+  const cp = quote?.changePercent ?? null;
+  const down = cp != null && cp < 0;
+  return (
+    <div
+      onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = "var(--surface-sunken)"; }}
+      onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = "transparent"; }}
+      style={{ position: "relative", display: "grid", gridTemplateColumns: "1fr auto auto", alignItems: "center", gap: 10, padding: "10px 10px 10px 16px", borderRadius: "var(--radius-sm)", background: open ? "var(--brand-50)" : "transparent", transition: "background var(--dur-fast) var(--ease-out)" }}
+    >
+      {open && <span style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: "var(--brand-500)" }} />}
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{symbol}</div>
+        <div className="eyebrow" style={{ color: "var(--ink-4)" }}>{segment}</div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div className="num" style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-1)" }}>{quote ? num(quote.ltp) : "—"}</div>
+        <div className="num" style={{ fontSize: 11, fontWeight: 700, color: cp == null ? "var(--ink-4)" : down ? "var(--price-down)" : "var(--price-up)" }}>
+          {cp == null ? "—" : `${down ? "▼" : "▲"} ${pct(cp)}`}
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <button type="button" onClick={onAnalyse} title="Open floating AI Trade Assistant" aria-label={`Analyse ${symbol}`}
+          style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 9px", borderRadius: "var(--radius-sm)", border: `1px solid ${open ? "var(--brand-500)" : "var(--action-wait-border)"}`, background: open ? "var(--brand-500)" : "var(--action-wait-soft)", color: open ? "#fff" : "var(--action-wait-strong)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+          <Icon n="bot" size={13} />{open ? "Open" : "Analyse"}
+        </button>
+        <button type="button" onClick={onRemove} title="Remove" aria-label={`Remove ${symbol}`} style={{ ...iconBtn, width: 24, height: 24, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: "var(--radius-sm)" }}>
+          <Icon n="x" size={14} />
+        </button>
+      </div>
+    </div>
   );
 }
