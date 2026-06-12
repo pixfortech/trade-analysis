@@ -6,7 +6,8 @@ import { EmptyState } from "@/components/ui/States";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { num } from "@/lib/format";
-import type { ChartDataResponse, IndicatorId, LiveSignal, SignalAction, SignalSetup } from "@/types/api";
+import { actionToneFor, toneVisual } from "@/lib/actionStyles";
+import type { ChartDataResponse, IndicatorId, LiveSignal, SignalSetup } from "@/types/api";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
 import { IndicatorControls, ALL_INDICATORS } from "./IndicatorControls";
 import { LiveChart } from "./LiveChart";
@@ -159,9 +160,14 @@ export function LiveMarketSignal() {
       id="live-market-signal"
       title="Live Market Signal"
       subtitle="Advisory LONG / SHORT / WAIT from live Kite data"
+      eyebrow="Primary signal"
       action={
-        <span className="rounded-full border border-bull/30 bg-bull-soft px-3 py-1 text-xs font-semibold text-bull">
-          LIVE KITE · READ-ONLY
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-bull/40 bg-bull-soft px-3 py-1 text-[11px] font-bold uppercase tracking-[0.06em] text-bull">
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-bull opacity-60" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-bull" />
+          </span>
+          Live Kite · Read-only
         </span>
       }
     >
@@ -186,7 +192,7 @@ export function LiveMarketSignal() {
       <div className="mt-3 flex flex-col gap-2.5 lg:flex-row lg:items-end">
         <div className={`min-w-0 flex-1 rounded-lg border px-3 py-2.5 ${sel ? "border-accent/20 bg-accent/5" : "border-white/5 bg-base-800/60"}`}>
           <div className="flex items-center justify-between gap-2">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Selected instrument</p>
+            <p className="eyebrow text-slate-500">Selected instrument</p>
             {sel && (
               <button type="button" onClick={() => global.setSelectedInstrument(null)} className="text-[11px] font-medium text-slate-500 hover:text-bear">
                 Clear ✕
@@ -394,27 +400,23 @@ function priceLinesFor(s: LiveSignal): { price: number; color: string; title: st
   const setup = s.preferredSetup === "short" ? s.shortSetup : s.longSetup;
   const entry = setup.entryAbove ?? setup.entryBelow;
   const lines: { price: number; color: string; title: string }[] = [];
-  if (entry != null) lines.push({ price: entry, color: "#3b82f6", title: "Entry" });
-  lines.push({ price: setup.stopLoss, color: "#ea3943", title: "SL" });
-  lines.push({ price: setup.target1, color: "#16c784", title: "T1" });
-  lines.push({ price: setup.target2, color: "#16c784", title: "T2" });
+  if (entry != null) lines.push({ price: entry, color: LINE.entry, title: "Entry" });
+  lines.push({ price: setup.stopLoss, color: LINE.sl, title: "SL" });
+  lines.push({ price: setup.target1, color: LINE.target, title: "T1" });
+  lines.push({ price: setup.target2, color: LINE.target, title: "T2" });
   return lines;
 }
 
-const ACTION_CLS: Record<SignalAction, string> = {
-  LONG: "border-bull/40 bg-bull-soft text-bull",
-  SHORT: "border-bear/40 bg-bear-soft text-bear",
-  WAIT: "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal",
-  AVOID: "border-bear/40 bg-bear-soft text-bear",
-};
+// Chart price-line colours mirror the design tokens (accent / bear / bull).
+const LINE = { entry: "#5b82ee", sl: "#f04438", target: "#12b76a" } as const;
 
 /** Chart price lines from the LOCKED plan (so the chart matches the plan). */
 function planPriceLines(p: TradePlanSnapshot): { price: number; color: string; title: string }[] {
   const lines: { price: number; color: string; title: string }[] = [];
-  if (p.entry != null) lines.push({ price: p.entry, color: "#3b82f6", title: "Entry" });
-  if (p.stopLoss != null) lines.push({ price: p.stopLoss, color: "#ea3943", title: "SL" });
-  if (p.targets[0] != null) lines.push({ price: p.targets[0], color: "#16c784", title: "T1" });
-  if (p.targets[1] != null) lines.push({ price: p.targets[1], color: "#16c784", title: "T2" });
+  if (p.entry != null) lines.push({ price: p.entry, color: LINE.entry, title: "Entry" });
+  if (p.stopLoss != null) lines.push({ price: p.stopLoss, color: LINE.sl, title: "SL" });
+  if (p.targets[0] != null) lines.push({ price: p.targets[0], color: LINE.target, title: "T1" });
+  if (p.targets[1] != null) lines.push({ price: p.targets[1], color: LINE.target, title: "T2" });
   return lines;
 }
 
@@ -424,15 +426,15 @@ function SignalView({ s }: { s: LiveSignal }) {
       {/* Top: price + decision */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-sm text-slate-400">{s.resolvedInstrument.displayName || s.instrument}</p>
-          <p className="num text-3xl font-bold text-slate-100">{num(s.currentPrice)}</p>
-          <p className="num text-sm text-slate-500">prev {num(s.marketData.previousClose)}{s.marketData.vwap != null ? ` · VWAP ${num(s.marketData.vwap)}` : ""}</p>
+          <p className="text-sm font-medium text-slate-400">{s.resolvedInstrument.displayName || s.instrument}</p>
+          <p className="num text-4xl font-bold leading-none tracking-tight text-slate-100">{num(s.currentPrice)}</p>
+          <p className="num mt-1 text-sm text-slate-500">prev {num(s.marketData.previousClose)}{s.marketData.vwap != null ? ` · VWAP ${num(s.marketData.vwap)}` : ""}</p>
         </div>
         <div className="text-right">
-          <span className={`inline-block rounded-xl border px-5 py-2 text-2xl font-bold ${ACTION_CLS[s.finalDecision.action]}`}>
+          <span className={`inline-block rounded-xl border px-5 py-2 text-2xl font-extrabold tracking-tight ${toneVisual(actionToneFor(s.finalDecision.action)).chip}`}>
             {s.finalDecision.action}
           </span>
-          <p className="mt-1 text-xs uppercase tracking-wide text-slate-500">
+          <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
             {s.probability.confidence} confidence · {s.probability.dataQuality}
           </p>
         </div>

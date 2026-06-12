@@ -108,6 +108,7 @@ export function PaperTradingPanel() {
   return (
     <Card
       id="manual-trade-tracker"
+      eyebrow="Tracker"
       title="Manual Trade Tracker"
       subtitle="Track your positions with live prices — no real orders are placed or executed"
       action={
@@ -153,9 +154,9 @@ export function PaperTradingPanel() {
 
       {trades.length > 0 && (
         <div className="mt-3 flex items-center justify-between">
-          <p className="text-sm text-slate-300">
-            Total unrealised:{" "}
-            <span className={`num font-semibold ${totalPnl > 0 ? "text-bull" : totalPnl < 0 ? "text-bear" : "text-slate-200"}`}>
+          <p className="flex items-baseline gap-1.5 text-sm text-slate-400">
+            <span className="eyebrow text-slate-500">Total unrealised</span>
+            <span className={`num text-lg font-bold tracking-tight ${totalPnl > 0 ? "text-bull" : totalPnl < 0 ? "text-bear" : "text-slate-200"}`}>
               {totalPnl > 0 ? "+" : ""}
               {num(totalPnl)}
             </span>

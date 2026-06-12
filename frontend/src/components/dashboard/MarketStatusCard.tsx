@@ -4,15 +4,16 @@ import { useEffect } from "react";
 import { Card } from "@/components/ui/Card";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
+import { toneVisual, type ActionTone } from "@/lib/actionStyles";
 import type { MarketStatusResponse } from "@/types/api";
 
-const STATUS_CLS: Record<MarketStatusResponse["status"], string> = {
-  open: "border-bull/40 bg-bull-soft text-bull",
-  "pre-open": "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal",
-  "post-close": "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal",
-  closed: "border-bear/40 bg-bear-soft text-bear",
-  weekend: "border-bear/40 bg-bear-soft text-bear",
-  "holiday-unknown": "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal",
+const STATUS_TONE: Record<MarketStatusResponse["status"], ActionTone> = {
+  open: "bull",
+  "pre-open": "warn",
+  "post-close": "warn",
+  closed: "bear",
+  weekend: "bear",
+  "holiday-unknown": "warn",
 };
 
 /** Real NSE market status (IST). Refreshes every 30s. */
@@ -28,15 +29,15 @@ export function MarketStatusCard() {
 
   const d = status.data;
   return (
-    <Card id="market-status" title="Market Status" subtitle="NSE · Asia/Kolkata">
+    <Card id="market-status" eyebrow="Session" title="Market Status" subtitle="NSE · Asia/Kolkata" accent={d ? STATUS_TONE[d.status] : undefined}>
       {!d && <p className="text-sm text-slate-500">Checking market status…</p>}
       {d && (
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <span className={`rounded-full border px-3 py-1 text-sm font-bold uppercase ${STATUS_CLS[d.status]}`}>
+            <span className={`rounded-full border px-3 py-1 text-sm font-extrabold uppercase tracking-tight ${toneVisual(STATUS_TONE[d.status]).chip}`}>
               {d.status.replace("-", " ")}
             </span>
-            <span className="num text-sm text-slate-400">{d.currentIstTime}</span>
+            <span className="num text-base font-semibold text-slate-300">{d.currentIstTime}</span>
           </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2">

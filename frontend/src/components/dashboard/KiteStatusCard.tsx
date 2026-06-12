@@ -24,12 +24,15 @@ export function KiteStatusCard() {
   }, []);
 
   const data = status.data;
+  const accent = data ? (!data.liveDataEnabled ? "neutral" : data.configured && data.authenticated ? "bull" : "warn") : undefined;
 
   return (
     <Card
       id="kite-status"
+      eyebrow="Data source"
       title="Live Data — Zerodha Kite"
       subtitle="Read-only market data · Phase 3A"
+      accent={accent}
       action={data ? <StatusBadge status={data} /> : null}
     >
       {status.isLoading && !data && <p className="text-sm text-slate-500">Checking Kite status…</p>}

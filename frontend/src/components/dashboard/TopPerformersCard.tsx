@@ -93,9 +93,13 @@ export function TopPerformersCard() {
 
 function MoverList({ title, movers, tone }: { title: string; movers: Mover[]; tone: "bull" | "bear" }) {
   const head = tone === "bull" ? "text-bull" : "text-bear";
+  const edge = tone === "bull" ? "border-bull/20" : "border-bear/20";
   return (
-    <div className="rounded-lg border border-white/5 bg-base-800/40 p-2">
-      <p className={`mb-1 px-1 text-sm font-semibold ${head}`}>{title}</p>
+    <div className={`rounded-lg border ${edge} bg-base-800/40 p-2`}>
+      <p className={`eyebrow mb-1.5 flex items-center gap-1.5 px-1 ${head}`}>
+        <span aria-hidden>{tone === "bull" ? "▲" : "▼"}</span>
+        {title}
+      </p>
       {movers.length === 0 ? (
         <p className="px-1 py-2 text-xs text-slate-500">—</p>
       ) : (
@@ -105,7 +109,7 @@ function MoverList({ title, movers, tone }: { title: string; movers: Mover[]; to
               <span className="min-w-0 truncate font-medium text-slate-200">{m.displayName}</span>
               <span className="flex shrink-0 items-center gap-2">
                 <span className="num text-slate-300">{num(m.ltp)}</span>
-                <span className={`num w-16 text-right font-semibold ${m.changePercent >= 0 ? "text-bull" : "text-bear"}`}>
+                <span className={`num w-16 text-right font-bold ${m.changePercent >= 0 ? "text-bull" : "text-bear"}`}>
                   {m.changePercent >= 0 ? "+" : ""}
                   {m.changePercent}%
                 </span>

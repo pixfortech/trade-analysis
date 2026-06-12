@@ -145,9 +145,10 @@ export function RiskManagementCard() {
   return (
     <Card
       id="risk-management"
+      eyebrow="Position sizing"
       title="Trade Size & Risk Planner"
       subtitle="Plan lots/qty from capital, entry, stop-loss and targets before entering"
-      action={<span className="rounded-full border border-white/10 bg-base-800 px-3 py-1 text-[11px] font-medium text-slate-400">{capitalSource.toUpperCase()}</span>}
+      action={<span className="rounded-full border border-white/10 bg-base-800 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.06em] text-slate-400">{capitalSource}</span>}
     >
       {/* ---------- Top summary ---------- */}
       <div className="rounded-xl border border-white/10 bg-base-800/50 p-3">
@@ -162,8 +163,8 @@ export function RiskManagementCard() {
             </p>
           </div>
           <div className="text-right">
-            <p className="num text-xl font-bold text-slate-100">{cmp == null ? "—" : num(cmp)}</p>
-            <p className="text-[10px] uppercase tracking-wide text-slate-500">CMP {live ? "· Zerodha live" : signal.isLoading ? "· loading" : "· unavailable"}</p>
+            <p className="num text-2xl font-bold leading-none tracking-tight text-slate-100">{cmp == null ? "—" : num(cmp)}</p>
+            <p className="eyebrow mt-0.5 text-slate-500">CMP {live ? "· Zerodha live" : signal.isLoading ? "· loading" : "· unavailable"}</p>
           </div>
         </div>
         <div className="mt-2.5 grid grid-cols-3 gap-1.5 text-center sm:grid-cols-6">

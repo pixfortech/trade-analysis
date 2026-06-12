@@ -30,12 +30,13 @@ const RISK_CLS: Record<RiskLevel, string> = {
 // green = enter/long/hold-bull · blue = wait-for-breakout/pullback ·
 // grey = no-setup/neutral · amber = avoid/caution · red = short/exit/reduce-risk.
 type ActTone = "green" | "blue" | "grey" | "amber" | "red";
+// Glow colours mirror the design tokens (bull / accent / neutralSignal / bear).
 const ACT: Record<ActTone, { border: string; glow: string; ring: string; badge: string; dot: string; text: string }> = {
-  green: { border: "border-bull/70", glow: "shadow-[0_10px_28px_-12px_rgba(0,0,0,0.55),0_0_16px_-6px_rgba(22,199,132,0.55)]", ring: "ring-bull/60", badge: "border-bull/50 bg-bull-soft text-bull", dot: "bg-bull", text: "text-bull" },
-  blue: { border: "border-accent/70", glow: "shadow-[0_10px_28px_-12px_rgba(0,0,0,0.55),0_0_16px_-6px_rgba(59,130,246,0.55)]", ring: "ring-accent/60", badge: "border-accent/50 bg-accent/10 text-accent", dot: "bg-accent", text: "text-accent" },
-  grey: { border: "border-slate-500/60", glow: "shadow-[0_10px_28px_-12px_rgba(0,0,0,0.5),0_0_14px_-6px_rgba(148,163,184,0.4)]", ring: "ring-slate-400/50", badge: "border-white/15 bg-base-800 text-slate-300", dot: "bg-slate-400", text: "text-slate-300" },
-  amber: { border: "border-neutralSignal/70", glow: "shadow-[0_10px_28px_-12px_rgba(0,0,0,0.55),0_0_16px_-6px_rgba(240,185,11,0.55)]", ring: "ring-neutralSignal/60", badge: "border-neutralSignal/50 bg-neutralSignal-soft text-neutralSignal", dot: "bg-neutralSignal", text: "text-neutralSignal" },
-  red: { border: "border-bear/70", glow: "shadow-[0_10px_28px_-12px_rgba(0,0,0,0.55),0_0_16px_-6px_rgba(234,57,67,0.55)]", ring: "ring-bear/60", badge: "border-bear/50 bg-bear-soft text-bear", dot: "bg-bear", text: "text-bear" },
+  green: { border: "border-bull/70", glow: "shadow-[0_10px_28px_-12px_rgba(9,13,22,0.55),0_0_16px_-6px_rgba(18,183,106,0.55)]", ring: "ring-bull/60", badge: "border-bull/50 bg-bull-soft text-bull", dot: "bg-bull", text: "text-bull" },
+  blue: { border: "border-accent/70", glow: "shadow-[0_10px_28px_-12px_rgba(9,13,22,0.55),0_0_16px_-6px_rgba(91,130,238,0.55)]", ring: "ring-accent/60", badge: "border-accent/50 bg-accent/10 text-accent", dot: "bg-accent", text: "text-accent" },
+  grey: { border: "border-slate-500/60", glow: "shadow-[0_10px_28px_-12px_rgba(9,13,22,0.5),0_0_14px_-6px_rgba(148,163,184,0.4)]", ring: "ring-slate-400/50", badge: "border-white/15 bg-base-800 text-slate-300", dot: "bg-slate-400", text: "text-slate-300" },
+  amber: { border: "border-neutralSignal/70", glow: "shadow-[0_10px_28px_-12px_rgba(9,13,22,0.55),0_0_16px_-6px_rgba(247,144,9,0.55)]", ring: "ring-neutralSignal/60", badge: "border-neutralSignal/50 bg-neutralSignal-soft text-neutralSignal", dot: "bg-neutralSignal", text: "text-neutralSignal" },
+  red: { border: "border-bear/70", glow: "shadow-[0_10px_28px_-12px_rgba(9,13,22,0.55),0_0_16px_-6px_rgba(240,68,56,0.55)]", ring: "ring-bear/60", badge: "border-bear/50 bg-bear-soft text-bear", dot: "bg-bear", text: "text-bear" },
 };
 
 /** Map an assistant view to its single action tone (drives the outer styling). */
@@ -496,10 +497,10 @@ function AssistantWindow({
           {/* summary */}
           <div className="border-b border-white/10 px-3 py-2">
             <div className="flex items-center justify-between gap-2">
-              <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-bold uppercase tracking-wide ${a.badge}`}>{view.label}</span>
+              <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-base font-extrabold uppercase tracking-tight ${a.badge}`}>{view.label}</span>
               <div className="text-right">
-                <p className="num text-xl font-bold text-slate-100">{cmp == null ? "—" : num(cmp)}</p>
-                <p className="text-[9px] uppercase text-slate-500">CMP</p>
+                <p className="num text-2xl font-bold leading-none tracking-tight text-slate-100">{cmp == null ? "—" : num(cmp)}</p>
+                <p className="text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">CMP</p>
               </div>
             </div>
             {data && (

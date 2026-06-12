@@ -74,6 +74,7 @@ export function ActiveTradeMonitorCard() {
   return (
     <Card
       id="active-trade-monitor"
+      eyebrow="Position monitor"
       title="Active Trade Monitor"
       subtitle="Track a manual position · READ-ONLY advisory"
       action={
@@ -159,22 +160,22 @@ function MonitorView({ m }: { m: ActiveTradeMonitor }) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm font-medium text-slate-400">
             {m.positionDirection} · entry {num(m.entryPrice)} · qty {m.quantity}
           </p>
-          <p className="num text-2xl font-bold text-slate-100">{num(m.currentPrice)}</p>
+          <p className="num text-3xl font-bold leading-none tracking-tight text-slate-100">{num(m.currentPrice)}</p>
         </div>
         <div className="text-right">
-          <p className="text-xs text-slate-500">Current P/L</p>
-          <p className={`num text-2xl font-bold ${pnlUp ? "text-bull" : "text-bear"}`}>
+          <p className="eyebrow text-slate-500">Current P/L</p>
+          <p className={`num text-3xl font-bold leading-none tracking-tight ${pnlUp ? "text-bull" : "text-bear"}`}>
             {pnlUp ? "+" : ""}
             {num(m.currentPnL)}
           </p>
         </div>
       </div>
 
-      <div className={`rounded-xl border px-4 py-3 ${ACTION_CLS[m.recommendedAction]}`}>
-        <p className="text-lg font-bold">{m.recommendedAction.replace(/_/g, " ")}</p>
+      <div className={`relative overflow-hidden rounded-xl border px-4 py-3 ${ACTION_CLS[m.recommendedAction]}`}>
+        <p className="text-lg font-extrabold uppercase tracking-tight">{m.recommendedAction.replace(/_/g, " ")}</p>
         <p className="mt-1 text-sm text-slate-300">{m.reason}</p>
       </div>
 
@@ -208,8 +209,8 @@ function MonitorView({ m }: { m: ActiveTradeMonitor }) {
 function Tile({ label, value, cap }: { label: string; value: string; cap?: boolean }) {
   return (
     <div className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className={`text-[15px] font-semibold text-slate-100 ${cap ? "capitalize" : "num"}`}>{value}</p>
+      <p className="eyebrow text-slate-500">{label}</p>
+      <p className={`mt-0.5 text-base font-bold text-slate-100 ${cap ? "capitalize" : "num"}`}>{value}</p>
     </div>
   );
 }

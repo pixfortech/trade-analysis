@@ -24,8 +24,10 @@ export function AccountSummaryCard() {
   return (
     <Card
       id="account-summary"
+      eyebrow="Portfolio"
       title="Zerodha Account"
       subtitle="Read-only funds, holdings & positions"
+      accent={available ? "bull" : undefined}
       action={
         <span
           className={`rounded-full border px-3 py-1 text-xs font-semibold ${
@@ -70,8 +72,8 @@ function Tile({ label, value, big, signed }: { label: string; value: string; big
   const cls = signed == null ? "text-slate-100" : signed > 0 ? "text-bull" : signed < 0 ? "text-bear" : "text-slate-100";
   return (
     <div className="rounded-lg border border-white/5 bg-base-800/60 px-3 py-2.5">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className={`num font-semibold ${big ? "text-[17px]" : "text-[15px]"} ${cls}`}>{value}</p>
+      <p className="eyebrow text-slate-500">{label}</p>
+      <p className={`num mt-0.5 font-bold tracking-tight ${big ? "text-xl" : "text-base"} ${cls}`}>{value}</p>
     </div>
   );
 }

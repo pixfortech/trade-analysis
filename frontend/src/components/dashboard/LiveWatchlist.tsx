@@ -86,6 +86,7 @@ export function LiveWatchlist() {
   return (
     <Card
       id="watchlist"
+      eyebrow="Live list"
       title="Watchlist"
       subtitle="Add any instrument · live LTP when Kite is authorised"
       action={
@@ -130,10 +131,10 @@ export function LiveWatchlist() {
                 return (
                   <tr key={it.instrument} className="transition-colors hover:bg-white/5">
                     <td className="px-2 py-2.5">
-                      <p className="text-[15px] font-medium text-slate-100">{it.displayName}</p>
+                      <p className="text-[15px] font-semibold text-slate-100">{it.displayName}</p>
                       <p className="num text-[11px] text-slate-500">{it.instrument}</p>
                     </td>
-                    <td className="num px-2 py-2.5 text-right text-[15px] text-slate-100">
+                    <td className="num px-2 py-2.5 text-right text-[15px] font-semibold text-slate-100">
                       {q ? num(q.ltp) : "—"}
                     </td>
                     <td className={`num px-2 py-2.5 text-right ${q?.changePercent != null ? changeTextClass(q.changePercent) : "text-slate-500"}`}>
