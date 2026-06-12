@@ -4,8 +4,14 @@
 
 @layer base {
   :root {
-    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* Manrope = UI, IBM Plex Mono = numerics (the design-system pairing, loaded
+       in layout.tsx). System fonts stay as fallbacks so text renders instantly
+       before the webfonts arrive. */
+    --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    /* Claude Design handoff — cool navy fintech terminal tokens. */
+    --shadow-card: 0 1px 3px rgba(12, 17, 29, 0.07), 0 1px 2px rgba(12, 17, 29, 0.04);
   }
 
   html {
@@ -32,7 +38,7 @@
   }
 
   ::selection {
-    background: rgba(59, 130, 246, 0.3);
+    background: rgba(91, 130, 238, 0.3);
   }
 
   /* Slim scrollbars to match the dark theme */
@@ -65,9 +71,21 @@
   }
   .num {
     font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
+    /* Tabular + slashed zero: columns of prices/levels stay aligned and 0 never
+       reads as O — the design system's numeric treatment. */
+    font-variant-numeric: tabular-nums slashed-zero;
+    font-feature-settings: "tnum" 1, "zero" 1;
     /* Crisper numbers; explicit font-bold/semibold utilities still win. */
     font-weight: 500;
+  }
+  /* Uppercase, tracked micro-label (design "eyebrow"). Pair with a text-* colour
+     utility at the call site so it adapts to light/dark. */
+  .eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 700;
+    font-size: 0.6875rem;
+    line-height: 1.4;
   }
   /* Nudge the very small helper labels up to ~12px so they stay readable,
      without changing every component. (Tailwind text-[11px] → 12px.) */
@@ -87,9 +105,9 @@
   height: 100%;
 }
 .react-grid-item.react-grid-placeholder {
-  background: rgba(59, 130, 246, 0.18);
-  border: 1px dashed rgba(59, 130, 246, 0.5);
-  border-radius: 0.75rem;
+  background: rgba(91, 130, 238, 0.18);
+  border: 1px dashed rgba(91, 130, 238, 0.5);
+  border-radius: 0.875rem;
 }
 .react-grid-item.react-draggable-dragging,
 .react-grid-item.resizing {
@@ -114,14 +132,16 @@
    ===================================================================== */
 html.light body {
   @apply text-slate-800;
-  background-color: #f1f5f9;
+  background-color: #f4f6f9;
 }
 html.light .card {
   @apply border-slate-200 bg-white;
-  box-shadow: none;
+  /* Premium light cards lift off the surface with the design's cool, subtle
+     elevation (dark cards stay intentionally flat — border only). */
+  box-shadow: var(--shadow-card);
 }
 /* Background tokens → light surfaces */
-html.light .bg-base-950 { background-color: #f1f5f9 !important; }
+html.light .bg-base-950 { background-color: #f4f6f9 !important; }
 html.light .bg-base-900\/80,
 html.light .bg-base-900\/95,
 html.light .bg-base-900\/70,

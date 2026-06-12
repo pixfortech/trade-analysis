@@ -22,29 +22,38 @@ const config: Config = {
           700: "#1c2536",
           600: "#26314a",
         },
+        // Action colours aligned to the Claude Design tokens (enter / exit /
+        // wait / avoid). Single balanced values that read on the dark navy
+        // surfaces and the light theme alike.
         bull: {
-          DEFAULT: "#16c784",
-          soft: "rgba(22, 199, 132, 0.12)",
+          DEFAULT: "#12b76a",
+          soft: "rgba(18, 183, 106, 0.14)",
         },
         bear: {
-          DEFAULT: "#ea3943",
-          soft: "rgba(234, 57, 67, 0.12)",
+          DEFAULT: "#f04438",
+          soft: "rgba(240, 68, 56, 0.14)",
         },
         neutralSignal: {
-          DEFAULT: "#f0b90b",
-          soft: "rgba(240, 185, 11, 0.12)",
+          DEFAULT: "#f79009",
+          soft: "rgba(247, 144, 9, 0.14)",
         },
         accent: {
-          DEFAULT: "#3b82f6",
-          soft: "rgba(59, 130, 246, 0.12)",
+          DEFAULT: "#5b82ee",
+          soft: "rgba(91, 130, 238, 0.14)",
         },
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
+      borderRadius: {
+        // Cards use rounded-xl throughout; bump to the design's 14px card
+        // radius (Tailwind's default xl is 12px).
+        xl: "0.875rem",
+      },
       boxShadow: {
-        card: "0 1px 2px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.25)",
+        // Cool navy-tinted elevation (design shadow), not neutral black.
+        card: "0 1px 2px rgba(9, 13, 22, 0.4), 0 8px 24px rgba(9, 13, 22, 0.28)",
       },
     },
   },
