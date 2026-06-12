@@ -1,142 +1,142 @@
 "use client";
 
 import { num } from "@/lib/format";
-import { buildTradeGuidance, type EntryStatus, type GuidanceCheck } from "@/lib/tradeGuidance";
-import type { LiveSignal } from "@/types/api";
+import { MIN_ACTION_CONFIDENCE, type GuidanceCheck, type PlanEval, type PlanTone, type TradePlanSnapshot } from "@/lib/tradePlan";
 
-const STATUS_CLS: Record<EntryStatus, string> = {
-  ENTER_NOW: "border-bull/50 bg-bull-soft text-bull",
-  WAIT_BREAKOUT: "border-accent/50 bg-accent/10 text-accent",
-  WAIT_PULLBACK: "border-neutralSignal/50 bg-neutralSignal-soft text-neutralSignal",
-  WAIT_SETUP: "border-white/15 bg-base-800 text-slate-300",
-  AVOID: "border-bear/50 bg-bear-soft text-bear",
+const TONE: Record<PlanTone, { chip: string; text: string }> = {
+  bull: { chip: "border-bull/50 bg-bull-soft text-bull", text: "text-bull" },
+  bear: { chip: "border-bear/50 bg-bear-soft text-bear", text: "text-bear" },
+  warn: { chip: "border-neutralSignal/50 bg-neutralSignal-soft text-neutralSignal", text: "text-neutralSignal" },
+  info: { chip: "border-accent/50 bg-accent/10 text-accent", text: "text-accent" },
+  neutral: { chip: "border-white/15 bg-base-800 text-slate-300", text: "text-slate-300" },
 };
 
 /**
- * Enter → Hold → Exit guidance built from the live indicators. A precise,
- * indicator-grounded plan: what must confirm before entering, where to enter,
- * what keeps you in, and the exact stop/exit rules to cap losses. Advisory only.
+ * Locked Trade Plan panel. Shows the LOCKED entry/SL/targets (with a 🔒) and the
+ * live action from CMP vs those levels. CMP and distances update live; the levels
+ * do not move until Re-analyse / invalidation. ENTER/EXIT approvals need ≥75%.
  */
-export function TradeGuidance({ signal }: { signal: LiveSignal }) {
-  const g = buildTradeGuidance(signal);
-  const long = g.side === "LONG";
+export function TradeGuidance({ plan, evalResult, onReanalyse }: { plan: TradePlanSnapshot; evalResult: PlanEval; onReanalyse: () => void }) {
+  const t = TONE[evalResult.tone];
+  const long = plan.direction === "LONG";
+  const confOk = plan.confidence >= MIN_ACTION_CONFIDENCE;
+  const zone = plan.safeLow != null && plan.safeHigh != null ? `₹${num(plan.safeLow)}–₹${num(plan.safeHigh)}` : "—";
 
   return (
     <div className="rounded-xl border border-white/10 bg-base-850 p-3 sm:p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      {/* header */}
+      <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-bold text-slate-100">Trade Guidance</h3>
-          <span className="text-[11px] font-medium text-slate-500">Enter → Hold → Exit</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 text-slate-400" aria-hidden>
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d="M8 11V8a4 4 0 0 1 8 0v3" strokeLinecap="round" />
+          </svg>
+          <h3 className="text-sm font-bold text-slate-100">Locked Trade Plan</h3>
+          {plan.direction !== "WAIT" && (
+            <span className={`rounded-md border px-2 py-0.5 text-[11px] font-bold uppercase ${long ? "border-bull/40 bg-bull-soft text-bull" : "border-bear/40 bg-bear-soft text-bear"}`}>{plan.direction}</span>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          {g.side !== "WAIT" && (
-            <span className={`rounded-md border px-2 py-0.5 text-[11px] font-bold uppercase ${long ? "border-bull/40 bg-bull-soft text-bull" : "border-bear/40 bg-bear-soft text-bear"}`}>{g.side}</span>
-          )}
-          {g.riskReward && <span className="rounded-md border border-white/10 bg-base-800 px-2 py-0.5 text-[11px] font-semibold text-slate-300">R:R {g.riskReward}</span>}
+          <span className="text-[10px] text-slate-500">levels locked @ {new Date(plan.generatedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+          <button type="button" onClick={onReanalyse} className="inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] font-semibold text-accent hover:bg-accent/20">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3 w-3" aria-hidden>
+              <polyline points="23 4 23 10 17 10" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Re-analyse
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        {/* 1 — ENTER */}
-        <Step n={1} title="Enter" accent="accent">
-          <span className={`mb-2 inline-flex items-center rounded-md border px-2 py-1 text-xs font-bold uppercase tracking-wide ${STATUS_CLS[g.entry.status]}`}>{g.entry.label}</span>
-          <div className="grid grid-cols-2 gap-1.5">
-            <Lvl label="Entry trigger" value={g.entry.trigger} tone="accent" />
-            <Lvl label="Safe zone" lo={g.entry.safeLow} hi={g.entry.safeHigh} tone="accent" />
-          </div>
-          {g.entry.total > 0 && (
-            <>
-              <p className="mt-2.5 text-[11px] font-semibold text-slate-400">
-                Confirmations <span className={g.entry.confirmed >= Math.ceil(g.entry.total * 0.6) ? "text-bull" : "text-neutralSignal"}>{g.entry.confirmed}/{g.entry.total}</span> — enter only when most are green:
-              </p>
-              <ul className="mt-1 space-y-1">
-                {g.entry.checks.map((c, i) => (
-                  <Check key={i} c={c} />
-                ))}
-              </ul>
-            </>
-          )}
-          <Note>{g.entry.note}</Note>
-        </Step>
-
-        {/* 2 — HOLD */}
-        <Step n={2} title="Hold" accent="neutral">
-          {g.hold.conditions.length > 0 ? (
-            <>
-              <p className="text-[11px] font-semibold text-slate-400">Stay in while:</p>
-              <ul className="mt-1 space-y-1">
-                {g.hold.conditions.map((c, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-[11px] leading-snug text-slate-300">
-                    <span className="mt-0.5 text-bull">●</span>
-                    <span>{c}</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-2 grid grid-cols-1 gap-1.5">
-                <Lvl label="Trail stop to" value={g.hold.trail} tone="warn" />
-              </div>
-            </>
-          ) : (
-            <p className="text-[11px] text-slate-500">{g.hold.note}</p>
-          )}
-          {g.hold.conditions.length > 0 && <Note>{g.hold.note}</Note>}
-        </Step>
-
-        {/* 3 — EXIT */}
-        <Step n={3} title="Exit" accent="bear">
-          <div className="grid grid-cols-2 gap-1.5">
-            <Lvl label="Hard stop (loss line)" value={g.exit.hardStop} tone="bear" />
-            <Lvl label="Book partial @ T1" value={g.exit.bookPartial} tone="bull" />
-          </div>
-          {g.exit.targets.some((t) => t != null) && (
-            <p className="mt-1.5 text-[11px] text-slate-400">
-              Targets: {g.exit.targets.map((t, i) => (t == null ? null : <span key={i} className="num font-semibold text-bull">{i > 0 ? " · " : ""}₹{num(t)}</span>))}
-            </p>
-          )}
-          {g.exit.signals.length > 0 && (
-            <>
-              <p className="mt-2 text-[11px] font-semibold text-slate-400">Exit immediately if:</p>
-              <ul className="mt-1 space-y-1">
-                {g.exit.signals.map((sig, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-[11px] leading-snug text-slate-300">
-                    <span className="mt-0.5 text-bear">▴</span>
-                    <span>{sig}</span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          <Note>{g.exit.note}</Note>
-        </Step>
+      {/* action + live CMP */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className={`inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-bold uppercase tracking-wide ${t.chip}`}>{evalResult.label}</span>
+        <div className="flex items-center gap-1.5 text-right">
+          <span className="relative flex h-1.5 w-1.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-bull opacity-60" /><span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-bull" /></span>
+          <span className="text-[10px] uppercase text-slate-500">Live CMP</span>
+          <span className="num text-lg font-bold text-slate-100">{evalResult.cmp == null ? "—" : num(evalResult.cmp)}</span>
+        </div>
       </div>
 
-      <p className="mt-3 rounded-md border border-neutralSignal/20 bg-neutralSignal-soft px-3 py-2 text-[10px] leading-relaxed text-neutralSignal">
-        ⚠️ Disciplined risk control, not a guarantee. {g.disclaimer}
+      {/* confidence vs threshold */}
+      {plan.direction !== "WAIT" && (
+        <div className="mt-2">
+          <div className="mb-1 flex items-center justify-between text-[11px]">
+            <span className="font-medium text-slate-400">Confidence (locked) <span className={confOk ? "font-bold text-bull" : "font-bold text-neutralSignal"}>{plan.confidence}%</span></span>
+            <span className="text-slate-500">Approval requires ≥{MIN_ACTION_CONFIDENCE}%</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-base-700">
+            <div className={`h-full ${confOk ? "bg-bull" : "bg-neutralSignal"}`} style={{ width: `${Math.min(100, plan.confidence)}%` }} />
+          </div>
+        </div>
+      )}
+
+      {/* reason */}
+      <p className={`mt-2 rounded-lg border px-3 py-2 text-xs font-medium ${t.chip}`}>{evalResult.reason}</p>
+
+      {/* distances */}
+      {plan.direction !== "WAIT" && (
+        <div className="mt-2 grid grid-cols-3 gap-1.5 text-center text-[11px]">
+          <Dist label="to Entry" v={evalResult.distToEntry} />
+          <Dist label="to Stop" v={evalResult.distToStop} tone="bear" />
+          <Dist label="to Target 1" v={evalResult.distToTarget} tone="bull" />
+        </div>
+      )}
+
+      {/* locked levels */}
+      {plan.direction !== "WAIT" && (
+        <div className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+          <Lvl label="Entry" value={plan.entry} tone="info" locked />
+          <Lvl label="Safe zone" text={zone} tone="info" locked />
+          <Lvl label="Stop-loss" value={plan.stopLoss} tone="bear" locked />
+          <Lvl label="Trail to" value={plan.trailStop} tone="warn" />
+          <Lvl label="Target 1" value={plan.targets[0] ?? null} tone="bull" locked />
+          <Lvl label="Target 2" value={plan.targets[1] ?? null} tone="bull" locked />
+          <Lvl label="Target 3" value={plan.targets[2] ?? null} tone="bull" locked />
+          <Lvl label="Invalidation" value={plan.invalidation} tone="bear" locked />
+        </div>
+      )}
+
+      {/* confirmation checklist (locked at generation) */}
+      {plan.checks.some((c) => c.met != null) && (
+        <div className="mt-2.5">
+          <p className="text-[11px] font-semibold text-slate-400">Confirmations at analysis — entry needs most green:</p>
+          <ul className="mt-1 grid grid-cols-1 gap-x-3 sm:grid-cols-2">
+            {plan.checks.map((c, i) => (
+              <Check key={i} c={c} />
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <p className="mt-2.5 rounded-md border border-neutralSignal/20 bg-neutralSignal-soft px-3 py-2 text-[10px] leading-relaxed text-neutralSignal">
+        🔒 Levels are locked for this analysis cycle (CMP stays live). Re-analyse to refresh. Disciplined risk control, not a guarantee. {plan.disclaimer}
       </p>
     </div>
   );
 }
 
-function Step({ n, title, accent, children }: { n: number; title: string; accent: "accent" | "neutral" | "bear"; children: React.ReactNode }) {
-  const badge = accent === "accent" ? "bg-accent/20 text-accent" : accent === "bear" ? "bg-bear/20 text-bear" : "bg-neutralSignal/20 text-neutralSignal";
+function Dist({ label, v, tone }: { label: string; v: number | null; tone?: "bull" | "bear" }) {
+  const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : "text-slate-200";
+  const sign = v == null ? "" : v > 0 ? "+" : "";
   return (
-    <div className="rounded-lg border border-white/5 bg-base-800/50 p-3">
-      <div className="mb-2 flex items-center gap-2">
-        <span className={`grid h-5 w-5 place-items-center rounded-full text-[11px] font-bold ${badge}`}>{n}</span>
-        <p className="text-xs font-bold text-slate-100">{title}</p>
-      </div>
-      {children}
+    <div className="rounded-md border border-white/10 bg-base-800/60 px-1.5 py-1">
+      <p className="text-[9px] uppercase text-slate-500">{label}</p>
+      <p className={`num text-xs font-bold ${v == null ? "text-slate-500" : c}`}>{v == null ? "—" : `${sign}${num(v)}`}</p>
     </div>
   );
 }
 
-function Lvl({ label, value, lo, hi, tone }: { label: string; value?: number | null; lo?: number | null; hi?: number | null; tone: "accent" | "bull" | "bear" | "warn" }) {
+function Lvl({ label, value, text, tone, locked }: { label: string; value?: number | null; text?: string; tone: "info" | "bull" | "bear" | "warn"; locked?: boolean }) {
   const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : tone === "warn" ? "text-neutralSignal" : "text-accent";
-  const display = lo != null || hi != null ? (lo == null || hi == null ? "—" : `₹${num(lo)}–₹${num(hi)}`) : value == null ? "—" : `₹${num(value)}`;
-  const dim = (lo === undefined ? value == null : lo == null || hi == null);
+  const display = text != null ? text : value == null ? "—" : `₹${num(value)}`;
+  const dim = text == null && value == null;
   return (
     <div className="rounded-md border border-white/10 bg-base-900/40 px-2 py-1.5">
-      <p className="text-[9px] uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="flex items-center gap-1 text-[9px] uppercase tracking-wide text-slate-500">
+        {locked && <span aria-hidden>🔒</span>}
+        {label}
+      </p>
       <p className={`num text-sm font-bold ${dim ? "text-slate-500" : c}`}>{display}</p>
     </div>
   );
@@ -144,16 +144,12 @@ function Lvl({ label, value, lo, hi, tone }: { label: string; value?: number | n
 
 function Check({ c }: { c: GuidanceCheck }) {
   const icon = c.met == null ? "—" : c.met ? "✓" : "✕";
-  const cls = c.met == null ? "text-slate-500" : c.met ? "text-bull" : "text-slate-500";
+  const iconCls = c.met == null ? "text-slate-500" : c.met ? "text-bull" : "text-slate-500";
   const textCls = c.met == null ? "text-slate-500" : c.met ? "text-slate-200" : "text-slate-500 line-through decoration-slate-600";
   return (
     <li className="flex items-start gap-1.5 text-[11px] leading-snug">
-      <span className={`mt-0.5 w-3 shrink-0 text-center font-bold ${cls}`}>{icon}</span>
+      <span className={`mt-0.5 w-3 shrink-0 text-center font-bold ${iconCls}`}>{icon}</span>
       <span className={textCls}>{c.label}</span>
     </li>
   );
-}
-
-function Note({ children }: { children: React.ReactNode }) {
-  return <p className="mt-2 text-[10px] leading-relaxed text-slate-500">{children}</p>;
 }

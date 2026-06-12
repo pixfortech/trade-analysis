@@ -18,7 +18,7 @@ import { TimeBasedPlan } from "./TimeBasedPlan";
 import { TradeGuidance } from "./TradeGuidance";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { Expandable } from "@/components/ui/Expandable";
-import { computeRiskLevel, type RiskLevel } from "@/lib/tradeAssistant";
+import { buildTradePlan, evaluatePlan, type TradePlanSnapshot } from "@/lib/tradePlan";
 
 const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"];
 const DEFAULT_ACTIVE: IndicatorId[] = ["VWAP", "EMA20", "EMA50", "RSI", "MACD", "ADX", "ATR", "SUPERTREND", "VOLUME", "OI"];
@@ -43,6 +43,9 @@ export function LiveMarketSignal() {
   const prevTrend = useRef<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveNote, setResolveNote] = useState<string | null>(null);
+  // The LOCKED trade plan (entry/SL/targets/confidence) for this analysis cycle.
+  // CMP/indicators keep updating via `signal`; these levels do NOT move per tick.
+  const [plan, setPlan] = useState<TradePlanSnapshot | null>(null);
 
   // Reference-only instruments (e.g. GIFT NIFTY on NSEIX) are visible/selectable
   // but Kite can't quote them, so we never call live-signal with them.
@@ -91,29 +94,43 @@ export function LiveMarketSignal() {
     [interval, active],
   );
 
-  const run = useCallback(async () => {
-    if (!sel || sel.quotable === false) return; // never analyse a reference-only key
+  // Live refresh: updates CMP + indicators (and chart) WITHOUT touching the
+  // locked plan. Returns the latest signal so `analyze` can lock a fresh plan.
+  const run = useCallback(async (): Promise<LiveSignal | null> => {
+    if (!sel || sel.quotable === false) return null; // never analyse a reference-only key
     const res = await signal.run({ instrument: sel.instrument, interval, riskProfile, activeIndicators: active.join(",") });
     if (res) {
       // Trend reversal detection (vs the previous successful read).
       const dir = res.trend.direction;
       if (prevTrend.current && prevTrend.current !== dir && (dir === "bullish" || dir === "bearish") && prevTrend.current !== "sideways") {
-        const flip = `${prevTrend.current}→${dir}`;
         alerts.push(
           `reversal-${sel.instrument}`,
           `Trend changed: ${dir.toUpperCase()}`,
           `${res.resolvedInstrument.displayName}: ${prevTrend.current} → ${dir}. ${res.finalDecision.reason}`,
           dir === "bearish" ? "urgent" : "caution",
         );
-        void flip;
       }
       prevTrend.current = dir;
     }
     void fetchChart(sel.instrument);
+    return res ?? null;
   }, [sel, interval, riskProfile, active, signal, alerts, fetchChart]);
 
-  // Real-time polling driven by the GLOBAL live-updates control. Re-runs the
-  // signal+chart every 5s while live updates are ON and an analysis exists.
+  // Analyze / Re-analyse: refresh live data AND LOCK a fresh trade plan.
+  const analyze = useCallback(async () => {
+    const res = await run();
+    if (res) setPlan(buildTradePlan(res, interval, riskProfile));
+  }, [run, interval, riskProfile]);
+
+  // Levels are locked per analysis cycle — clear the plan (forcing a fresh
+  // Re-analyse) when the instrument, timeframe or strategy mode changes.
+  useEffect(() => {
+    setPlan(null);
+  }, [sel?.instrument, interval, riskProfile]);
+
+  // Real-time polling driven by the GLOBAL live-updates control. Refreshes
+  // CMP/indicators every 5s while live updates are ON and an analysis exists —
+  // the locked plan's levels are NOT recalculated here.
   useEffect(() => {
     if (!global.liveUpdates || !sel || !signal.data) return;
     const id = window.setInterval(() => void run(), 5000);
@@ -132,10 +149,10 @@ export function LiveMarketSignal() {
     try {
       await api.kite.instrumentsRefresh();
     } catch {
-      /* ignore — run() surfaces any remaining issue */
+      /* ignore — analyze() surfaces any remaining issue */
     }
-    void run();
-  }, [run]);
+    void analyze();
+  }, [analyze]);
 
   return (
     <Card
@@ -223,12 +240,12 @@ export function LiveMarketSignal() {
         </label>
         <button
           type="button"
-          onClick={() => void run()}
+          onClick={() => void analyze()}
           disabled={signal.isLoading || !sel || referenceOnly}
-          title={referenceOnly ? "Reference-only instrument — choose a nearest tradable instrument first" : undefined}
+          title={referenceOnly ? "Reference-only instrument — choose a nearest tradable instrument first" : "Lock a fresh trade plan from current structure"}
           className="rounded-lg bg-accent/20 px-5 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {signal.isLoading ? "Analyzing…" : "Analyze"}
+          {signal.isLoading ? "Analyzing…" : plan ? "Re-analyse" : "Analyze"}
         </button>
       </div>
       <p className="mt-1.5 text-[11px] text-slate-500">{modeBlurb(riskProfile)}</p>
@@ -272,7 +289,7 @@ export function LiveMarketSignal() {
         ) : signal.isLoading && !signal.data ? (
           <p className="text-sm text-slate-400">Fetching live data and computing the signal…</p>
         ) : signal.isError ? (
-          <InstrumentError name={sel.displayName} message={signal.error} onRetry={() => void run()} onRefresh={() => void refreshCache()} onClear={() => global.setSelectedInstrument(null)} />
+          <InstrumentError name={sel.displayName} message={signal.error} onRetry={() => void analyze()} onRefresh={() => void refreshCache()} onClear={() => global.setSelectedInstrument(null)} />
         ) : signal.data ? (
           <>
             <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
@@ -281,20 +298,23 @@ export function LiveMarketSignal() {
               <span>· Mode: <span className="capitalize">{riskProfile}</span></span>
               <span>· Updated: {formatTime(signal.data.timestamp)}</span>
             </div>
-            {/* Prominent result summary (fills the previously empty space).
-                Side-by-side with the chart on wide screens; stacked on mobile. */}
-            <div className={`mb-4 grid gap-4 ${chart && chart.candles.length > 0 ? "lg:grid-cols-2" : ""}`}>
-              <ResultSummary s={signal.data} />
-              {chart && chart.candles.length > 0 && (
-                <div className="rounded-lg border border-white/5 bg-base-800/30 p-2">
-                  <LiveChart data={chart} priceLines={priceLinesFor(signal.data)} />
-                </div>
-              )}
-            </div>
-            {/* Precise indicator-driven Enter → Hold → Exit plan (loss control). */}
-            <div className="mb-4">
-              <TradeGuidance signal={signal.data} />
-            </div>
+            {/* LOCKED trade plan — entry/SL/targets stay fixed; CMP stays live. */}
+            {plan ? (
+              <div className="mb-4">
+                <TradeGuidance plan={plan} evalResult={evaluatePlan(plan, signal.data.currentPrice, signal.data, null)} onReanalyse={() => void analyze()} />
+              </div>
+            ) : (
+              <div className="mb-4 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3 text-sm text-slate-300">
+                Live data is loaded. Click{" "}
+                <button type="button" onClick={() => void analyze()} className="font-semibold text-accent underline underline-offset-2">Analyze</button>{" "}
+                to lock a trade plan (entry, stop-loss, targets) for {interval} · <span className="capitalize">{riskProfile}</span>.
+              </div>
+            )}
+            {chart && chart.candles.length > 0 && (
+              <div className="mb-4 rounded-lg border border-white/5 bg-base-800/30 p-2">
+                <LiveChart data={chart} priceLines={plan ? planPriceLines(plan) : priceLinesFor(signal.data)} />
+              </div>
+            )}
             <Expandable title={`Live Market Signal — ${signal.data.resolvedInstrument.displayName || signal.data.instrument}`}>
               <SignalView s={signal.data} />
               <TimeBasedPlan signal={signal.data} />
@@ -388,75 +408,14 @@ const ACTION_CLS: Record<SignalAction, string> = {
   AVOID: "border-bear/40 bg-bear-soft text-bear",
 };
 
-const RISK_CLS: Record<RiskLevel, string> = {
-  Low: "border-bull/40 bg-bull-soft text-bull",
-  Medium: "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal",
-  High: "border-bear/40 bg-bear-soft text-bear",
-  Extreme: "border-bear/60 bg-bear/20 text-bear",
-};
-
-/**
- * Compact, prominent result summary shown immediately after Analyze — fills the
- * previously empty area with the decision, bullish/bearish %, risk, confidence
- * and key levels. Detailed indicators stay below in the expandable view.
- */
-function ResultSummary({ s }: { s: LiveSignal }) {
-  const action = s.finalDecision.action;
-  const long = action === "LONG";
-  const short = action === "SHORT";
-  const setup = short ? s.shortSetup : s.longSetup;
-  const entry = (long ? setup.entryAbove : short ? setup.entryBelow : setup.entryAbove) ?? null;
-  const risk = computeRiskLevel(s);
-  const bull = s.probability.bullishPercent;
-  const bear = s.probability.bearishPercent;
-  return (
-    <div className="rounded-xl border border-white/10 bg-base-800/40 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className={`inline-flex items-center rounded-lg border px-3 py-1.5 text-lg font-bold uppercase tracking-wide ${ACTION_CLS[action]}`}>{action}</span>
-        <div className="text-right">
-          <p className="num text-2xl font-bold text-slate-100">{num(s.currentPrice)}</p>
-          <p className="text-[10px] uppercase tracking-wide text-slate-500">CMP · {s.probability.confidence} confidence</p>
-        </div>
-      </div>
-      <div className="mt-3">
-        <div className="mb-1 flex items-center justify-between text-xs">
-          <span className="font-semibold text-bull">Bullish {bull}%</span>
-          <span className="text-slate-500">win est. {s.probability.estimatedWinPercent}%</span>
-          <span className="font-semibold text-bear">{bear}% Bearish</span>
-        </div>
-        <div className="flex h-2.5 overflow-hidden rounded-full bg-base-700">
-          <div className="bg-bull" style={{ width: `${bull}%` }} />
-          <div className="bg-bear" style={{ width: `${bear}%` }} />
-        </div>
-      </div>
-      <div className="mt-3 grid grid-cols-3 gap-1.5 text-center sm:grid-cols-5">
-        <div className={`rounded-md border px-1.5 py-1 ${RISK_CLS[risk]}`}>
-          <p className="text-[9px] uppercase opacity-80">Risk</p>
-          <p className="text-xs font-bold">{risk}</p>
-        </div>
-        <div className="rounded-md border border-white/10 bg-base-800/60 px-1.5 py-1">
-          <p className="text-[9px] uppercase text-slate-500">Conf.</p>
-          <p className="text-xs font-bold text-slate-200">{s.probability.estimatedWinPercent}%</p>
-        </div>
-        <MiniLvl label="Entry" value={entry} />
-        <MiniLvl label="SL" value={setup.stopLoss} tone="bear" />
-        <MiniLvl label="T1" value={setup.target1} tone="bull" />
-      </div>
-      <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-slate-400">
-        <span className="font-semibold text-slate-300">Why: </span>{s.finalDecision.reason}
-      </p>
-    </div>
-  );
-}
-
-function MiniLvl({ label, value, tone }: { label: string; value: number | null; tone?: "bull" | "bear" }) {
-  const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : "text-slate-100";
-  return (
-    <div className="rounded-md border border-white/10 bg-base-800/60 px-1.5 py-1">
-      <p className="text-[9px] uppercase text-slate-500">{label}</p>
-      <p className={`num text-xs font-bold ${value == null ? "text-slate-500" : c}`}>{value == null ? "—" : num(value)}</p>
-    </div>
-  );
+/** Chart price lines from the LOCKED plan (so the chart matches the plan). */
+function planPriceLines(p: TradePlanSnapshot): { price: number; color: string; title: string }[] {
+  const lines: { price: number; color: string; title: string }[] = [];
+  if (p.entry != null) lines.push({ price: p.entry, color: "#3b82f6", title: "Entry" });
+  if (p.stopLoss != null) lines.push({ price: p.stopLoss, color: "#ea3943", title: "SL" });
+  if (p.targets[0] != null) lines.push({ price: p.targets[0], color: "#16c784", title: "T1" });
+  if (p.targets[1] != null) lines.push({ price: p.targets[1], color: "#16c784", title: "T2" });
+  return lines;
 }
 
 function SignalView({ s }: { s: LiveSignal }) {

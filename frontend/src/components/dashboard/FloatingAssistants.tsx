@@ -15,6 +15,7 @@ import {
   type AssistantView,
   type RiskLevel,
 } from "@/lib/tradeAssistant";
+import { MIN_ACTION_CONFIDENCE, computeConfidence, confirmationChecks } from "@/lib/tradePlan";
 import type { LiveSignal } from "@/types/api";
 
 const RISK_CLS: Record<RiskLevel, string> = {
@@ -82,6 +83,17 @@ function vtToPos(t: { side: "LONG" | "SHORT"; entryPrice: number; quantity: numb
   return { source: "ai-virtual", side: t.side, entryPrice: t.entryPrice, quantity: t.quantity, stopLoss: t.stopLoss, target: t.target, id: t.id };
 }
 
+/** Apply the composite confidence + the >=75% ENTER NOW gate to a derived view. */
+function gateConfidence(view: AssistantView, sig: LiveSignal): AssistantView {
+  if (view.direction !== "LONG" && view.direction !== "SHORT") return view;
+  const conf = computeConfidence(sig, view.direction, confirmationChecks(sig, view.direction));
+  const v: AssistantView = { ...view, confidencePercent: conf };
+  if (view.state === "ENTER_NOW" && conf < MIN_ACTION_CONFIDENCE) {
+    return { ...v, state: "WAIT_FOR_SETUP", label: "Wait — confirm (≥75%)", tone: "warn", action: `Confidence ${conf}% (need ≥${MIN_ACTION_CONFIDENCE}%) — no confirmed entry yet.`, alert: null };
+  }
+  return v;
+}
+
 /**
  * Floating AI Trade Assistants (Phase 3P). Renders MULTIPLE independent
  * assistant windows opened from the Watchlist. Nothing opens by default — only
@@ -96,6 +108,10 @@ export function FloatingAssistants() {
   const isMobile = useIsMobile();
   const [signals, setSignals] = useState<Record<string, SignalState>>({});
   const [breadth, setBreadth] = useState<{ up: number; down: number } | null>(null);
+  // LOCKED signal snapshot per instrument — the plan's entry/SL/targets come from
+  // here and do NOT move with live ticks. Only Re-analyse re-locks. Live CMP is
+  // overlaid from the latest poll; minimise/expand never recalculates levels.
+  const [locked, setLocked] = useState<Record<string, LiveSignal>>({});
 
   const keys = useMemo(() => Array.from(new Set(scanners.map((s) => s.instrument.instrument))), [scanners]);
   const keysJoined = keys.join(",");
@@ -159,18 +175,47 @@ export function FloatingAssistants() {
     return () => { cancelled = true; window.clearInterval(id); };
   }, [hasScanners]);
 
-  // Derive a view per assistant from the shared signal + that instrument's
-  // virtual trade (Entry Scanner vs Position Manager). Same data for window+chip.
+  // Lock the plan snapshot the first time a signal arrives for an instrument.
+  useEffect(() => {
+    setLocked((cur) => {
+      let changed = false;
+      const next = { ...cur };
+      for (const k of Object.keys(signals)) {
+        const d = signals[k]?.data;
+        if (d && !next[k]) {
+          next[k] = d;
+          changed = true;
+        }
+      }
+      return changed ? next : cur;
+    });
+  }, [signals]);
+
+  // Re-analyse: re-lock the plan for an instrument from the latest signal.
+  const reanalyse = useCallback(
+    (key: string) => setLocked((cur) => (signals[key]?.data ? { ...cur, [key]: signals[key]!.data! } : cur)),
+    [signals],
+  );
+
+  // Derive a view per assistant from the LOCKED snapshot (entry/SL/targets) with
+  // live CMP overlaid + the instrument's virtual trade (Entry Scanner vs Position
+  // Manager). Levels stay locked; only the action reacts to live CMP. ENTER NOW is
+  // gated at >=75% confidence.
   const views = useMemo(() => {
-    const out: Record<string, { view: AssistantView | null; managed: ActivePosition | null }> = {};
+    const out: Record<string, { view: AssistantView | null; managed: ActivePosition | null; lockedAt: number | null }> = {};
     for (const s of scanners) {
-      const sig = signals[s.instrument.instrument]?.data ?? null;
-      const t = vt.trades.find((x) => x.instrumentKey === s.instrument.instrument && x.status === "OPEN");
+      const key = s.instrument.instrument;
+      const lockedSig = locked[key] ?? null;
+      const live = signals[key]?.data ?? null;
+      const sig = lockedSig && live ? { ...lockedSig, currentPrice: live.currentPrice } : lockedSig ?? live;
+      const t = vt.trades.find((x) => x.instrumentKey === key && x.status === "OPEN");
       const managed = t ? vtToPos(t) : null;
-      out[s.id] = { view: sig ? (managed ? derivePositionManager(sig, managed) : deriveEntryScanner(sig)) : null, managed };
+      let view = sig ? (managed ? derivePositionManager(sig, managed) : deriveEntryScanner(sig)) : null;
+      if (view && sig) view = gateConfidence(view, sig);
+      out[s.id] = { view, managed, lockedAt: lockedSig ? Date.parse(lockedSig.timestamp) : null };
     }
     return out;
-  }, [scanners, signals, vt.trades]);
+  }, [scanners, signals, vt.trades, locked]);
 
   if (scanners.length === 0) return null;
 
@@ -206,6 +251,8 @@ export function FloatingAssistants() {
         onMove={(x, y) => setPosition(s.id, x, y)}
         onPopOut={(x, y) => popOut(s.id, x, y)}
         onRefreshCache={refreshCache}
+        onReanalyse={() => reanalyse(s.instrument.instrument)}
+        lockedAt={v.lockedAt}
       />
     );
   };
@@ -310,6 +357,8 @@ function AssistantWindow({
   onMove,
   onPopOut,
   onRefreshCache,
+  onReanalyse,
+  lockedAt,
 }: {
   scanner: Scanner;
   layout: "docked" | "floating" | "sheet";
@@ -331,6 +380,8 @@ function AssistantWindow({
   onMove: (x: number, y: number) => void;
   onPopOut: (x: number, y: number) => void;
   onRefreshCache: () => void;
+  onReanalyse: () => void;
+  lockedAt: number | null;
 }) {
   const [tab, setTab] = useState<TabId>("summary");
   const [pos, setPos] = useState(scanner.position);
@@ -403,7 +454,7 @@ function AssistantWindow({
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-semibold text-slate-100">{scanner.instrument.displayName}</p>
           <p className="num truncate text-[10px] text-slate-500">
-            {scanner.instrument.exchange}{itype ? ` · ${itype}` : ""} · {data ? `updated ${secsAgo(updatedAt)}` : loading ? "analysing…" : liveOn ? "—" : "live off"}
+            {scanner.instrument.exchange}{itype ? ` · ${itype}` : ""} · {lockedAt ? `🔒 ${new Date(lockedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : data ? `updated ${secsAgo(updatedAt)}` : loading ? "analysing…" : liveOn ? "—" : "live off"}
           </p>
         </div>
         {view && <span className="rounded-md border border-white/15 bg-base-800 px-1.5 py-0.5 text-[9px] font-semibold text-slate-300">{view.mode === "POSITION_MANAGER" ? `Managing · ${managed?.source === "zerodha" ? "Zerodha" : "Virtual"}` : "Scanner"}</span>}
@@ -484,7 +535,10 @@ function AssistantWindow({
         </>
       )}
 
-      <div className="shrink-0 border-t border-white/10 px-3 py-1.5 text-center text-[10px] text-slate-500">Read-only advisory · No orders placed</div>
+      <div className="flex shrink-0 items-center justify-between border-t border-white/10 px-3 py-1.5 text-[10px] text-slate-500">
+        <span>🔒 Locked levels · live CMP · no orders</span>
+        <button type="button" onClick={onReanalyse} className="rounded border border-accent/30 px-1.5 py-0.5 font-semibold text-accent hover:bg-accent/10">Re-analyse</button>
+      </div>
     </div>
   );
 }
