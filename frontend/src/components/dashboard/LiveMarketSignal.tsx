@@ -9,7 +9,6 @@ import { num, tsec } from "@/lib/format";
 import { actionToneFor, toneVisual } from "@/lib/actionStyles";
 import type { ChartDataResponse, IndicatorId, LiveSignal, SignalSetup } from "@/types/api";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
-import { IndicatorControls, ALL_INDICATORS } from "./IndicatorControls";
 import { LiveChart } from "./LiveChart";
 import { useAlerts } from "@/hooks/useAlerts";
 import { AlertToasts } from "./AlertToasts";
@@ -38,7 +37,9 @@ export function LiveMarketSignal() {
   const [interval, setInterval] = useState("5minute");
   const [riskProfile, setRiskProfile] = useState("balanced");
   const [segment, setSegment] = useState<InstrumentSegment>("all");
-  const [active, setActive] = useState<IndicatorId[]>(DEFAULT_ACTIVE);
+  // Fixed indicator set (the old toggle/recalculate table was removed; the
+  // grouped indicator section below is summary-first and read-only).
+  const active = DEFAULT_ACTIVE;
   const [chart, setChart] = useState<ChartDataResponse | null>(null);
   const signal = useAsync(api.liveSignal);
   const alerts = useAlerts();
@@ -83,9 +84,6 @@ export function LiveMarketSignal() {
       setResolving(false);
     }
   }, [sel, global]);
-
-  const toggleIndicator = (id: IndicatorId) =>
-    setActive((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...ALL_INDICATORS].filter((x) => cur.includes(x) || x === id)));
 
   const fetchChart = useCallback(
     async (instrument: string) => {
@@ -296,11 +294,6 @@ export function LiveMarketSignal() {
         <span>· Reversal alerts are advisory only.</span>
       </div>
 
-      {/* Indicator toggles + contributions */}
-      <div className="mt-3">
-        <IndicatorControls active={active} onToggle={toggleIndicator} contributions={signal.data?.indicatorContributions} />
-      </div>
-
       <div className="mt-4">
         {!sel ? (
           <EmptyState
@@ -346,6 +339,10 @@ export function LiveMarketSignal() {
                 to lock a trade plan (entry, stop-loss, targets) for {interval} · <span className="capitalize">{riskProfile}</span>.
               </div>
             )}
+            {/* Indicators — the single, grouped & collapsible indicator section */}
+            <div className="mb-4">
+              <IndicatorGroups signal={signal.data} />
+            </div>
             {chart && chart.candles.length > 0 && (
               <div className="mb-4 rounded-lg border border-white/5 bg-base-800/30 p-2">
                 <LiveChart data={chart} priceLines={plan ? planPriceLines(plan) : priceLinesFor(signal.data)} />
@@ -484,8 +481,6 @@ function SignalView({ s }: { s: LiveSignal }) {
         </p>
       </div>
 
-      {/* Indicators auto-grouped by bullish / bearish / neutral (count-ordered) */}
-      <IndicatorGroups signal={s} />
       <div className="grid grid-cols-2 gap-3 text-sm">
         <div className="rounded-lg border border-bull/20 bg-bull-soft px-3 py-2.5">
           <p className="text-slate-400">Support</p>

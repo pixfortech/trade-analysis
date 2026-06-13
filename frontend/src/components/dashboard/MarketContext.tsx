@@ -62,7 +62,7 @@ function CountChip({ tone, label, n }: { tone: IndTone; label: string; n: number
  * counts (strongest group first) and the strongest group's compact chips; Expand
  * reveals the full grouped detail. Preference persisted in localStorage.
  */
-export function IndicatorGroups({ signal, storageKey = "cockpit.indicators.expanded" }: { signal: LiveSignal; storageKey?: string }) {
+export function IndicatorGroups({ signal, storageKey = "cockpit.indicators.expanded.v2" }: { signal: LiveSignal; storageKey?: string }) {
   const groups = groupIndicators(signal);
   const { value: expanded, setValue: setExpanded } = useLocalStorage<boolean>(storageKey, false);
   if (groups.length === 0) return null;
@@ -84,7 +84,7 @@ export function IndicatorGroups({ signal, storageKey = "cockpit.indicators.expan
         </span>
         <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded}
           style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0, padding: "3px 9px", borderRadius: "var(--radius-pill)", border: "1px solid var(--border-2)", background: "var(--surface-card)", color: "var(--ink-2)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-          {expanded ? "Collapse" : "Expand"}
+          {expanded ? "Collapse" : "Expand indicators"}
           <Icon n={expanded ? "chevron-up" : "chevron-down"} size={13} />
         </button>
       </div>
