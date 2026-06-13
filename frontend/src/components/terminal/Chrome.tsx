@@ -5,8 +5,6 @@ import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { useTheme } from "@/hooks/useTheme";
-import { marketIndices } from "@/lib/mockData";
-import { num, signed } from "@/lib/format";
 import { InstrumentSearch, type SelectedInstrument } from "@/components/dashboard/InstrumentSearch";
 import type { KiteStatus } from "@/types/api";
 import { Icon, Switch } from "./ds";
@@ -149,35 +147,6 @@ function ConnectKite({ status, error, onRetry }: { status: KiteStatus | null; er
       {label}
       {ro && <span className="hide-sm" style={{ fontWeight: 600, opacity: 0.8 }}> · Read-only</span>}
     </button>
-  );
-}
-
-/* ----------------------------- status strip ------------------------------ */
-export function StatusStrip() {
-  return (
-    <div
-      style={{
-        height: "var(--status-height)", background: "var(--surface-terminal-2)", display: "flex", alignItems: "center",
-        gap: 24, padding: "0 20px", overflowX: "auto", position: "sticky", top: "var(--bar-height)", zIndex: 39,
-      }}
-    >
-      <span title="Static sample indices — not live Kite data" style={{ fontSize: 9, fontWeight: 800, letterSpacing: ".08em", color: "#f7a957", border: "1px solid rgba(247,144,9,.4)", background: "rgba(247,144,9,.14)", borderRadius: "var(--radius-pill)", padding: "2px 7px", whiteSpace: "nowrap", flexShrink: 0 }}>SAMPLE</span>
-      {marketIndices.map((ix) => {
-        const down = ix.change < 0;
-        return (
-          <span key={ix.symbol} style={{ display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}>
-            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", color: "#8b97ab" }}>{ix.name}</span>
-            <span className="num" style={{ fontSize: 12, fontWeight: 700, color: "#f2f5f9" }}>{num(ix.ltp)}</span>
-            <span className="num" style={{ fontSize: 11, fontWeight: 700, color: down ? "var(--price-down)" : "var(--price-up)" }}>
-              {down ? "▼" : "▲"} {signed(ix.change)}
-            </span>
-          </span>
-        );
-      })}
-      <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: 11, color: "#5d6b82", whiteSpace: "nowrap" }} className="hide-sm">
-        static sample · not live
-      </span>
-    </div>
   );
 }
 

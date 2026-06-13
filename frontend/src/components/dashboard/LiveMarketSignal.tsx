@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/States";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
-import { num } from "@/lib/format";
+import { num, tsec } from "@/lib/format";
 import { actionToneFor, toneVisual } from "@/lib/actionStyles";
 import type { ChartDataResponse, IndicatorId, LiveSignal, SignalSetup } from "@/types/api";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
@@ -366,9 +366,7 @@ export function LiveMarketSignal() {
 
 /** Local IST-ish time formatter for the "last updated" line. */
 function formatTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return tsec(iso);
 }
 
 /** Friendly error/unavailable state for a selected instrument (e.g. GIFT/NSEIX). */

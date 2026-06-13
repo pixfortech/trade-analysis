@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { InfoTooltip } from "@/components/ui/Inputs";
 import { api } from "@/lib/apiClient";
-import { num } from "@/lib/format";
+import { num, tsec } from "@/lib/format";
 import type { Mover, TopMoversResponse } from "@/types/api";
 
 const TABS: { id: TopMoversResponse["segment"]; label: string }[] = [
@@ -13,11 +13,6 @@ const TABS: { id: TopMoversResponse["segment"]; label: string }[] = [
   { id: "futures", label: "Futures" },
   { id: "options", label: "Options" },
 ];
-
-function fmtTime(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
 
 /** Top gainers/losers from a bounded (rate-limit-aware) LIVE Kite scan. */
 export function TopPerformersCard() {
@@ -91,7 +86,7 @@ export function TopPerformersCard() {
             {/* scan scope + last refreshed + explainer */}
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
               <p className="text-[11px] text-slate-400">
-                <span className="font-semibold text-neutralSignal">Limited scan:</span> {data.scanned} of {data.total} scanned · refreshed {fmtTime(data.timestamp)}
+                <span className="font-semibold text-neutralSignal">Limited scan:</span> {data.scanned} of {data.total} scanned · refreshed {tsec(data.timestamp)}
               </p>
               <InfoTooltip label="Why limited?">
                 Movers come from a <strong>bounded scan list</strong> ({data.scanned}/{data.total} instruments), not the full NSE universe — this respects Zerodha Kite&apos;s rate limits. The data <strong>is live</strong> (Kite quotes); only the scanned set is capped. Full-universe scanning would need a larger backend scan/index service.

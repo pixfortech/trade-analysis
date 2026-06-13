@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { TopBar, StatusStrip, NavRail, type Screen } from "./Chrome";
+import { TopBar, NavRail, type Screen } from "./Chrome";
+import { StatusStrip } from "./LiveIndicesStrip";
 import { DsCard, Icon, Switch } from "./ds";
 import { useModules, MODULES } from "@/hooks/useModules";
 import { LiveMarketSignal } from "@/components/dashboard/LiveMarketSignal";

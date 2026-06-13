@@ -3,7 +3,7 @@
 // Pure functions over existing Kite-backed data — no fabrication: when a value
 // or time isn't available it returns null (the UI shows "—" / "unavailable").
 
-import { num, compact } from "@/lib/format";
+import { num, numFlex, compact } from "@/lib/format";
 import type { ChartDataResponse, LiveSignal } from "@/types/api";
 import type { PlanEval, TradePlanSnapshot } from "@/lib/tradePlan";
 
@@ -20,7 +20,7 @@ function fmtTime(t: string | null): string | null {
   if (!t) return null;
   const d = new Date(t);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true }).toLowerCase();
 }
 
 /** Open/High/Low/PrevClose/CMP with event times derived from intraday candles. */
@@ -44,11 +44,12 @@ export function deriveOhlc(s: LiveSignal, chart: ChartDataResponse | null): Ohlc
   const prev = md.previousClose;
   const tone = (v: number | null): "up" | "down" | "neutral" => (v == null || prev == null ? "neutral" : v >= prev ? "up" : "down");
 
+  // Order: Previous Close → High → Low → Open → CMP.
   return [
-    { label: "Open", value: md.open, time: fmtTime(openTime), tone: tone(md.open) },
+    { label: "Prev close", value: prev, time: null, tone: "neutral", note: "prev session" },
     { label: "High", value: md.high, time: fmtTime(highTime), tone: "up" },
     { label: "Low", value: md.low, time: fmtTime(lowTime), tone: "down" },
-    { label: "Prev close", value: prev, time: null, tone: "neutral", note: "prev session" },
+    { label: "Open", value: md.open, time: fmtTime(openTime), tone: tone(md.open) },
     { label: "CMP", value: s.currentPrice, time: fmtTime(s.timestamp), tone: tone(s.currentPrice) },
   ];
 }
@@ -123,19 +124,19 @@ export function groupIndicators(s: LiveSignal): IndGroup[] {
   const vwap = s.marketData.vwap;
   const chips: IndChip[] = [];
 
-  if (vwap != null) chips.push({ key: "VWAP", value: num(vwap), reason: price >= vwap ? "price above" : "price below", tone: price >= vwap ? "bull" : "bear" });
-  if (i.ema20 != null && i.ema50 != null) chips.push({ key: "EMA 20/50", value: `${num(i.ema20)} / ${num(i.ema50)}`, reason: i.ema20 >= i.ema50 ? "uptrend" : "downtrend", tone: i.ema20 >= i.ema50 ? "bull" : "bear" });
+  if (vwap != null) chips.push({ key: "VWAP", value: numFlex(vwap), reason: price >= vwap ? "price above" : "price below", tone: price >= vwap ? "bull" : "bear" });
+  if (i.ema20 != null && i.ema50 != null) chips.push({ key: "EMA 20/50", value: `${numFlex(i.ema20)} / ${numFlex(i.ema50)}`, reason: i.ema20 >= i.ema50 ? "uptrend" : "downtrend", tone: i.ema20 >= i.ema50 ? "bull" : "bear" });
   if (i.rsi != null) {
     const t: IndTone = i.rsi > 55 ? "bull" : i.rsi < 45 ? "bear" : "neutral";
-    chips.push({ key: "RSI", value: num(i.rsi), reason: t === "bull" ? "strength" : t === "bear" ? "weakness" : "neutral 45–55", tone: t });
+    chips.push({ key: "RSI", value: numFlex(i.rsi), reason: t === "bull" ? "strength" : t === "bear" ? "weakness" : "neutral 45–55", tone: t });
   }
   if (i.macd != null) {
     const h = i.macd.histogram;
     const t: IndTone = h > 0 ? "bull" : h < 0 ? "bear" : "neutral";
-    chips.push({ key: "MACD", value: num(h), reason: t === "bull" ? "positive" : t === "bear" ? "negative" : "flat", tone: t });
+    chips.push({ key: "MACD", value: numFlex(h), reason: t === "bull" ? "positive" : t === "bear" ? "negative" : "flat", tone: t });
   }
-  if (i.supertrend != null) chips.push({ key: "Supertrend", value: num(i.supertrend.value), reason: i.supertrend.direction, tone: i.supertrend.direction === "bullish" ? "bull" : "bear" });
-  if (i.adx != null) chips.push({ key: "ADX", value: num(i.adx.adx), reason: i.adx.adx > 25 ? "strong trend" : i.adx.adx > 20 ? "trending" : "weak / range", tone: "neutral" });
+  if (i.supertrend != null) chips.push({ key: "Supertrend", value: numFlex(i.supertrend.value), reason: i.supertrend.direction, tone: i.supertrend.direction === "bullish" ? "bull" : "bear" });
+  if (i.adx != null) chips.push({ key: "ADX", value: numFlex(i.adx.adx), reason: i.adx.adx > 25 ? "strong trend" : i.adx.adx > 20 ? "trending" : "weak / range", tone: "neutral" });
   if (i.volumeConfirmed != null) chips.push({ key: "Volume", value: i.volumeConfirmed ? "Confirmed" : "Low", reason: i.volumeConfirmed ? "confirms move" : "no confirmation", tone: "neutral" });
   if (i.oi != null) chips.push({ key: "OI", value: compact(i.oi), reason: "open interest", tone: "neutral" });
 

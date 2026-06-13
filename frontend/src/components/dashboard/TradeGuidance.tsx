@@ -1,6 +1,6 @@
 "use client";
 
-import { num } from "@/lib/format";
+import { num, tsec } from "@/lib/format";
 import { toneVisual, type ActionTone } from "@/lib/actionStyles";
 import { Metric } from "@/components/ui/Metric";
 import { Icon } from "@/components/terminal/ds";
@@ -45,7 +45,7 @@ export function TradeGuidance({ plan, evalResult, signal, vix, onReanalyse }: { 
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-slate-500">levels locked @ {new Date(plan.generatedAt).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+            <span className="text-[10px] text-slate-500">levels locked @ {tsec(plan.generatedAt)}</span>
             <button type="button" onClick={onReanalyse} className="inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent/10 px-2 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/20">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3 w-3" aria-hidden>
                 <polyline points="23 4 23 10 17 10" strokeLinecap="round" strokeLinejoin="round" />

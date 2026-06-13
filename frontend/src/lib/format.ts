@@ -19,6 +19,21 @@ export function num(value: number, digits = 2): string {
   }).format(value);
 }
 
+/** Indian-grouped number that keeps up to `max` decimals WITHOUT forcing trailing
+ *  zeros — preserves source precision and avoids misleading padding (81,234 /
+ *  1,234.5 / 23,418.75 rather than 81,234.00 / 1,234.50). */
+export function numFlex(value: number, max = 2): string {
+  return new Intl.NumberFormat("en-IN", { maximumFractionDigits: max, minimumFractionDigits: 0 }).format(value);
+}
+
+/** Market time WITH seconds, e.g. "09:15:23 am". "—" for missing/invalid input. */
+export function tsec(value: string | number | Date | null | undefined): string {
+  if (value == null) return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true }).toLowerCase();
+}
+
 /** Signed percentage, e.g. +0.62% / -1.10% */
 export function pct(value: number): string {
   const sign = value > 0 ? "+" : "";
