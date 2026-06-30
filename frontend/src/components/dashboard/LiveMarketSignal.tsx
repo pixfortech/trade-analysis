@@ -10,6 +10,10 @@ import { actionToneFor, toneVisual } from "@/lib/actionStyles";
 import type { ChartDataResponse, IndicatorId, LiveSignal, SignalSetup } from "@/types/api";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
 import { LiveChart } from "./LiveChart";
+import { TradingViewChart } from "./TradingViewChart";
+import { tvSymbol, tvInterval } from "@/lib/tradingview";
+import { useTheme } from "@/hooks/useTheme";
+import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useAlerts } from "@/hooks/useAlerts";
 import { AlertToasts } from "./AlertToasts";
 import { ThemedSelect, InfoTooltip, InstrumentTypeSelector, type InstrumentSegment } from "@/components/ui/Inputs";
@@ -52,6 +56,10 @@ export function LiveMarketSignal() {
   // Best-effort India VIX (volatility context for the timing estimate). Unavailable
   // → the estimate falls back to ATR and labels VIX unavailable; never fabricated.
   const [vix, setVix] = useState<number | null>(null);
+  const { theme } = useTheme();
+  // Chart view: Kite candles + locked levels (default), or TradingView advanced
+  // (full studies library — apply unlimited indicators). Persisted per device.
+  const { value: chartMode, setValue: setChartMode } = useLocalStorage<"levels" | "advanced">("cockpit.chartMode.v1", "levels");
 
   // Reference-only instruments (e.g. GIFT NIFTY on NSEIX) are visible/selectable
   // but Kite can't quote them, so we never call live-signal with them.
@@ -343,11 +351,31 @@ export function LiveMarketSignal() {
             <div className="mb-4">
               <IndicatorGroups signal={signal.data} />
             </div>
-            {chart && chart.candles.length > 0 && (
-              <div className="mb-4 rounded-lg border border-white/5 bg-base-800/30 p-2">
-                <LiveChart data={chart} priceLines={plan ? planPriceLines(plan) : priceLinesFor(signal.data)} />
+            {/* Chart — Kite candles + locked levels, or TradingView advanced (unlimited indicators) */}
+            <div className="mb-4">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex rounded-lg border border-white/10 bg-base-800/60 p-0.5 text-xs">
+                  <button type="button" onClick={() => setChartMode("levels")} className={`rounded-md px-2.5 py-1 font-semibold transition-colors ${chartMode === "levels" ? "bg-accent/20 text-accent" : "text-slate-400 hover:text-slate-200"}`}>Kite · levels</button>
+                  <button type="button" onClick={() => setChartMode("advanced")} className={`rounded-md px-2.5 py-1 font-semibold transition-colors ${chartMode === "advanced" ? "bg-accent/20 text-accent" : "text-slate-400 hover:text-slate-200"}`}>TradingView · indicators</button>
+                </div>
+                {chartMode === "advanced" && (
+                  <span className="text-[10px] text-slate-500">Apply unlimited indicators via the chart’s <span className="font-semibold text-slate-400">ƒx Indicators</span> button · TradingView data (may differ from Kite)</span>
+                )}
               </div>
-            )}
+              {chartMode === "advanced" ? (
+                <div className="overflow-hidden rounded-lg border border-white/5">
+                  <TradingViewChart symbol={tvSymbol(sel.instrument)} interval={tvInterval(interval)} theme={theme} />
+                </div>
+              ) : chart && chart.candles.length > 0 ? (
+                <div className="rounded-lg border border-white/5 bg-base-800/30 p-2">
+                  <LiveChart data={chart} priceLines={plan ? planPriceLines(plan) : priceLinesFor(signal.data)} />
+                </div>
+              ) : (
+                <p className="rounded-lg border border-white/5 bg-base-800/30 px-3 py-4 text-center text-xs text-slate-500">
+                  Kite candles unavailable for this view — switch to <strong className="text-accent">TradingView · indicators</strong> for the advanced chart with the full indicator library.
+                </p>
+              )}
+            </div>
             <Expandable title={`Live Market Signal — ${signal.data.resolvedInstrument.displayName || signal.data.instrument}`}>
               <SignalView s={signal.data} />
               <TimeBasedPlan signal={signal.data} />
