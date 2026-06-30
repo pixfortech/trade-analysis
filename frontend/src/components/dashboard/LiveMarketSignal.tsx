@@ -10,8 +10,9 @@ import { actionToneFor, toneVisual } from "@/lib/actionStyles";
 import type { ChartDataResponse, IndicatorId, LiveSignal, SignalSetup } from "@/types/api";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
 import { LiveChart } from "./LiveChart";
-import { TradingViewChart } from "./TradingViewChart";
-import { tvSymbol, tvInterval } from "@/lib/tradingview";
+import { IndicatorsPanel } from "./IndicatorsPanel";
+import { OscillatorCards } from "./OscillatorCards";
+import { DEFAULT_INDICATORS, type IndicatorInstance } from "@/lib/chartIndicators";
 import { useTheme } from "@/hooks/useTheme";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useAlerts } from "@/hooks/useAlerts";
@@ -57,9 +58,9 @@ export function LiveMarketSignal() {
   // → the estimate falls back to ATR and labels VIX unavailable; never fabricated.
   const [vix, setVix] = useState<number | null>(null);
   const { theme } = useTheme();
-  // Chart view: Kite candles + locked levels (default), or TradingView advanced
-  // (full studies library — apply unlimited indicators). Persisted per device.
-  const { value: chartMode, setValue: setChartMode } = useLocalStorage<"levels" | "advanced">("cockpit.chartMode.v1", "levels");
+  const [indicatorsOpen, setIndicatorsOpen] = useState(false);
+  // User-configurable NATIVE chart indicators, computed from Kite candles. Persisted.
+  const { value: indicators, setValue: setIndicators } = useLocalStorage<IndicatorInstance[]>("cockpit.indicators.chart.v1", DEFAULT_INDICATORS);
 
   // Reference-only instruments (e.g. GIFT NIFTY on NSEIX) are visible/selectable
   // but Kite can't quote them, so we never call live-signal with them.
@@ -351,28 +352,32 @@ export function LiveMarketSignal() {
             <div className="mb-4">
               <IndicatorGroups signal={signal.data} />
             </div>
-            {/* Chart — Kite candles + locked levels, or TradingView advanced (unlimited indicators) */}
+            {/* Chart — Kite candles with NATIVE indicator overlays; locked levels stay fixed */}
             <div className="mb-4">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <div className="inline-flex rounded-lg border border-white/10 bg-base-800/60 p-0.5 text-xs">
-                  <button type="button" onClick={() => setChartMode("levels")} className={`rounded-md px-2.5 py-1 font-semibold transition-colors ${chartMode === "levels" ? "bg-accent/20 text-accent" : "text-slate-400 hover:text-slate-200"}`}>Kite · levels</button>
-                  <button type="button" onClick={() => setChartMode("advanced")} className={`rounded-md px-2.5 py-1 font-semibold transition-colors ${chartMode === "advanced" ? "bg-accent/20 text-accent" : "text-slate-400 hover:text-slate-200"}`}>TradingView · indicators</button>
+                <span className="text-[11px] text-slate-500">Chart · Kite candles · Entry/SL/Target lines stay locked</span>
+                <div className="relative">
+                  <button type="button" onClick={() => setIndicatorsOpen((v) => !v)} className="inline-flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/20">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5" aria-hidden>
+                      <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" strokeLinecap="round" />
+                    </svg>
+                    Indicators ({indicators.filter((i) => i.enabled).length})
+                  </button>
+                  {indicatorsOpen && <IndicatorsPanel indicators={indicators} setIndicators={setIndicators} onClose={() => setIndicatorsOpen(false)} />}
                 </div>
-                {chartMode === "advanced" && (
-                  <span className="text-[10px] text-slate-500">Apply unlimited indicators via the chart’s <span className="font-semibold text-slate-400">ƒx Indicators</span> button · TradingView data (may differ from Kite)</span>
-                )}
               </div>
-              {chartMode === "advanced" ? (
-                <div className="overflow-hidden rounded-lg border border-white/5">
-                  <TradingViewChart symbol={tvSymbol(sel.instrument)} interval={tvInterval(interval)} theme={theme} />
-                </div>
-              ) : chart && chart.candles.length > 0 ? (
-                <div className="rounded-lg border border-white/5 bg-base-800/30 p-2">
-                  <LiveChart data={chart} priceLines={plan ? planPriceLines(plan) : priceLinesFor(signal.data)} />
-                </div>
+              {chart && chart.candles.length > 0 ? (
+                <>
+                  <div className="rounded-lg border border-white/5 bg-base-800/30 p-2">
+                    <LiveChart data={chart} priceLines={plan ? planPriceLines(plan) : priceLinesFor(signal.data)} indicators={indicators} theme={theme} />
+                  </div>
+                  <div className="mt-2">
+                    <OscillatorCards candles={chart.candles} indicators={indicators} />
+                  </div>
+                </>
               ) : (
                 <p className="rounded-lg border border-white/5 bg-base-800/30 px-3 py-4 text-center text-xs text-slate-500">
-                  Kite candles unavailable for this view — switch to <strong className="text-accent">TradingView · indicators</strong> for the advanced chart with the full indicator library.
+                  Chart needs Kite candles — none returned for this view yet. Indicators compute from candle data.
                 </p>
               )}
             </div>
