@@ -43,6 +43,30 @@ export const env = {
     // Instruments cache TTL (hours) before an auto-refresh is attempted.
     instrumentsTtlHours: Number(process.env.KITE_INSTRUMENTS_TTL_HOURS ?? 24),
   },
+
+  /**
+   * News ingestion (server-side only) for the market-intelligence layer.
+   * Defaults to public Indian-markets RSS feeds (no key needed); override with
+   * NEWS_RSS_URLS (comma-separated) or add a NewsAPI key. Graceful fallback:
+   * if nothing resolves, the API reports News unavailable (never fabricated).
+   */
+  news: {
+    apiKey: (process.env.NEWS_API_KEY ?? "").trim(),
+    rssUrls: (process.env.NEWS_RSS_URLS ??
+      [
+        "https://www.moneycontrol.com/rss/marketreports.xml",
+        "https://www.moneycontrol.com/rss/business.xml",
+        "https://www.business-standard.com/rss/markets-106.rss",
+        "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+      ].join(","))
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    cacheMinutes: Number(process.env.NEWS_CACHE_MINUTES ?? 5),
+    maxItems: Number(process.env.NEWS_MAX_ITEMS ?? 30),
+    // News older than this many hours decays to ~zero weight in scoring.
+    decayHours: Number(process.env.NEWS_DECAY_HOURS ?? 12),
+  },
 } as const;
 
 export const isProd = env.nodeEnv === "production";

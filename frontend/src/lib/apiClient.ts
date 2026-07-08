@@ -31,6 +31,8 @@ import type {
   PaperTradeView,
   SearchResponse,
   TopMoversResponse,
+  MarketIntelligenceResponse,
+  NewsResponse,
   TradePlanRequest,
   TradePlanResponse,
 } from "@/types/api";
@@ -253,6 +255,17 @@ export const api = {
   // Top movers (Phase 3G) — read-only.
   topMovers: (segment: "equity" | "indices" | "futures" | "options") =>
     request<TopMoversResponse>(`/api/market/top-movers?segment=${segment}`),
+
+  // Market intelligence — combined technical + VIX + news + breadth (READ-ONLY).
+  intelligence: (params: { instrument?: string; interval?: string; riskProfile?: string } & Partial<ResolveParams>) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
+    return request<MarketIntelligenceResponse>(`/api/market-intelligence?${qs.toString()}`);
+  },
+  news: {
+    market: () => request<NewsResponse>("/api/news/market"),
+    instrument: (symbol: string) => request<NewsResponse>(`/api/news/instrument?symbol=${encodeURIComponent(symbol)}`),
+  },
 
   // Zerodha account (Phase 3G) — read-only; safe fallback when unavailable.
   account: {

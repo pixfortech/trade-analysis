@@ -5,6 +5,7 @@ import { api } from "@/lib/apiClient";
 import { num } from "@/lib/format";
 import { ActionPill, Icon, type DsAction } from "@/components/terminal/ds";
 import { IndicatorGroups } from "./MarketContext";
+import { MarketIntelligence } from "./MarketIntelligence";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { useAiScanners, type Scanner } from "@/lib/aiScanners";
 import { useAiVirtualTrades, type NewVirtualTrade } from "@/lib/aiVirtualTrades";
@@ -608,11 +609,14 @@ function TabTime({ signal }: { signal: LiveSignal }) {
 
 function TabRisk({ view, signal, breadth }: { view: AssistantView; signal: LiveSignal; breadth: { up: number; down: number } | null }) {
   const [open, setOpen] = useState(false);
+  const g = useGlobalControls();
   const atrPct = signal.indicators.atr != null && signal.currentPrice ? Math.round((signal.indicators.atr / signal.currentPrice) * 10000) / 100 : null;
   const breakdown = factorBreakdown(signal);
   const bt = breadth ? (breadth.up > breadth.down ? "text-bull" : breadth.down > breadth.up ? "text-bear" : "text-slate-300") : "text-slate-400";
   return (
     <div className="space-y-2">
+      {/* Combined real-time intelligence (technicals + VIX + news + breadth) */}
+      <MarketIntelligence instrument={signal.instrument} interval="5minute" riskProfile="balanced" live={g.liveUpdates} />
       <div className="grid grid-cols-3 gap-1.5 text-center text-[11px]">
         <FactorCard label="Volatility" value={atrPct == null ? "—" : `ATR ${atrPct}%`} />
         <FactorCard label="Trend" value={`${cap(signal.trend.direction)} (${signal.trend.strength})`} />

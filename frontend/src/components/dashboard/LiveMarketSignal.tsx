@@ -22,6 +22,7 @@ import { STRATEGY_MODES, modeBlurb } from "@/lib/strategyModes";
 import { TimeBasedPlan } from "./TimeBasedPlan";
 import { TradeGuidance } from "./TradeGuidance";
 import { OhlcStrip, IndicatorGroups } from "./MarketContext";
+import { MarketIntelligence } from "./MarketIntelligence";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { Expandable } from "@/components/ui/Expandable";
 import { buildTradePlan, evaluatePlan, type TradePlanSnapshot } from "@/lib/tradePlan";
@@ -348,6 +349,10 @@ export function LiveMarketSignal() {
                 to lock a trade plan (entry, stop-loss, targets) for {interval} · <span className="capitalize">{riskProfile}</span>.
               </div>
             )}
+            {/* Real-time market intelligence — technicals + VIX + news + breadth */}
+            <div className="mb-4">
+              <MarketIntelligence instrument={sel.instrument} interval={interval} riskProfile={riskProfile} live={global.liveUpdates} />
+            </div>
             {/* Indicators — the single, grouped & collapsible indicator section */}
             <div className="mb-4">
               <IndicatorGroups signal={signal.data} />

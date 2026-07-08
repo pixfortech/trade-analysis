@@ -115,6 +115,61 @@ export interface TopMoversResponse {
   message: string;
 }
 
+// Market intelligence — combined technical + VIX + news + breadth (READ-ONLY).
+export interface NewsItem {
+  title: string;
+  source: string;
+  url: string | null;
+  publishedAt: string | null;
+  ageMinutes: number | null;
+  sentiment: "positive" | "negative" | "neutral";
+  impact: "low" | "medium" | "high";
+  reason: string;
+  matched?: string;
+}
+export interface NewsResponse { available: boolean; items: NewsItem[]; sources: string[]; fetchedAt: string; message?: string }
+export interface VixInfo {
+  available: boolean;
+  value: number | null;
+  change: number | null;
+  changePercent: number | null;
+  status: "low" | "normal" | "elevated" | "high" | "unknown";
+  direction: "rising" | "falling" | "flat" | "unknown";
+  interpretation: string;
+  score: number;
+  timestamp: string;
+  message?: string;
+}
+export interface IntelFactorCard { key: string; label: string; status: string; value: string; tone: "bull" | "bear" | "neutral" | "warn"; reason: string }
+export interface SentimentAgg { label: "positive" | "negative" | "neutral"; stockScore: number; marketScore: number; strongNegative: boolean; strongPositive: boolean; reasons: string[] }
+export interface MarketIntelligenceResponse {
+  instrument: string;
+  displayName: string;
+  timestamp: string;
+  finalAction: "ENTER" | "WAIT" | "HOLD" | "EXIT" | "AVOID" | "NO ACTION";
+  bias: "Bullish" | "Bearish" | "Neutral";
+  confidence: number;
+  winEstimate: number;
+  risk: "Low" | "Medium" | "High";
+  caution: string;
+  reason: string;
+  supporting: string[];
+  blocking: string[];
+  entryWindow: string;
+  exitWindow: string;
+  cards: IntelFactorCard[];
+  study: { technical: string; vix: string; news: string; trend: string; risk: string; recommendation: string };
+  vix: VixInfo;
+  news: NewsResponse;
+  newsMatched: NewsItem[];
+  sentiment: SentimentAgg;
+  trend: { breadthAdv: number; breadthDec: number; breadthScore: number; note: string };
+  technical: { action: string; trend: string; strength: string; bullishPercent: number; invalidation: number; dataQuality: string };
+  readOnly: true;
+  disclaimer: string;
+  notice?: string;
+}
+
 // Phase 3F additions
 export type IndicatorId = "VWAP" | "EMA20" | "EMA50" | "RSI" | "MACD" | "ADX" | "ATR" | "SUPERTREND" | "VOLUME" | "OI";
 
