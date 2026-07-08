@@ -7,6 +7,7 @@ import { ActionPill, Icon, type DsAction } from "@/components/terminal/ds";
 import { IndicatorGroups } from "./MarketContext";
 import { MarketIntelligence } from "./MarketIntelligence";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
+import { useKiteConnected } from "@/hooks/useKiteConnected";
 import { useAiScanners, type Scanner } from "@/lib/aiScanners";
 import { useAiVirtualTrades, type NewVirtualTrade } from "@/lib/aiVirtualTrades";
 import { buildTimeBasedPlan } from "@/lib/timeBasedPlan";
@@ -168,6 +169,9 @@ export function FloatingAssistants() {
     }
     void fetchAll();
   }, [fetchAll]);
+
+  // Kite just connected → refetch every open assistant's live signal.
+  useKiteConnected(() => void fetchAll());
 
   // Market breadth (indices) for the Sentiment section.
   const hasScanners = scanners.length > 0;

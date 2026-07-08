@@ -6,6 +6,7 @@ import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
+import { useKiteConnected } from "@/hooks/useKiteConnected";
 import { api } from "@/lib/apiClient";
 import { num, pct } from "@/lib/format";
 import { useAiScanners } from "@/lib/aiScanners";
@@ -85,6 +86,8 @@ export function LiveWatchlist() {
     const id = window.setInterval(() => void refreshQuotes(), cfg.refresh.watchlistMs);
     return () => window.clearInterval(id);
   }, [hydrated, g.liveUpdates, refreshQuotes, cfg.refresh.watchlistMs]);
+  // Kite just connected → refetch live prices (clears "needs Kite" note).
+  useKiteConnected(() => void refreshQuotes());
 
   const [openedNote, setOpenedNote] = useState<string | null>(null);
   const handleAnalyse = (it: WatchItem) => {

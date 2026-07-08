@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
+import { useKiteConnected } from "@/hooks/useKiteConnected";
 import { api } from "@/lib/apiClient";
 import { numFlex, tsec } from "@/lib/format";
 import { InstrumentSearch, type SelectedInstrument } from "@/components/dashboard/InstrumentSearch";
@@ -63,6 +64,8 @@ export function StatusStrip() {
     const id = window.setInterval(() => void refresh(), cfg.refresh.topStripMs);
     return () => window.clearInterval(id);
   }, [hydrated, g.liveUpdates, refresh, cfg.refresh.topStripMs]);
+  // Kite just connected → refetch quotes immediately (clears the awaiting state).
+  useKiteConnected(() => void refresh());
 
   const add = (ins: SelectedInstrument) =>
     setItems((cur) => (cur.some((i) => i.instrument === ins.instrument) ? cur : [...cur, { instrument: ins.instrument, displayName: ins.displayName }]));

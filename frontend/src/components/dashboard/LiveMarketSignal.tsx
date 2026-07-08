@@ -25,6 +25,7 @@ import { OhlcStrip, IndicatorGroups } from "./MarketContext";
 import { MarketIntelligence } from "./MarketIntelligence";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
+import { useKiteConnected } from "@/hooks/useKiteConnected";
 import { Expandable } from "@/components/ui/Expandable";
 import { buildTradePlan, evaluatePlan, type TradePlanSnapshot } from "@/lib/tradePlan";
 
@@ -152,6 +153,12 @@ export function LiveMarketSignal() {
     const id = window.setInterval(() => void run(), cfg.refresh.liveSignalMs);
     return () => window.clearInterval(id);
   }, [global.liveUpdates, sel, signal.data, run, cfg.refresh.liveSignalMs]);
+
+  // Kite just connected → if an instrument is engaged (errored or loaded),
+  // re-run the live signal so a stale "login required" error is cleared.
+  useKiteConnected(() => {
+    if (sel && sel.quotable !== false && (signal.isError || signal.data)) void run();
+  });
 
   // Best-effort India VIX via the existing quote endpoint (read-only). Resilient:
   // if it isn't quotable / subscribed, vix stays null and timing computes without it.
@@ -304,7 +311,6 @@ export function LiveMarketSignal() {
         ) : (
           <span className="rounded-full border border-white/10 bg-base-800/60 px-2.5 py-0.5">Live updates ON</span>
         )}
-        <span>· Reversal alerts are advisory only.</span>
       </div>
 
       <div className="mt-4">
@@ -331,8 +337,7 @@ export function LiveMarketSignal() {
         ) : signal.data ? (
           <>
             <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-              <span>Source: Zerodha Kite (live/historical)</span>
-              <span>· Timeframe: {interval}</span>
+              <span>Timeframe: {interval}</span>
               <span>· Mode: <span className="capitalize">{riskProfile}</span></span>
               <span>· Updated: {formatTime(signal.data.timestamp)}</span>
             </div>

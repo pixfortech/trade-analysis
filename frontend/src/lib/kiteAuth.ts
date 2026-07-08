@@ -12,9 +12,25 @@
 
 export const KITE_CONNECTED_KEY = "kite_connected_success";
 export const KITE_CHANNEL = "kite-auth";
+/** App-level DOM event every Kite-dependent module listens to (in-tab fan-out). */
+export const KITE_CONNECTED_EVENT = "kite:connected";
 
 /** How recent a stored flag must be to count as "just connected" on subscribe. */
 const RECENT_MS = 20_000;
+
+/**
+ * Fire ONE app-level `kite:connected` event so every Kite-dependent module can
+ * refetch at once. Throttled — the bridge (cross-tab) and the connect poll can
+ * both detect the same login within a moment. Safe outside the browser (no-op).
+ */
+let lastEmit = 0;
+export function emitKiteConnected(): void {
+  if (typeof window === "undefined") return;
+  const now = Date.now();
+  if (now - lastEmit < 1200) return; // collapse duplicate detections into one
+  lastEmit = now;
+  window.dispatchEvent(new CustomEvent(KITE_CONNECTED_EVENT));
+}
 
 export interface KiteConnectedMessage {
   type: "kite-connected";

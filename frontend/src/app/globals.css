@@ -218,7 +218,13 @@ html.light input::placeholder { color: #94a3b8; }
    Terminal cockpit layout (design redesign). Two-column dashboard with a
    372px right rail that collapses to a single column on narrow screens.
    ===================================================================== */
+/* Layout density. Compact (default) tightens card padding + layout gaps by
+   shrinking the two spacing tokens the cockpit uses most, for a fast,
+   professional feel with less scrolling. Comfortable keeps the roomier tokens. */
+:root[data-density="compact"] { --space-5: 14px; --space-6: 16px; }
+
 .cockpit-main { padding: var(--space-6) var(--space-6) 120px; }
+:root[data-density="compact"] .cockpit-main { padding: var(--space-5) var(--space-5) 88px; }
 @media (max-width: 640px) { .cockpit-main { padding: var(--space-4) var(--space-4) 96px; } }
 
 .cockpit-grid { display: grid; grid-template-columns: minmax(0, 1fr) 372px; gap: var(--space-6); align-items: start; }

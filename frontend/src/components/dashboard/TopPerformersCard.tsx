@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { InfoTooltip } from "@/components/ui/Inputs";
 import { api } from "@/lib/apiClient";
+import { useKiteConnected } from "@/hooks/useKiteConnected";
 import { num, tsec } from "@/lib/format";
 import type { Mover, TopMoversResponse } from "@/types/api";
 
@@ -37,6 +38,9 @@ export function TopPerformersCard() {
   useEffect(() => {
     void load(tab);
   }, [tab, load]);
+
+  // Kite just connected → clear the stale "login required" error and refetch.
+  useKiteConnected(() => void load(tab));
 
   return (
     <Card

@@ -5,6 +5,7 @@ import { api } from "@/lib/apiClient";
 import { tsec } from "@/lib/format";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
+import { useKiteConnected } from "@/hooks/useKiteConnected";
 import { Icon } from "@/components/terminal/ds";
 import type { IntelFactorCard, MarketIntelligenceResponse, NewsItem } from "@/types/api";
 
@@ -52,6 +53,8 @@ export function MarketIntelligence({ instrument, interval, riskProfile, live }: 
     const id = window.setInterval(() => void load(), cfg.refresh.intelligenceMs);
     return () => window.clearInterval(id);
   }, [live, load, cfg.refresh.intelligenceMs]);
+  // Kite just connected → clear the stale error, show loading and refetch.
+  useKiteConnected(() => { setStatus("loading"); setErr(null); void load(); });
 
   const finalTone = data ? ACTION_TONE[data.finalAction] ?? "neutral" : "neutral";
   const newsList: NewsItem[] = data ? [...data.newsMatched.slice(0, 3), ...data.news.items.filter((i) => !data.newsMatched.some((m) => m.title === i.title)).slice(0, 3)] : [];
@@ -146,7 +149,6 @@ export function MarketIntelligence({ instrument, interval, riskProfile, live }: 
               )}
             </div>
 
-            <p style={{ fontSize: 10, color: "var(--ink-4)", marginTop: 10 }}>Advisory only — read-only, no order execution. Combines live technicals with VIX, news sentiment and breadth; missing inputs are shown as unavailable, never fabricated.</p>
           </>
         ) : null}
       </div>

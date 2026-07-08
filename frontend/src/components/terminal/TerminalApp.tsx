@@ -5,6 +5,8 @@ import { TopBar, NavRail, type Screen } from "./Chrome";
 import { StatusStrip } from "./LiveIndicesStrip";
 import { DsCard, Icon, Switch } from "./ds";
 import { useModules, MODULES } from "@/hooks/useModules";
+import { useKiteConnectedBridge } from "@/hooks/useKiteConnected";
+import { useGlobalControls, type Density } from "@/hooks/useGlobalControls";
 import { LiveMarketSignal } from "@/components/dashboard/LiveMarketSignal";
 import { TopPerformersCard } from "@/components/dashboard/TopPerformersCard";
 import { LiveWatchlist } from "@/components/dashboard/LiveWatchlist";
@@ -31,6 +33,9 @@ export function TerminalApp() {
   const [screen, setScreen] = useState<Screen>("dashboard");
   const { isOn } = useModules();
   const stripVisible = isOn("indicesBreadth");
+  // Bridge cross-tab Kite-login signals into the app-level kite:connected event
+  // so EVERY Kite-dependent module refetches on connect (no manual refresh).
+  useKiteConnectedBridge();
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--surface-app)" }}>
@@ -99,15 +104,8 @@ function DashboardScreen({ onNav }: { onNav: (s: Screen) => void }) {
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: "var(--space-5)" }}>
-        <div>
-          <p className="eyebrow">Cockpit · live read-only</p>
-          <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.02em", color: "var(--ink-1)" }}>{signalOn ? "Live Market Signal" : "Trading cockpit"}</h1>
-        </div>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 11px", borderRadius: "var(--radius-pill)", background: "var(--action-enter-soft)", border: "1px solid var(--action-enter-border)", color: "var(--action-enter)", fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--status-live)" }} />
-          Advisory · no order execution
-        </span>
+      <div style={{ marginBottom: "var(--space-5)" }}>
+        <h1 style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-0.02em", color: "var(--ink-1)" }}>{signalOn ? "Live Market Signal" : "Trading cockpit"}</h1>
       </div>
 
       {!leftHas && !railHas ? (
@@ -125,9 +123,8 @@ function DashboardScreen({ onNav }: { onNav: (s: Screen) => void }) {
         left
       )}
 
-      <footer style={{ marginTop: 40, borderTop: "1px solid var(--border-1)", paddingTop: "var(--space-6)", textAlign: "center", fontSize: 12, lineHeight: 1.6, color: "var(--ink-3)" }}>
-        <p>AI Share Market Analysis Tool · Live read-only market data via Zerodha Kite. Advisory analysis only — no automatic trade execution.</p>
-        <p style={{ marginTop: 6 }}>⚠️ Not investment advice. No order placement, modification or execution. Trading in equities, futures &amp; options involves substantial risk of loss.</p>
+      <footer style={{ marginTop: "var(--space-6)", borderTop: "1px solid var(--border-1)", paddingTop: "var(--space-5)", textAlign: "center", fontSize: 11.5, lineHeight: 1.5, color: "var(--ink-4)" }}>
+        <p>⚠️ Advisory only · read-only Kite data · no order execution. Not investment advice — trading involves substantial risk of loss.</p>
       </footer>
     </>
   );
@@ -146,6 +143,7 @@ function ModulesPanel() {
         </button>
       }
     >
+      <DensityToggle />
       <p style={{ fontSize: 13, color: "var(--ink-3)", margin: "0 0 14px" }}>
         Turn cockpit modules on or off. Hidden modules aren&apos;t deleted — re-enable any time. Saved on this device.
       </p>
@@ -157,6 +155,28 @@ function ModulesPanel() {
         ))}
       </div>
     </DsCard>
+  );
+}
+
+/** Compact / Comfortable layout density — segmented control (compact default). */
+function DensityToggle() {
+  const { density, setDensity } = useGlobalControls();
+  const opts: { id: Density; label: string }[] = [
+    { id: "compact", label: "Compact" },
+    { id: "comfortable", label: "Comfortable" },
+  ];
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink-2)" }}>Layout density</span>
+      <div style={{ display: "inline-flex", padding: 2, gap: 2, borderRadius: "var(--radius-md)", border: "1px solid var(--border-2)", background: "var(--surface-sunken)" }}>
+        {opts.map((o) => (
+          <button key={o.id} type="button" onClick={() => setDensity(o.id)} aria-pressed={density === o.id}
+            style={{ padding: "5px 12px", borderRadius: "var(--radius-sm)", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, background: density === o.id ? "var(--brand-500)" : "transparent", color: density === o.id ? "#fff" : "var(--ink-3)" }}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

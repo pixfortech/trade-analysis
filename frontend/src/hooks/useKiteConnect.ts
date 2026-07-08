@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/apiClient";
-import { subscribeKiteConnected } from "@/lib/kiteAuth";
+import { emitKiteConnected } from "@/lib/kiteAuth";
+import { useKiteConnected } from "@/hooks/useKiteConnected";
 
 // Bounded status poll started when the user clicks Connect. It is a FALLBACK for
 // when cross-tab signalling can't reach us (BroadcastChannel unsupported, popup
@@ -29,17 +30,16 @@ export function useKiteConnect(refresh: () => void) {
     stopPollRef.current = () => {};
   }, []);
 
-  // Cross-tab success (from the /kite/connected page in the login tab).
-  useEffect(() => {
-    const unsub = subscribeKiteConnected(() => {
-      refreshRef.current();
-      stopPoll();
-    });
-    return () => {
-      unsub();
-      stopPoll();
-    };
-  }, [stopPoll]);
+  // Refresh the caller's own status on the app-level kite:connected event (fired
+  // by the bridge for cross-tab logins, or by our poll below). The bridge owns
+  // the single cross-tab subscription, so we don't open one per button here.
+  useKiteConnected(() => {
+    refreshRef.current();
+    stopPoll();
+  });
+
+  // Stop any running poll if the component unmounts mid-connect.
+  useEffect(() => () => stopPoll(), [stopPoll]);
 
   const startPoll = useCallback(() => {
     stopPoll(); // never run two polls at once
@@ -52,7 +52,8 @@ export function useKiteConnect(refresh: () => void) {
       try {
         const s = await api.kite.status();
         if (s.liveDataEnabled && s.configured && s.authenticated) {
-          refreshRef.current();
+          // Fan out to EVERY Kite-dependent module, not just this button.
+          emitKiteConnected();
           stopPoll();
         }
       } catch {

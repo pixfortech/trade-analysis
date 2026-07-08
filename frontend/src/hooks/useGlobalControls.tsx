@@ -4,6 +4,12 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 
 export type SidebarMode = "expanded" | "collapsed" | "hidden";
 
+// Layout density (Phase 3Q). Compact is the default — tighter card padding and
+// layout gaps for a fast, professional cockpit. Applied as data-density on
+// <html>; globals.css overrides the spacing tokens for compact.
+export type Density = "compact" | "comfortable";
+export const DENSITY_DEFAULT: Density = "compact";
+
 // Global numeric font size (Phase 3M). Stored as a pixel value and applied as an
 // inline CSS custom property on <html> (globals.css consumes --app-base-font-size).
 export const FONT_MIN = 13;
@@ -64,6 +70,9 @@ export interface GlobalControls {
   increaseFont: () => void;
   decreaseFont: () => void;
   resetFont: () => void;
+  // Layout density (Phase 3Q) — compact (default) or comfortable.
+  density: Density;
+  setDensity: (d: Density) => void;
   // Shared selected instrument (Phase 3L) — null until the user picks one.
   selectedInstrument: SharedInstrument | null;
   setSelectedInstrument: (ins: SharedInstrument | null) => void;
@@ -75,6 +84,7 @@ const SIDEBAR_KEY = "global.sidebarMode.v1";
 const FONT_KEY = "trade-ui.font-size-px.v1";
 const FONT_KEY_LEGACY = "trade-ui.font-size.v1"; // old preset names — migrated once
 const INSTRUMENT_KEY = "trade-ui.selected-instrument.v1";
+const DENSITY_KEY = "cockpit.density.v1";
 
 const Ctx = createContext<GlobalControls | null>(null);
 
@@ -92,6 +102,12 @@ function applyFontSize(px: number) {
   document.documentElement.style.setProperty("--app-base-font-size", `${px}px`);
 }
 
+/** Apply layout density as a data attribute on <html> (globals.css reacts). */
+function applyDensity(d: Density) {
+  if (typeof document === "undefined") return;
+  document.documentElement.setAttribute("data-density", d);
+}
+
 /**
  * App-wide live-monitoring, alerts, sidebar, font-size and shared-instrument
  * state. Persisted in localStorage. Live updates default ON; alerts follow the
@@ -105,6 +121,7 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
   const [sidebarMode, setSidebarModeState] = useState<SidebarMode>("expanded");
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [fontSizePx, setFontSizePxState] = useState<number>(FONT_DEFAULT);
+  const [density, setDensityState] = useState<Density>(DENSITY_DEFAULT);
   const [selectedInstrument, setSelectedInstrumentState] = useState<SharedInstrument | null>(null);
 
   // Hydrate from storage + current permission.
@@ -126,6 +143,10 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
       }
       setFontSizePxState(px);
       applyFontSize(px);
+      const dens = window.localStorage.getItem(DENSITY_KEY);
+      const d: Density = dens === "comfortable" ? "comfortable" : "compact";
+      setDensityState(d);
+      applyDensity(d);
       const ins = window.localStorage.getItem(INSTRUMENT_KEY);
       if (ins) {
         const parsed = JSON.parse(ins) as Partial<SharedInstrument>;
@@ -217,6 +238,17 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
   const decreaseFont = useCallback(() => setFontSizePx(fontSizePx - 1), [fontSizePx, setFontSizePx]);
   const resetFont = useCallback(() => setFontSizePx(FONT_DEFAULT), [setFontSizePx]);
 
+  const setDensity = useCallback((d: Density) => {
+    setDensityState(d);
+    applyDensity(d);
+    try {
+      window.localStorage.setItem(DENSITY_KEY, d);
+    } catch {
+      /* ignore */
+    }
+    pokeResize(); // grid must remeasure when spacing changes
+  }, []);
+
   const setSelectedInstrument = useCallback((ins: SharedInstrument | null) => {
     setSelectedInstrumentState(ins);
     try {
@@ -247,6 +279,8 @@ export function GlobalControlsProvider({ children }: { children: React.ReactNode
         increaseFont,
         decreaseFont,
         resetFont,
+        density,
+        setDensity,
         selectedInstrument,
         setSelectedInstrument,
       }}
@@ -278,6 +312,8 @@ export function useGlobalControls(): GlobalControls {
       increaseFont: () => {},
       decreaseFont: () => {},
       resetFont: () => {},
+      density: DENSITY_DEFAULT,
+      setDensity: () => {},
       selectedInstrument: null,
       setSelectedInstrument: () => {},
     };
