@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/States";
 import { useAsync } from "@/hooks/useAsync";
@@ -24,11 +24,12 @@ import { TradeGuidance } from "./TradeGuidance";
 import { OhlcStrip, IndicatorGroups } from "./MarketContext";
 import { MarketIntelligence } from "./MarketIntelligence";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
+import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { Expandable } from "@/components/ui/Expandable";
 import { buildTradePlan, evaluatePlan, type TradePlanSnapshot } from "@/lib/tradePlan";
 
+// Kite-supported candle intervals (API enum — not a tunable business value).
 const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"];
-const DEFAULT_ACTIVE: IndicatorId[] = ["VWAP", "EMA20", "EMA50", "RSI", "MACD", "ADX", "ATR", "SUPERTREND", "VOLUME", "OI"];
 
 /**
  * Live Market Signal — primary READ-ONLY analysis card (Phase 3E/3F).
@@ -39,13 +40,15 @@ const DEFAULT_ACTIVE: IndicatorId[] = ["VWAP", "EMA20", "EMA50", "RSI", "MACD", 
  */
 export function LiveMarketSignal() {
   const global = useGlobalControls();
+  const cfg = usePublicConfig();
   const sel = global.selectedInstrument;
   const [interval, setInterval] = useState("5minute");
   const [riskProfile, setRiskProfile] = useState("balanced");
   const [segment, setSegment] = useState<InstrumentSegment>("all");
-  // Fixed indicator set (the old toggle/recalculate table was removed; the
-  // grouped indicator section below is summary-first and read-only).
-  const active = DEFAULT_ACTIVE;
+  // Default indicator set comes from the public runtime config (env-overridable).
+  // The old toggle/recalculate table was removed; the grouped indicator section
+  // below is summary-first and read-only.
+  const active = useMemo<IndicatorId[]>(() => cfg.defaults.activeIndicators as IndicatorId[], [cfg.defaults.activeIndicators]);
   const [chart, setChart] = useState<ChartDataResponse | null>(null);
   const signal = useAsync(api.liveSignal);
   const alerts = useAlerts();
@@ -146,9 +149,9 @@ export function LiveMarketSignal() {
   // the locked plan's levels are NOT recalculated here.
   useEffect(() => {
     if (!global.liveUpdates || !sel || !signal.data) return;
-    const id = window.setInterval(() => void run(), 5000);
+    const id = window.setInterval(() => void run(), cfg.refresh.liveSignalMs);
     return () => window.clearInterval(id);
-  }, [global.liveUpdates, sel, signal.data, run]);
+  }, [global.liveUpdates, sel, signal.data, run, cfg.refresh.liveSignalMs]);
 
   // Best-effort India VIX via the existing quote endpoint (read-only). Resilient:
   // if it isn't quotable / subscribed, vix stays null and timing computes without it.
@@ -157,7 +160,7 @@ export function LiveMarketSignal() {
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await api.kite.quote("NSE:INDIA VIX");
+        const res = await api.kite.quote(cfg.defaults.vixQuoteSymbol);
         const first = res?.data ? (Object.values(res.data)[0] as { last_price?: number } | undefined) : undefined;
         const lp = first?.last_price;
         if (!cancelled) setVix(typeof lp === "number" && lp > 0 ? lp : null);
@@ -166,9 +169,9 @@ export function LiveMarketSignal() {
       }
     };
     void load();
-    const id = window.setInterval(load, 60_000);
+    const id = window.setInterval(load, cfg.refresh.vixMs);
     return () => { cancelled = true; window.clearInterval(id); };
-  }, [signal.data]);
+  }, [signal.data, cfg.defaults.vixQuoteSymbol, cfg.refresh.vixMs]);
 
   // Reflow the grid once a result arrives so the summary/indicators fit cleanly.
   useEffect(() => {
@@ -296,7 +299,7 @@ export function LiveMarketSignal() {
           </span>
         ) : signal.data ? (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-bull/40 bg-bull-soft px-2.5 py-0.5 font-semibold text-bull">
-            <span className="h-1.5 w-1.5 rounded-full bg-bull" /> Live (auto-refresh 5s)
+            <span className="h-1.5 w-1.5 rounded-full bg-bull" /> Live (auto-refresh {Math.round(cfg.refresh.liveSignalMs / 1000)}s)
           </span>
         ) : (
           <span className="rounded-full border border-white/10 bg-base-800/60 px-2.5 py-0.5">Live updates ON</span>

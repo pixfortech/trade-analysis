@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
+import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { useTheme } from "@/hooks/useTheme";
 import { InstrumentSearch, type SelectedInstrument } from "@/components/dashboard/InstrumentSearch";
 import type { KiteStatus } from "@/types/api";
@@ -26,14 +27,17 @@ function Mark() {
 /* -------------------------------- top bar -------------------------------- */
 export function TopBar({ onNav }: { onNav: (s: Screen) => void }) {
   const g = useGlobalControls();
+  const cfg = usePublicConfig();
   const { theme, toggle } = useTheme();
   const kite = useAsync(api.kite.status);
 
-  // Poll status every 20s, and re-check whenever the tab regains focus (e.g.
-  // returning from the Kite login tab) so the badge updates promptly.
+  // Poll status on the configured interval (env-overridable via KITE_STATUS_
+  // REFRESH_MS), and re-check whenever the tab regains focus (e.g. returning
+  // from the Kite login tab) so the badge updates promptly.
+  const kiteStatusMs = cfg.refresh.kiteStatusMs;
   useEffect(() => {
     void kite.run();
-    const id = window.setInterval(() => void kite.run(), 20_000);
+    const id = window.setInterval(() => void kite.run(), kiteStatusMs);
     const onFocus = () => { if (document.visibilityState === "visible") void kite.run(); };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onFocus);
@@ -43,7 +47,7 @@ export function TopBar({ onNav }: { onNav: (s: Screen) => void }) {
       document.removeEventListener("visibilitychange", onFocus);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [kiteStatusMs]);
 
   const onPick = (ins: SelectedInstrument) =>
     g.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize, quotable: ins.quotable, name: ins.name });

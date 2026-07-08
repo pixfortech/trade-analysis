@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
+import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { api } from "@/lib/apiClient";
 import { numFlex, tsec } from "@/lib/format";
 import { InstrumentSearch, type SelectedInstrument } from "@/components/dashboard/InstrumentSearch";
@@ -13,14 +14,9 @@ interface StripItem {
   displayName: string;
 }
 
-// Live, user-editable indices. Defaults are the standard NSE/BSE indices —
-// shown only when Kite can actually quote them (else flagged unavailable).
-const DEFAULTS: StripItem[] = [
-  { instrument: "NSE:NIFTY 50", displayName: "NIFTY 50" },
-  { instrument: "NSE:NIFTY BANK", displayName: "BANK NIFTY" },
-  { instrument: "NSE:NIFTY FIN SERVICE", displayName: "FIN NIFTY" },
-  { instrument: "BSE:SENSEX", displayName: "SENSEX" },
-];
+// Live, user-editable indices. Defaults come from the public runtime config
+// (usePublicConfig → /api/config/public, env-overridable) — shown only when Kite
+// can actually quote them (else flagged unavailable).
 const KEY = "cockpit.indices.v1";
 
 interface Quote { ltp: number; changePercent: number | null }
@@ -28,7 +24,8 @@ interface Quote { ltp: number; changePercent: number | null }
 /** Live Kite-backed, editable indices strip (replaces the old static sample). */
 export function StatusStrip() {
   const g = useGlobalControls();
-  const { value: items, setValue: setItems, hydrated } = useLocalStorage<StripItem[]>(KEY, DEFAULTS);
+  const cfg = usePublicConfig();
+  const { value: items, setValue: setItems, hydrated } = useLocalStorage<StripItem[]>(KEY, cfg.defaults.topStripSymbols);
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
   const [missing, setMissing] = useState<Set<string>>(new Set());
   const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
@@ -63,9 +60,9 @@ export function StatusStrip() {
   // Auto-refresh ONLY while the global Live toggle is on (manual refresh always works).
   useEffect(() => {
     if (!hydrated || !g.liveUpdates) return;
-    const id = window.setInterval(() => void refresh(), 10_000);
+    const id = window.setInterval(() => void refresh(), cfg.refresh.topStripMs);
     return () => window.clearInterval(id);
-  }, [hydrated, g.liveUpdates, refresh]);
+  }, [hydrated, g.liveUpdates, refresh, cfg.refresh.topStripMs]);
 
   const add = (ins: SelectedInstrument) =>
     setItems((cur) => (cur.some((i) => i.instrument === ins.instrument) ? cur : [...cur, { instrument: ins.instrument, displayName: ins.displayName }]));
@@ -128,7 +125,7 @@ export function StatusStrip() {
           <div style={{ position: "absolute", right: 14, top: "calc(var(--status-height) + 4px)", zIndex: 42, width: 340, maxWidth: "calc(100vw - 28px)", background: "var(--surface-raised)", border: "1px solid var(--border-1)", borderRadius: "var(--radius-lg)", boxShadow: "var(--shadow-float)", padding: 12 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <span className="eyebrow">Edit indices strip</span>
-              <button type="button" onClick={() => setItems(DEFAULTS)} style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", background: "transparent", border: "none", cursor: "pointer" }}>Reset</button>
+              <button type="button" onClick={() => setItems(cfg.defaults.topStripSymbols)} style={{ fontSize: 11, fontWeight: 700, color: "var(--ink-3)", background: "transparent", border: "none", cursor: "pointer" }}>Reset</button>
             </div>
             <InstrumentSearch onSelect={add} placeholder="Add index / instrument…" />
             <div style={{ marginTop: 8, maxHeight: 240, overflowY: "auto" }}>

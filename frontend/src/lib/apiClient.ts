@@ -36,6 +36,7 @@ import type {
   TradePlanRequest,
   TradePlanResponse,
 } from "@/types/api";
+import type { PublicConfig } from "@/lib/config";
 
 export interface OpenPaperTradeBody {
   instrumentKey: string;
@@ -265,6 +266,12 @@ export const api = {
   news: {
     market: () => request<NewsResponse>("/api/news/market"),
     instrument: (symbol: string) => request<NewsResponse>(`/api/news/instrument?symbol=${encodeURIComponent(symbol)}`),
+  },
+
+  // Public runtime config (safe subset — no secrets). Drives refresh intervals,
+  // default instruments, default indicator set, feature flags and labels.
+  config: {
+    public: () => request<PublicConfig>("/api/config/public"),
   },
 
   // Zerodha account (Phase 3G) — read-only; safe fallback when unavailable.

@@ -16,6 +16,7 @@
 
 import { createHash } from "node:crypto";
 import { env } from "../config/env";
+import { intelConfig } from "../config/intelligence.config";
 
 const KITE_API_VERSION = "3";
 
@@ -115,10 +116,11 @@ let lastVerifyAt = 0;
 async function verifyToken(): Promise<void> {
   if (!isLiveDataEnabled() || !isConfigured() || !hasAccessToken()) return;
   const now = Date.now();
-  if (now - lastVerifyAt < 20_000) return;
+  if (now - lastVerifyAt < intelConfig.kite.tokenVerifyCacheMs) return;
   lastVerifyAt = now;
   try {
-    await kiteRequest<{ data?: unknown }>("GET", "/quote?i=NSE:INFY", undefined, true);
+    const probe = new URLSearchParams({ i: intelConfig.kite.tokenVerifySymbol });
+    await kiteRequest<{ data?: unknown }>("GET", `/quote?${probe.toString()}`, undefined, true);
   } catch {
     /* 403 already cleared the token; other errors are ignored on purpose. */
   }

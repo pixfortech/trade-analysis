@@ -72,6 +72,12 @@ export function makeInstance(type: IndicatorType, params?: Record<string, number
   return { id: instanceId(type, p), type, params: p, enabled: true, color: color ?? COLORS[type] ?? PALETTE[INDICATOR_ORDER.indexOf(type) % PALETTE.length] };
 }
 
+// Default chart-overlay instances (visual defaults: which indicators, their
+// params and colours). This is the SINGLE centralised default and is fully
+// overrideable at runtime — persisted per user in localStorage
+// ("cockpit.indicators.chart.v1") and editable via the IndicatorsPanel. The
+// runtime value that flows to the backend (the active indicator ID set) is
+// separately config-driven via usePublicConfig().defaults.activeIndicators.
 export const DEFAULT_INDICATORS: IndicatorInstance[] = [
   makeInstance("VWAP"),
   makeInstance("EMA", { length: 20 }, "#5b82ee"),

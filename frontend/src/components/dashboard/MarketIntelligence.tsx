@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/apiClient";
 import { tsec } from "@/lib/format";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { Icon } from "@/components/terminal/ds";
 import type { IntelFactorCard, MarketIntelligenceResponse, NewsItem } from "@/types/api";
 
@@ -30,6 +31,7 @@ export function MarketIntelligence({ instrument, interval, riskProfile, live }: 
   const [err, setErr] = useState<string | null>(null);
   const [refreshedAt, setRefreshedAt] = useState<number | null>(null);
   const { value: studyOpen, setValue: setStudyOpen } = useLocalStorage<boolean>("cockpit.intel.study.v1", false);
+  const cfg = usePublicConfig();
 
   const load = useCallback(async () => {
     try {
@@ -47,9 +49,9 @@ export function MarketIntelligence({ instrument, interval, riskProfile, live }: 
   useEffect(() => { setStatus("loading"); setData(null); void load(); }, [load]);
   useEffect(() => {
     if (!live) return;
-    const id = window.setInterval(() => void load(), 45_000);
+    const id = window.setInterval(() => void load(), cfg.refresh.intelligenceMs);
     return () => window.clearInterval(id);
-  }, [live, load]);
+  }, [live, load, cfg.refresh.intelligenceMs]);
 
   const finalTone = data ? ACTION_TONE[data.finalAction] ?? "neutral" : "neutral";
   const newsList: NewsItem[] = data ? [...data.newsMatched.slice(0, 3), ...data.news.items.filter((i) => !data.newsMatched.some((m) => m.title === i.title)).slice(0, 3)] : [];

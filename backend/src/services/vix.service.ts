@@ -1,37 +1,34 @@
-// India VIX (volatility) — READ-ONLY. Resolves via the Kite quote endpoint and
-// interprets level + direction. Cached briefly. If not quotable/authorised it
-// returns { available:false } — never fabricated.
+// India VIX (volatility) — READ-ONLY. Symbols, thresholds, scores, direction
+// sensitivity and cache TTL all come from intelConfig.vix (env-overridable).
+// If not quotable/authorised it returns { available:false } — never fabricated.
 
 import * as kite from "./kite.service";
+import { intelConfig } from "../config/intelligence.config";
 
 export interface VixResult {
   available: boolean;
   value: number | null;
-  change: number | null; // vs previous close
+  change: number | null;
   changePercent: number | null;
   status: "low" | "normal" | "elevated" | "high" | "unknown";
   direction: "rising" | "falling" | "flat" | "unknown";
   interpretation: string;
-  /** −1 (volatile, reduce risk) … +1 (calm, supports trend trades). */
   score: number;
   timestamp: string;
   message?: string;
 }
 
-// India VIX quotable keys to try in order.
-const VIX_KEYS = ["NSE:INDIA VIX", "NSE:INDIAVIX"];
-
 let cache: { at: number; result: VixResult } | null = null;
-const TTL_MS = 30_000;
 
 function interpret(value: number, change: number): { status: VixResult["status"]; direction: VixResult["direction"]; interpretation: string; score: number } {
-  const status: VixResult["status"] = value < 13 ? "low" : value < 17 ? "normal" : value < 22 ? "elevated" : "high";
+  const { thresholds, directionSensitivityPct, scoreByStatus, directionAdj } = intelConfig.vix;
+  const status: VixResult["status"] = value < thresholds.low ? "low" : value < thresholds.normal ? "normal" : value < thresholds.elevated ? "elevated" : "high";
   const pct = value > 0 ? (change / value) * 100 : 0;
-  const direction: VixResult["direction"] = pct > 1.5 ? "rising" : pct < -1.5 ? "falling" : "flat";
+  const direction: VixResult["direction"] = pct > directionSensitivityPct ? "rising" : pct < -directionSensitivityPct ? "falling" : "flat";
 
-  let score = status === "low" ? 0.5 : status === "normal" ? 0.2 : status === "elevated" ? -0.2 : -0.6;
-  if (direction === "rising") score -= 0.3;
-  else if (direction === "falling") score += 0.3;
+  let score = scoreByStatus[status];
+  if (direction === "rising") score += directionAdj.rising;
+  else if (direction === "falling") score += directionAdj.falling;
   score = Math.max(-1, Math.min(1, Math.round(score * 100) / 100));
 
   const levelText =
@@ -44,7 +41,7 @@ function interpret(value: number, change: number): { status: VixResult["status"]
 }
 
 export async function getVix(): Promise<VixResult> {
-  if (cache && Date.now() - cache.at < TTL_MS) return cache.result;
+  if (cache && Date.now() - cache.at < intelConfig.vix.cacheMs) return cache.result;
 
   const unavailable = (message: string): VixResult => ({
     available: false, value: null, change: null, changePercent: null, status: "unknown", direction: "unknown",
@@ -55,7 +52,7 @@ export async function getVix(): Promise<VixResult> {
     return unavailable("Kite not authorised.");
   }
 
-  for (const key of VIX_KEYS) {
+  for (const key of intelConfig.vix.symbols) {
     try {
       const q = await kite.getQuoteData(key);
       if (q.lastPrice > 0) {
@@ -69,7 +66,7 @@ export async function getVix(): Promise<VixResult> {
         return result;
       }
     } catch {
-      /* try next key */
+      /* try next configured symbol */
     }
   }
   const result = unavailable("India VIX not quotable via Kite for this session.");

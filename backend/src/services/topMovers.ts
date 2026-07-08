@@ -11,6 +11,7 @@
 import * as kite from "./kite.service";
 import * as instruments from "./instruments.service";
 import type { Instrument } from "./instruments.service";
+import { intelConfig } from "../config/intelligence.config";
 
 export type MoverSegment = "equity" | "indices" | "futures" | "options";
 
@@ -49,15 +50,9 @@ function scanListLabel(segment: MoverSegment): string {
   }
 }
 
-// Curated NSE large caps (kept small to respect rate limits).
-const CURATED_EQUITY = [
-  "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK", "SBIN", "BHARTIARTL", "ITC",
-  "LT", "KOTAKBANK", "AXISBANK", "HINDUNILVR", "BAJFINANCE", "MARUTI", "SUNPHARMA",
-  "TATAMOTORS", "WIPRO", "ULTRACEMCO", "TITAN", "ADANIENT", "POWERGRID", "NTPC",
-  "TATASTEEL", "JSWSTEEL", "M&M",
-];
-
-const MAX_INSTRUMENTS = 40; // hard cap per request
+// Bounded scan list + hard cap come from intelConfig.movers (env-overridable:
+// MOVERS_EQUITY_UNIVERSE, MOVERS_EQUITY_EXCHANGE, MOVERS_SCAN_LIMIT). Kept small
+// to respect Kite rate limits.
 
 function buildMover(instrumentKey: string, displayName: string, q: Record<string, unknown>): Mover | null {
   const ltp = typeof q.last_price === "number" ? q.last_price : 0;
@@ -73,7 +68,8 @@ function buildMover(instrumentKey: string, displayName: string, q: Record<string
 /** Pick the instrument keys to quote for a segment (bounded). */
 async function pickInstruments(segment: MoverSegment): Promise<{ keys: { key: string; name: string }[]; partial: boolean }> {
   if (segment === "equity") {
-    return { keys: CURATED_EQUITY.map((s) => ({ key: `NSE:${s}`, name: s })), partial: true };
+    const exch = intelConfig.movers.equityExchange;
+    return { keys: intelConfig.movers.equityUniverse.map((s) => ({ key: `${exch}:${s}`, name: s })), partial: true };
   }
   await instruments.ensureLoaded();
   const all = instruments.allInstruments();
@@ -85,8 +81,9 @@ async function pickInstruments(segment: MoverSegment): Promise<{ keys: { key: st
   } else {
     pool = nearestExpiry(all.filter((i) => ["CE", "PE"].includes(i.instrumentType.toUpperCase()) && i.exchange.toUpperCase() === "NFO"));
   }
-  const partial = pool.length > MAX_INSTRUMENTS || segment === "options" || segment === "futures";
-  const keys = pool.slice(0, MAX_INSTRUMENTS).map((i) => ({ key: `${i.exchange}:${i.tradingsymbol}`, name: i.name || i.tradingsymbol }));
+  const scanLimit = intelConfig.movers.scanLimit;
+  const partial = pool.length > scanLimit || segment === "options" || segment === "futures";
+  const keys = pool.slice(0, scanLimit).map((i) => ({ key: `${i.exchange}:${i.tradingsymbol}`, name: i.name || i.tradingsymbol }));
   return { keys, partial };
 }
 
@@ -122,7 +119,7 @@ export async function getTopMovers(segment: MoverSegment): Promise<TopMoversResu
 
   const scanned = movers.length;
   const total = keys.length;
-  const universe = segment === "equity" ? "NSE equity" : `${segment}`;
+  const universe = segment === "equity" ? `${intelConfig.movers.equityExchange} equity` : `${segment}`;
   return {
     segment,
     source: "kite",

@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { DsCard, DsBadge, Icon } from "@/components/terminal/ds";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
+import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { api } from "@/lib/apiClient";
 import { num, pct } from "@/lib/format";
 import { useAiScanners } from "@/lib/aiScanners";
@@ -21,10 +22,12 @@ interface LiveQuote {
 }
 
 const STORAGE_KEY = "watchlist.v1";
-const DEFAULT_ITEMS: WatchItem[] = [
-  { instrument: "NSE:RELIANCE", displayName: "RELIANCE", exchange: "NSE" },
-  { instrument: "NSE:INFY", displayName: "INFY", exchange: "NSE" },
-];
+
+/** Exchange prefix of an EXCHANGE:SYMBOL key (e.g. "NSE:RELIANCE" → "NSE"). */
+function exchangeOf(instrument: string): string {
+  const i = instrument.indexOf(":");
+  return i > 0 ? instrument.slice(0, i) : "NSE";
+}
 
 /**
  * Live watchlist — modern terminal table built from the design's WatchlistRow.
@@ -33,7 +36,14 @@ const DEFAULT_ITEMS: WatchItem[] = [
  * localStorage. READ-ONLY — Analyse opens a floating assistant, no trade buttons.
  */
 export function LiveWatchlist() {
-  const { value: items, setValue: setItems, hydrated } = useLocalStorage<WatchItem[]>(STORAGE_KEY, DEFAULT_ITEMS);
+  const cfg = usePublicConfig();
+  // Default watchlist comes from the public runtime config (env-overridable);
+  // derive each row's exchange from its instrument key.
+  const defaultItems = useMemo<WatchItem[]>(
+    () => cfg.defaults.watchlistSymbols.map((s) => ({ instrument: s.instrument, displayName: s.displayName, exchange: exchangeOf(s.instrument) })),
+    [cfg.defaults.watchlistSymbols],
+  );
+  const { value: items, setValue: setItems, hydrated } = useLocalStorage<WatchItem[]>(STORAGE_KEY, defaultItems);
   const scanners = useAiScanners();
   const g = useGlobalControls();
   const [quotes, setQuotes] = useState<Record<string, LiveQuote>>({});
@@ -72,9 +82,9 @@ export function LiveWatchlist() {
   // manual Refresh button still works regardless.
   useEffect(() => {
     if (!hydrated || !g.liveUpdates) return;
-    const id = window.setInterval(() => void refreshQuotes(), 12_000);
+    const id = window.setInterval(() => void refreshQuotes(), cfg.refresh.watchlistMs);
     return () => window.clearInterval(id);
-  }, [hydrated, g.liveUpdates, refreshQuotes]);
+  }, [hydrated, g.liveUpdates, refreshQuotes, cfg.refresh.watchlistMs]);
 
   const [openedNote, setOpenedNote] = useState<string | null>(null);
   const handleAnalyse = (it: WatchItem) => {

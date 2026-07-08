@@ -1,0 +1,124 @@
+// Public runtime config — the SINGLE frontend source of truth for runtime/
+// business defaults (refresh intervals, default instruments, default indicator
+// set, feature flags, approval thresholds, labels). The backend owns these
+// values and serves them at GET /api/config/public; this module mirrors that
+// shape and provides a SAFE LOCAL FALLBACK so the dashboard still renders when
+// the backend is briefly unreachable. Components must read from here (via
+// usePublicConfig), never hardcode these values inline.
+//
+// The fallback intentionally mirrors the backend defaults. It is a centralised,
+// overrideable default — the live server config always wins once it loads.
+
+export interface ConfigSymbol {
+  instrument: string;
+  displayName: string;
+}
+
+export interface PublicConfig {
+  refresh: {
+    liveSignalMs: number;
+    watchlistMs: number;
+    intelligenceMs: number;
+    topStripMs: number;
+    vixMs: number;
+    kiteStatusMs: number;
+  };
+  defaults: {
+    topStripSymbols: ConfigSymbol[];
+    watchlistSymbols: ConfigSymbol[];
+    benchmarkSymbols: string[];
+    activeIndicators: string[];
+    vixQuoteSymbol: string;
+  };
+  features: {
+    newsEnabled: boolean;
+    intelligenceEnabled: boolean;
+    newsProvider: string;
+  };
+  labels: {
+    readOnlyNotice: string;
+  };
+  winThreshold: number;
+  minEnterConfidence: number;
+  readOnly: boolean;
+}
+
+/**
+ * Safe local fallback. Mirrors the backend's documented defaults so the UI is
+ * fully functional offline; superseded by GET /api/config/public on load.
+ */
+export const FALLBACK_PUBLIC_CONFIG: PublicConfig = {
+  refresh: {
+    liveSignalMs: 5_000,
+    watchlistMs: 12_000,
+    intelligenceMs: 45_000,
+    topStripMs: 10_000,
+    vixMs: 60_000,
+    kiteStatusMs: 20_000,
+  },
+  defaults: {
+    topStripSymbols: [
+      { instrument: "NSE:NIFTY 50", displayName: "NIFTY 50" },
+      { instrument: "NSE:NIFTY BANK", displayName: "BANK NIFTY" },
+      { instrument: "NSE:NIFTY FIN SERVICE", displayName: "FIN NIFTY" },
+      { instrument: "BSE:SENSEX", displayName: "SENSEX" },
+    ],
+    watchlistSymbols: [
+      { instrument: "NSE:RELIANCE", displayName: "RELIANCE" },
+      { instrument: "NSE:INFY", displayName: "INFY" },
+    ],
+    benchmarkSymbols: ["NSE:NIFTY 50", "NSE:NIFTY BANK"],
+    activeIndicators: ["VWAP", "EMA20", "EMA50", "RSI", "MACD", "ADX", "ATR", "SUPERTREND", "VOLUME", "OI"],
+    vixQuoteSymbol: "NSE:INDIA VIX",
+  },
+  features: {
+    newsEnabled: true,
+    intelligenceEnabled: true,
+    newsProvider: "rss",
+  },
+  labels: {
+    readOnlyNotice: "Advisory market intelligence — read-only. No order placement, modification or execution.",
+  },
+  winThreshold: 75,
+  minEnterConfidence: 75,
+  readOnly: true,
+};
+
+/**
+ * Merge a partial server payload onto the fallback so a malformed/partial
+ * response can never leave a section undefined. Only known keys are taken.
+ */
+export function mergePublicConfig(raw: unknown): PublicConfig {
+  const base = FALLBACK_PUBLIC_CONFIG;
+  if (!raw || typeof raw !== "object") return base;
+  const r = raw as Partial<PublicConfig>;
+  return {
+    refresh: { ...base.refresh, ...(r.refresh ?? {}) },
+    defaults: {
+      topStripSymbols: pickSymbols(r.defaults?.topStripSymbols) ?? base.defaults.topStripSymbols,
+      watchlistSymbols: pickSymbols(r.defaults?.watchlistSymbols) ?? base.defaults.watchlistSymbols,
+      benchmarkSymbols: pickStrings(r.defaults?.benchmarkSymbols) ?? base.defaults.benchmarkSymbols,
+      activeIndicators: pickStrings(r.defaults?.activeIndicators) ?? base.defaults.activeIndicators,
+      vixQuoteSymbol: typeof r.defaults?.vixQuoteSymbol === "string" && r.defaults.vixQuoteSymbol ? r.defaults.vixQuoteSymbol : base.defaults.vixQuoteSymbol,
+    },
+    features: { ...base.features, ...(r.features ?? {}) },
+    labels: { ...base.labels, ...(r.labels ?? {}) },
+    winThreshold: typeof r.winThreshold === "number" ? r.winThreshold : base.winThreshold,
+    minEnterConfidence: typeof r.minEnterConfidence === "number" ? r.minEnterConfidence : base.minEnterConfidence,
+    readOnly: typeof r.readOnly === "boolean" ? r.readOnly : base.readOnly,
+  };
+}
+
+function pickSymbols(v: unknown): ConfigSymbol[] | null {
+  if (!Array.isArray(v)) return null;
+  const out = v
+    .filter((x): x is ConfigSymbol => !!x && typeof x === "object" && typeof (x as ConfigSymbol).instrument === "string")
+    .map((x) => ({ instrument: x.instrument, displayName: typeof x.displayName === "string" && x.displayName ? x.displayName : x.instrument }));
+  return out.length ? out : null;
+}
+
+function pickStrings(v: unknown): string[] | null {
+  if (!Array.isArray(v)) return null;
+  const out = v.filter((x): x is string => typeof x === "string" && x.length > 0);
+  return out.length ? out : null;
+}
