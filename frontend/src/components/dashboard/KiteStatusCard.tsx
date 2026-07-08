@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { ErrorState } from "@/components/ui/States";
 import { useAsync } from "@/hooks/useAsync";
+import { useKiteConnect } from "@/hooks/useKiteConnect";
 import { api } from "@/lib/apiClient";
 import type { KiteStatus } from "@/types/api";
 
@@ -16,6 +17,9 @@ import type { KiteStatus } from "@/types/api";
  */
 export function KiteStatusCard() {
   const status = useAsync(api.kite.status);
+  // Connect + auto-refresh: refreshes this card the moment login succeeds in the
+  // other tab (cross-tab signal + bounded poll), no manual reload needed.
+  const { connect, connecting, error: connectError } = useKiteConnect(() => void status.run());
 
   useEffect(() => {
     void status.run();
@@ -55,7 +59,7 @@ export function KiteStatusCard() {
             <Flag label="Authenticated" on={data.authenticated} />
           </div>
 
-          <ConnectButton status={data} />
+          <ConnectButton status={data} connect={connect} connecting={connecting} error={connectError} />
           <QuoteTester enabled={data.liveDataEnabled && data.configured && data.authenticated} />
 
           {/* Explicit, non-negotiable read-only notice. */}
@@ -89,32 +93,25 @@ function Flag({ label, on }: { label: string; on: boolean }) {
   );
 }
 
-function ConnectButton({ status }: { status: KiteStatus }) {
-  const login = useAsync(api.kite.loginUrl);
-
+function ConnectButton({ status, connect, connecting, error }: { status: KiteStatus; connect: () => void; connecting: boolean; error: string | null }) {
   // Nothing to connect to when disabled/unconfigured, or already authenticated.
   if (!status.liveDataEnabled || !status.configured) return null;
   if (status.authenticated) return null;
-
-  const onConnect = async () => {
-    const res = await login.run();
-    if (res?.loginUrl) window.open(res.loginUrl, "_blank", "noopener,noreferrer");
-  };
 
   return (
     <div>
       <button
         type="button"
-        onClick={onConnect}
-        disabled={login.isLoading}
+        onClick={connect}
+        disabled={connecting}
         className="rounded-lg bg-accent/20 px-4 py-2 text-sm font-medium text-accent transition-colors hover:bg-accent/30 disabled:opacity-40"
       >
-        {login.isLoading ? "Opening…" : "Connect Kite (read-only login)"}
+        {connecting ? "Opening…" : "Connect Kite (read-only login)"}
       </button>
-      {login.isError && <p className="mt-2 text-xs text-bear">{login.error}</p>}
+      {error && <p className="mt-2 text-xs text-bear">{error}</p>}
       <p className="mt-2 text-[11px] text-slate-500">
-        Opens Zerodha&apos;s official login in a new tab. After authorising, you&apos;ll be redirected to the
-        backend callback; return here and refresh status.
+        Opens Zerodha&apos;s official login in a new tab. After you authorise, this tab closes and the
+        dashboard updates to <span className="text-bull">Connected</span> automatically — no manual refresh.
       </p>
     </div>
   );

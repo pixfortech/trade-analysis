@@ -5,6 +5,7 @@ import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
+import { useKiteConnect } from "@/hooks/useKiteConnect";
 import { useTheme } from "@/hooks/useTheme";
 import { InstrumentSearch, type SelectedInstrument } from "@/components/dashboard/InstrumentSearch";
 import type { KiteStatus } from "@/types/api";
@@ -103,14 +104,11 @@ function IconBtn({ children, label, onClick }: { children: React.ReactNode; labe
  * this only authorises market-data access, never order placement.
  */
 function ConnectKite({ status, error, onRetry }: { status: KiteStatus | null; error: boolean; onRetry: () => void }) {
-  const login = useAsync(api.kite.loginUrl);
+  // Opens Zerodha login and auto-refreshes status the moment login succeeds
+  // (cross-tab signal + bounded poll) — no manual page reload needed.
+  const { connect, connecting: loginLoading } = useKiteConnect(onRetry);
   const wasAuth = useRef(false);
   if (status?.authenticated) wasAuth.current = true;
-
-  const connect = async () => {
-    const res = await login.run();
-    if (res?.loginUrl) window.open(res.loginUrl, "_blank", "noopener,noreferrer");
-  };
 
   // State comes STRICTLY from /api/kite/status (the backend now verifies token
   // validity, so authenticated:true means a usable session). Offline = backend
@@ -132,14 +130,14 @@ function ConnectKite({ status, error, onRetry }: { status: KiteStatus | null; er
   } else if (connected) {
     label = "Kite Connected"; ro = true; bg = "rgba(18,183,106,.15)"; border = "rgba(18,183,106,.45)"; color = "#2bd48f"; dot = "var(--status-live)"; onClick = connect;
   } else if (expired) {
-    label = login.isLoading ? "Opening…" : "Reconnect Kite"; bg = "rgba(247,144,9,.16)"; border = "rgba(247,144,9,.45)"; color = "#f7a957"; icon = "log-in"; onClick = connect;
+    label = loginLoading ? "Opening…" : "Reconnect Kite"; bg = "rgba(247,144,9,.16)"; border = "rgba(247,144,9,.45)"; color = "#f7a957"; icon = "log-in"; onClick = connect;
   } else {
-    label = login.isLoading ? "Opening…" : "Connect Kite"; bg = "var(--brand-500)"; border = "transparent"; color = "#fff"; icon = "log-in"; onClick = connect;
+    label = loginLoading ? "Opening…" : "Connect Kite"; bg = "var(--brand-500)"; border = "transparent"; color = "#fff"; icon = "log-in"; onClick = connect;
   }
 
   return (
-    <button type="button" onClick={onClick} title={tip} disabled={login.isLoading}
-      style={{ display: "inline-flex", alignItems: "center", gap: 7, height: 30, padding: "0 13px", borderRadius: "var(--radius-pill)", border: `1px solid ${border}`, background: bg, color, fontSize: 12, fontWeight: 700, cursor: login.isLoading ? "default" : "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
+    <button type="button" onClick={onClick} title={tip} disabled={loginLoading}
+      style={{ display: "inline-flex", alignItems: "center", gap: 7, height: 30, padding: "0 13px", borderRadius: "var(--radius-pill)", border: `1px solid ${border}`, background: bg, color, fontSize: 12, fontWeight: 700, cursor: loginLoading ? "default" : "pointer", whiteSpace: "nowrap", flexShrink: 0 }}>
       {connected && dot ? (
         <span className="relative flex h-2 w-2">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full" style={{ background: dot, opacity: 0.55 }} />

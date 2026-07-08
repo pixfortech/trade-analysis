@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
+import { useKiteConnect } from "@/hooks/useKiteConnect";
 import { FontSizeControl } from "./FontSizeControl";
 
 /**
@@ -15,8 +16,9 @@ import { FontSizeControl } from "./FontSizeControl";
 export function GlobalControlBar() {
   const kite = useAsync(api.kite.status);
   const market = useAsync(api.marketStatus);
-  const login = useAsync(api.kite.loginUrl);
   const g = useGlobalControls();
+  // Connect + auto-refresh on successful login (cross-tab signal + bounded poll).
+  const { connect, connecting, error: connectError } = useKiteConnect(() => void kite.run());
 
   useEffect(() => {
     void kite.run();
@@ -35,11 +37,6 @@ export function GlobalControlBar() {
   const m = market.data;
   const marketOpen = m?.status === "open";
 
-  const onConnect = async () => {
-    const res = await login.run();
-    if (res?.loginUrl) window.open(res.loginUrl, "_blank", "noopener,noreferrer");
-  };
-
   return (
     <section className="mb-5 rounded-xl border border-white/10 bg-base-850 px-3 py-2.5 sm:px-4">
       <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
@@ -52,15 +49,15 @@ export function GlobalControlBar() {
           ) : loginRequired ? (
             <button
               type="button"
-              onClick={onConnect}
-              disabled={login.isLoading}
+              onClick={connect}
+              disabled={connecting}
               title="Open Zerodha Kite login (read-only)"
               className="inline-flex items-center gap-1.5 rounded-full border border-neutralSignal/40 bg-neutralSignal-soft px-3 py-1 text-xs font-semibold text-neutralSignal transition hover:brightness-110 disabled:opacity-50"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
                 <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              {login.isLoading ? "Opening…" : "Connect Kite"}
+              {connecting ? "Opening…" : "Connect Kite"}
             </button>
           ) : (
             <Badge tone="grey">Live data off</Badge>
@@ -116,7 +113,7 @@ export function GlobalControlBar() {
           <span className="text-[11px] text-slate-500">Advisory · read-only · no order execution</span>
         </div>
       </div>
-      {login.isError && <p className="mt-1.5 text-[11px] text-bear">{login.error}</p>}
+      {connectError && <p className="mt-1.5 text-[11px] text-bear">{connectError}</p>}
     </section>
   );
 }

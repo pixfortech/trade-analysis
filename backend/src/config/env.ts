@@ -24,6 +24,12 @@ export const env = {
   aiEngineTimeoutMs: Number(process.env.AI_ENGINE_TIMEOUT_MS ?? 4000),
   marketDataProvider: process.env.MARKET_DATA_PROVIDER ?? "mock",
 
+  // Public URL of the deployed frontend/dashboard. Used to redirect the Kite
+  // login tab back to the app after the OAuth callback so it lands on the SAME
+  // origin as the dashboard (where cross-tab signalling works). Empty → a safe
+  // default is chosen at call time (localhost in dev, the Firebase site in prod).
+  frontendUrl: (process.env.FRONTEND_URL ?? "").trim(),
+
   /**
    * Zerodha Kite Connect (Phase 3A — READ-ONLY live market data).
    * apiSecret and accessToken are SERVER-SIDE ONLY and must never be sent to
