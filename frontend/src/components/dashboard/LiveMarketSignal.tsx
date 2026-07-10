@@ -23,6 +23,7 @@ import { TimeBasedPlan } from "./TimeBasedPlan";
 import { TradeGuidance } from "./TradeGuidance";
 import { OhlcStrip, IndicatorGroups } from "./MarketContext";
 import { MarketIntelligence } from "./MarketIntelligence";
+import { DecisionPanel } from "./DecisionPanel";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { useKiteConnected } from "@/hooks/useKiteConnected";
@@ -357,6 +358,10 @@ export function LiveMarketSignal() {
                 to lock a trade plan (entry, stop-loss, targets) for {interval} · <span className="capitalize">{riskProfile}</span>.
               </div>
             )}
+            {/* Real-time decision loop — stateful ENTER/WAIT/HOLD/EXIT/AVOID/NO ACTION */}
+            <div className="mb-4">
+              <DecisionPanel instrument={sel.instrument} interval={interval} riskProfile={riskProfile} live={global.liveUpdates} />
+            </div>
             {/* Real-time market intelligence — technicals + VIX + news + breadth */}
             <div className="mb-4">
               <MarketIntelligence instrument={sel.instrument} interval={interval} riskProfile={riskProfile} live={global.liveUpdates} />

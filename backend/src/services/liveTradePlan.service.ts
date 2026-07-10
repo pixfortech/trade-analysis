@@ -214,8 +214,29 @@ export async function getLiveSignal(
     quantity?: number | null;
   } & ResolveQuery,
 ): Promise<LiveSignalResult & { resolvedInstrument: ResolvedInstrumentInfo }> {
+  return (await getLiveSignalWithData(opts)).signal;
+}
+
+/**
+ * Same as getLiveSignal but ALSO returns the fetched candles/quote/interval, so
+ * callers (the decision loop) get the technical signal AND the raw candles in a
+ * SINGLE Kite fetch — no duplicate historical call. Read-only.
+ */
+export async function getLiveSignalWithData(
+  opts: {
+    interval?: string;
+    riskProfile?: string;
+    activeIndicators?: IndicatorId[];
+    quantity?: number | null;
+  } & ResolveQuery,
+): Promise<{
+  signal: LiveSignalResult & { resolvedInstrument: ResolvedInstrumentInfo };
+  candles: Candle[] | null;
+  quote: Awaited<ReturnType<typeof kite.getQuoteData>>;
+  interval: string;
+}> {
   const riskProfile = normaliseRiskProfile(opts.riskProfile);
-  const { resolved, quote, candles } = await fetchMarketData(opts);
+  const { resolved, quote, candles, interval } = await fetchMarketData(opts);
 
   const signal = buildLiveSignal({
     instrument: resolved.instrument,
@@ -249,7 +270,7 @@ export async function getLiveSignal(
     optionType: ["CE", "PE"].includes(resolved.instrumentType ?? "") ? (resolved.instrumentType as string) : "",
   };
 
-  return { ...signal, resolvedInstrument };
+  return { signal: { ...signal, resolvedInstrument }, candles, quote, interval };
 }
 
 export interface ResolvedInstrumentInfo {

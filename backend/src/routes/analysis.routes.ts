@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   getActiveTradeMonitorHandler,
+  getDecisionHandler,
   getLiveSignalHandler,
   getLiveTradePlanHandler,
   postFutures,
@@ -31,3 +32,6 @@ analysisRouter.get("/live-signal", getLiveSignalHandler);
 
 // GET /api/analysis/active-trade-monitor  (READ-ONLY advisory position monitor)
 analysisRouter.get("/active-trade-monitor", getActiveTradeMonitorHandler);
+
+// GET /api/analysis/decision  (READ-ONLY real-time decision loop — stateful)
+analysisRouter.get("/decision", getDecisionHandler);

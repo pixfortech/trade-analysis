@@ -46,7 +46,7 @@ export interface MarketIntelligence {
 }
 
 let breadthCache: { at: number; adv: number; dec: number } | null = null;
-async function getBreadth(): Promise<{ adv: number; dec: number; ok: boolean }> {
+export async function getBreadth(): Promise<{ adv: number; dec: number; ok: boolean }> {
   if (breadthCache && Date.now() - breadthCache.at < intelConfig.movers.breadthCacheMs) return { ...breadthCache, ok: true };
   try {
     const r = await getTopMovers("indices");
@@ -59,10 +59,23 @@ async function getBreadth(): Promise<{ adv: number; dec: number; ok: boolean }> 
 
 export async function getMarketIntelligence(opts: { instrument?: string; underlying?: string; segment?: string; instrumentType?: string; expiry?: string; strike?: string; optionType?: string; interval?: string; riskProfile?: string }): Promise<MarketIntelligence> {
   const signal = await getLiveSignal({ ...opts });
+  const [vix, marketNews, breadth] = await Promise.all([getVix(), getMarketNews(), getBreadth()]);
+  return fuseIntelligence(signal, vix, marketNews, breadth);
+}
+
+/**
+ * Pure fusion of a live signal + VIX + news + breadth into the intelligence
+ * result. Extracted from getMarketIntelligence so the real-time decision loop
+ * can reuse the exact same fused scores/action WITHOUT re-fetching Kite data.
+ */
+export function fuseIntelligence(
+  signal: Awaited<ReturnType<typeof getLiveSignal>>,
+  vix: VixResult,
+  marketNews: NewsResult,
+  breadth: { adv: number; dec: number; ok: boolean },
+): MarketIntelligence {
   const displayName = signal.resolvedInstrument.displayName || signal.instrument;
   const now = new Date().toISOString();
-
-  const [vix, marketNews, breadth] = await Promise.all([getVix(), getMarketNews(), getBreadth()]);
 
   // ----- news sentiment (stock + market) -----
   const symClean = (signal.resolvedInstrument.tradingsymbol || displayName).toUpperCase();

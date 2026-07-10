@@ -474,3 +474,43 @@ export interface AnalysisResponse {
   metrics: Record<string, unknown>;
   disclaimer: string;
 }
+
+// ---- Real-time decision loop (READ-ONLY) — GET /api/analysis/decision ----
+export type LoopAction = "ENTER" | "WAIT" | "HOLD" | "EXIT" | "AVOID" | "NO ACTION";
+export type LoopState =
+  | "IDLE" | "WATCHING" | "SETUP_DETECTED" | "WAITING_FOR_TRIGGER" | "ENTRY_APPROVED"
+  | "IN_TRADE" | "HOLDING" | "TRAILING" | "EXIT_WARNING" | "EXIT_APPROVED" | "INVALIDATED" | "COOLDOWN";
+export type InputState = "AVAILABLE_FRESH" | "AVAILABLE_STALE" | "UNAVAILABLE" | "NOT_APPLICABLE" | "INSUFFICIENT_DATA";
+
+export interface DecisionTransition {
+  at: string; fromState: LoopState; toState: LoopState; fromAction: LoopAction; toAction: LoopAction;
+  cmp: number; trigger: number | null; confidence: number; winEstimate: number; vix: number | null;
+  newsScore: number; marketTrend: string; reason: string; supporting: string[]; blocking: string[];
+}
+export interface DecisionSetup {
+  type: string; direction: "LONG" | "SHORT"; label: string; trigger: number | null;
+  safeZone: { lo: number; hi: number } | null; stop: number; targets: number[]; rr: number | null;
+  confidence: number; reasons: string[]; blockers: string[]; secondary: boolean; triggered: boolean; inSafeZone: boolean;
+}
+export interface DecisionSnapshot {
+  instrument: string; displayName: string; interval: string; riskProfile: string; timestamp: string; cmp: number;
+  action: LoopAction; proposedAction: LoopAction; state: LoopState; stateSinceMs: number; transitioned: boolean;
+  pending: { action: LoopAction; count: number; required: number } | null;
+  reason: string; regime: string; regimeReasons: string[];
+  bias: "Bullish" | "Bearish" | "Neutral"; risk: "Low" | "Medium" | "High"; confidence: number;
+  approval: { current: "APPROVED" | "NOT APPROVED" | "N/A"; winEstimate: number; setupStrength: number; minWin: number; minConfidence: number };
+  dataQuality: { overall: "OK" | "DEGRADED" | "STALE"; inputs: { name: string; state: InputState; note?: string }[] };
+  plan: { direction: "LONG" | "SHORT"; trigger: number | null; safeZone: { lo: number; hi: number } | null; entry: number; stopLoss: number; targets: number[]; invalidation: number; rr: number | null; source: "position" | "candidate"; triggered: boolean; inSafeZone: boolean } | null;
+  freshSetup: { direction: "LONG" | "SHORT"; label: string; trigger: number | null; stop: number; targets: number[]; confidence: number; whyDiffers: string } | null;
+  scores: { technical: number; priceAction: number; trend: number; momentum: number; volumeOi: number; vix: number; news: number; market: number; risk: number };
+  supporting: string[]; blocking: string[]; conflicts: string[];
+  chandelier: { longStop: number; shortStop: number; direction: 1 | -1 } | null;
+  exit: { status: string; trailStop: number | null; reasons: string[] } | null;
+  timing: { entryWindow: string; exitWindow: string; nextConfirmation: string };
+  setups: DecisionSetup[];
+  vix: VixInfo;
+  newsSummary: { available: boolean; matched: number; total: number; label: string; message?: string };
+  trend: { breadthAdv: number; breadthDec: number; breadthScore: number; note: string };
+  history: DecisionTransition[];
+  readOnly: true; disclaimer: string;
+}

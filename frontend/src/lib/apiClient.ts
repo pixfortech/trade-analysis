@@ -33,6 +33,7 @@ import type {
   TopMoversResponse,
   MarketIntelligenceResponse,
   NewsResponse,
+  DecisionSnapshot,
   TradePlanRequest,
   TradePlanResponse,
 } from "@/types/api";
@@ -266,6 +267,25 @@ export const api = {
   news: {
     market: () => request<NewsResponse>("/api/news/market"),
     instrument: (symbol: string) => request<NewsResponse>(`/api/news/instrument?symbol=${encodeURIComponent(symbol)}`),
+  },
+
+  // Real-time decision loop (READ-ONLY) — one tick of the stateful engine.
+  // Optional position params switch it into HOLD/EXIT management.
+  decision: (
+    params: {
+      instrument?: string;
+      interval?: string;
+      riskProfile?: string;
+      positionDirection?: "LONG" | "SHORT";
+      entryPrice?: number;
+      quantity?: number;
+      stopLoss?: number;
+      targets?: string;
+    } & Partial<ResolveParams>,
+  ) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
+    return request<DecisionSnapshot>(`/api/analysis/decision?${qs.toString()}`);
   },
 
   // Public runtime config (safe subset — no secrets). Drives refresh intervals,

@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { callAiEngine } from "../services/aiEngine.service";
 import { KiteError } from "../services/kite.service";
 import { getLiveTradePlan, getLiveSignal, getActiveTradeMonitor } from "../services/liveTradePlan.service";
+import { getDecision, type PositionInput } from "../services/decisionEngine.service";
 import { parseActiveIndicators } from "../services/indicatorEngine";
 import type { AnalysisResponse, TradePlanResponse } from "../types/contracts";
 import { mockAnalysis, mockTradePlan } from "../utils/mockData";
@@ -170,5 +171,49 @@ export async function getActiveTradeMonitorHandler(req: Request, res: Response) 
     res.json(result);
   } catch (err) {
     sendAnalysisError(res, err, "active-trade-monitor");
+  }
+}
+
+/**
+ * GET /api/analysis/decision — one tick of the real-time DECISION LOOP.
+ * READ-ONLY: continuous, stateful ENTER/WAIT/HOLD/EXIT/AVOID/NO ACTION with
+ * regime, specialised setups, conflicts, separate scores, a state machine and
+ * an audit trail. Optional position params (positionDirection/entryPrice/
+ * quantity/stopLoss/targets) switch it into HOLD/EXIT management. Advisory only.
+ */
+export async function getDecisionHandler(req: Request, res: Response) {
+  try {
+    let position: PositionInput | undefined;
+    const dir = String(req.query.positionDirection ?? "").toUpperCase();
+    const entryPrice = Number(req.query.entryPrice);
+    if ((dir === "LONG" || dir === "SHORT") && Number.isFinite(entryPrice) && entryPrice > 0) {
+      const targets = String(req.query.targets ?? "")
+        .split(",")
+        .map((s) => Number(s.trim()))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      const sl = Number(req.query.stopLoss);
+      position = {
+        direction: dir,
+        entryPrice,
+        quantity: Number.isFinite(Number(req.query.quantity)) ? Number(req.query.quantity) : undefined,
+        stopLoss: Number.isFinite(sl) && sl > 0 ? sl : null,
+        targets: targets.length ? targets : undefined,
+      };
+    }
+    const result = await getDecision({
+      instrument: req.query.instrument ? String(req.query.instrument) : undefined,
+      underlying: req.query.underlying ? String(req.query.underlying) : undefined,
+      segment: req.query.segment ? String(req.query.segment) : undefined,
+      instrumentType: req.query.instrumentType ? String(req.query.instrumentType) : undefined,
+      expiry: req.query.expiry ? String(req.query.expiry) : undefined,
+      strike: req.query.strike ? String(req.query.strike) : undefined,
+      optionType: req.query.optionType ? String(req.query.optionType) : undefined,
+      interval: req.query.interval ? String(req.query.interval) : undefined,
+      riskProfile: req.query.riskProfile ? String(req.query.riskProfile) : undefined,
+      position,
+    });
+    res.json(result);
+  } catch (err) {
+    sendAnalysisError(res, err, "decision");
   }
 }

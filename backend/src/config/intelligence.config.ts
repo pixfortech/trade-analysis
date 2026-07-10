@@ -67,6 +67,12 @@ function enumEnv<T extends string>(name: string, def: T, allowed: readonly T[]):
   return def;
 }
 
+function flagEnv(name: string, def: boolean): boolean {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === "") return def;
+  return raw.trim().toLowerCase() === "true";
+}
+
 /* --------------------------------- defaults ------------------------------ */
 const DEFAULT_RSS = [
   "https://www.moneycontrol.com/rss/marketreports.xml",
@@ -200,6 +206,74 @@ export const intelConfig = {
     activeIndicators: listEnv("DEFAULT_ACTIVE_INDICATORS", DEFAULT_ACTIVE_INDICATORS),
     // Primary India VIX symbol for the client's best-effort volatility read.
     vixQuoteSymbol: listEnv("VIX_SYMBOLS", DEFAULT_VIX_SYMBOLS)[0],
+  },
+  // =====================================================================
+  // Real-time DECISION LOOP config (state machine + specialised setup
+  // detectors + regime + Chandelier exit + anti-flicker). EVERY threshold is
+  // env-overridable — no magic numbers in the loop/detector services.
+  // =====================================================================
+  loop: {
+    // Data-quality gate (STEP 2). Freshness cutoffs; if price/candles are stale
+    // the engine must NOT emit ENTER.
+    dataQuality: {
+      quoteStaleSec: numEnv("LOOP_QUOTE_STALE_SEC", 90, 5, 3600),
+      candleStaleIntervals: numEnv("LOOP_CANDLE_STALE_INTERVALS", 3, 1, 50), // × the timeframe
+      minCandles: numEnv("LOOP_MIN_CANDLES", 30, 5, 500),
+      warmupCandles: numEnv("LOOP_WARMUP_CANDLES", 50, 5, 1000),
+    },
+    // Market-regime classification (STEP 3).
+    regime: {
+      adxTrendMin: numEnv("LOOP_REGIME_ADX_TREND_MIN", 20, 5, 60),
+      adxStrongMin: numEnv("LOOP_REGIME_ADX_STRONG_MIN", 32, 10, 80),
+      atrExpansionPct: numEnv("LOOP_REGIME_ATR_EXPANSION_PCT", 25, 0, 200), // ATR now vs its recent avg
+      atrLookback: numEnv("LOOP_REGIME_ATR_LOOKBACK", 20, 5, 200),
+    },
+    // Connors RSI mean-reversion setup (config-driven; no service-level literals).
+    connors: {
+      rsiPeriod: numEnv("LOOP_CRSI_RSI_PERIOD", 3, 2, 30),
+      streakRsiPeriod: numEnv("LOOP_CRSI_STREAK_PERIOD", 2, 2, 30),
+      rankPeriod: numEnv("LOOP_CRSI_RANK_PERIOD", 100, 10, 500),
+      oversold: numEnv("LOOP_CRSI_OVERSOLD", 15, 1, 49),
+      overbought: numEnv("LOOP_CRSI_OVERBOUGHT", 85, 51, 99),
+      trendEmaPeriod: numEnv("LOOP_CRSI_TREND_EMA", 50, 5, 400),
+      confirmCandles: numEnv("LOOP_CRSI_CONFIRM_CANDLES", 1, 0, 5),
+    },
+    // Chandelier Exit — EXIT/trailing management, not a primary entry (STEP/§6).
+    chandelier: {
+      atrPeriod: numEnv("LOOP_CE_ATR_PERIOD", 22, 2, 100),
+      atrMult: numEnv("LOOP_CE_ATR_MULT", 3, 0.5, 10),
+      useClose: flagEnv("LOOP_CE_USE_CLOSE", true), // highest close vs highest high
+      confirmCandles: numEnv("LOOP_CE_CONFIRM_CANDLES", 1, 0, 5),
+    },
+    // Range Filter + HACOLT — SECONDARY confirmation only (§5C).
+    rangeFilter: {
+      period: numEnv("LOOP_RF_PERIOD", 20, 2, 200),
+      mult: numEnv("LOOP_RF_MULT", 3, 0.5, 10),
+    },
+    hacolt: {
+      emaPeriod: numEnv("LOOP_HACOLT_EMA_PERIOD", 55, 5, 400),
+    },
+    // Breakout / breakdown setup (§5D).
+    breakout: {
+      lookback: numEnv("LOOP_BREAKOUT_LOOKBACK", 20, 3, 200),
+      volMult: numEnv("LOOP_BREAKOUT_VOL_MULT", 1.2, 1, 10), // volume vs its average
+      atrBufferMult: numEnv("LOOP_BREAKOUT_ATR_BUFFER", 0.25, 0, 3), // trigger buffer past level
+    },
+    // Trade-quality gates (§11) — reused by every setup.
+    safeZoneAtrMult: numEnv("LOOP_SAFE_ZONE_ATR_MULT", 0.6, 0, 5), // max ATRs past trigger still "safe"
+    rrMin: numEnv("LOOP_RR_MIN", 1.5, 0.5, 10),
+    // Anti-flicker / hysteresis (§19). Confirmations before a non-critical change,
+    // a cooldown after EXIT/INVALIDATED, and a minimum dwell time per state.
+    hysteresis: {
+      minConfirmations: numEnv("LOOP_MIN_CONFIRMATIONS", 2, 1, 10),
+      enterConfirmations: numEnv("LOOP_ENTER_CONFIRMATIONS", 2, 1, 10),
+      cooldownMs: numEnv("LOOP_COOLDOWN_MS", 120_000, 0),
+      minStateDurationMs: numEnv("LOOP_MIN_STATE_DURATION_MS", 15_000, 0),
+      maxHistory: numEnv("LOOP_MAX_HISTORY", 40, 5, 500),
+    },
+    // Separate score weights for the exposed "combined confidence" breakdown.
+    autoLock: flagEnv("LOOP_AUTO_LOCK", false), // fresh setups need explicit Lock unless true
+    backtestMinSample: numEnv("LOOP_BACKTEST_MIN_SAMPLE", 30, 5, 1000),
   },
 } as const;
 
