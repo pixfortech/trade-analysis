@@ -135,6 +135,22 @@ export const intelConfig = {
     symbolMinKeywordLen: numEnv("NEWS_SYMBOL_MIN_KEYWORD_LEN", 3, 2, 10),
     strongRecency: numEnv("NEWS_STRONG_RECENCY", 0.4, 0, 1),
     missingWeight: numEnv("NEWS_MISSING_TIME_WEIGHT", 0.5, 0, 1),
+    // Instrument-relevance gate. A headline must score at/above minDecisionScore
+    // (DIRECT_INSTRUMENT / UNDERLYING / SECTOR) to affect the news score,
+    // supporting/blocking factors or entry/exit — BENCHMARK/MACRO/MARKET_WIDE
+    // are context-only. Below minDisplayScore it is omitted entirely.
+    relevance: {
+      minDecisionScore: numEnv("NEWS_MIN_DECISION_RELEVANCE", 55, 0, 100),
+      minDisplayScore: numEnv("NEWS_MIN_DISPLAY_RELEVANCE", 25, 0, 100),
+      scores: {
+        direct: numEnv("NEWS_REL_DIRECT", 95, 0, 100),
+        underlying: numEnv("NEWS_REL_UNDERLYING", 85, 0, 100),
+        sector: numEnv("NEWS_REL_SECTOR", 60, 0, 100),
+        benchmark: numEnv("NEWS_REL_BENCHMARK", 40, 0, 100),
+        macro: numEnv("NEWS_REL_MACRO", 32, 0, 100),
+        marketWide: numEnv("NEWS_REL_MARKET_WIDE", 28, 0, 100),
+      },
+    },
   },
   vix: {
     symbols: listEnv("VIX_SYMBOLS", DEFAULT_VIX_SYMBOLS),

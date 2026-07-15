@@ -116,7 +116,9 @@ export interface TopMoversResponse {
 }
 
 // Market intelligence — combined technical + VIX + news + breadth (READ-ONLY).
+export type NewsRelevanceType = "DIRECT_INSTRUMENT" | "UNDERLYING" | "SECTOR" | "BENCHMARK" | "MARKET_WIDE" | "MACRO" | "IRRELEVANT";
 export interface NewsItem {
+  id?: string;
   title: string;
   source: string;
   url: string | null;
@@ -126,6 +128,9 @@ export interface NewsItem {
   impact: "low" | "medium" | "high";
   reason: string;
   matched?: string;
+  relevanceType?: NewsRelevanceType;
+  relevanceScore?: number;
+  relevanceReason?: string;
 }
 export interface NewsResponse { available: boolean; items: NewsItem[]; sources: string[]; fetchedAt: string; message?: string }
 export interface VixInfo {
@@ -510,6 +515,9 @@ export interface DecisionSnapshot {
   setups: DecisionSetup[];
   vix: VixInfo;
   newsSummary: { available: boolean; matched: number; total: number; label: string; message?: string };
+  newsDecisionImpact: { directRelevantCount: number; marketContextCount: number; ignoredCount: number; score: number; label: string; supportingHeadlineIds: string[]; blockingHeadlineIds: string[] };
+  relevantNews: NewsItem[];
+  marketContext: NewsItem[];
   trend: { breadthAdv: number; breadthDec: number; breadthScore: number; note: string };
   history: DecisionTransition[];
   readOnly: true; disclaimer: string;

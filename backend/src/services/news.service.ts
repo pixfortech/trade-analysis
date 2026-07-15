@@ -4,8 +4,11 @@
 
 import { intelConfig, isNewsEnabled } from "../config/intelligence.config";
 import { scoreHeadline } from "./sentiment.service";
+import type { InstrumentIdentity } from "./instrumentIdentity";
+import { relevancePriority, scoreRelevance, type RelevanceType } from "./newsRelevance";
 
 export interface NewsItem {
+  id: string;
   title: string;
   source: string;
   url: string | null;
@@ -15,8 +18,31 @@ export interface NewsItem {
   impact: "low" | "medium" | "high";
   reason: string;
   matched?: string;
+  // Instrument-relevance (set by getRelevantNews only).
+  relevanceType?: RelevanceType;
+  relevanceScore?: number;
+  relevanceReason?: string;
 }
 export interface NewsResult { available: boolean; items: NewsItem[]; sources: string[]; fetchedAt: string; message?: string }
+
+/** News filtered + scored for ONE canonical instrument identity. */
+export interface RelevantNews {
+  available: boolean;
+  fetchedAt: string;
+  sources: string[];
+  message?: string;
+  items: NewsItem[]; // display-worthy (≥ minDisplayScore), sorted by relevance→impact→recency
+  decisionItems: NewsItem[]; // subset that clears minDecisionScore (may affect the decision)
+  contextItems: NewsItem[]; // display-worthy but below the decision gate (context only)
+  ignoredCount: number; // scored below minDisplayScore (never shown, never scored)
+}
+
+const IMPACT_RANK: Record<NewsItem["impact"], number> = { high: 3, medium: 2, low: 1 };
+function hashId(s: string): string {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return `n${(h >>> 0).toString(36)}`;
+}
 
 interface RawItem { title: string; url: string | null; pub: string | null; desc: string }
 
@@ -80,7 +106,7 @@ async function fetchAll(): Promise<NewsResult> {
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);
       const sc = scoreHeadline(it.title, it.desc);
-      items.push({ title: it.title, source: src, url: it.url, publishedAt: it.pub, ageMinutes: age, sentiment: sc.sentiment, impact: sc.impact, reason: sc.reason });
+      items.push({ id: hashId(it.title), title: it.title, source: src, url: it.url, publishedAt: it.pub, ageMinutes: age, sentiment: sc.sentiment, impact: sc.impact, reason: sc.reason });
       sources.add(src);
     }
   });
@@ -98,7 +124,7 @@ export async function getMarketNews(): Promise<NewsResult> {
   return result;
 }
 
-/** Market news filtered to items mentioning the instrument's symbol. */
+/** Market news filtered to items mentioning the instrument's symbol (legacy). */
 export async function getInstrumentNews(symbol: string): Promise<NewsResult> {
   const base = await getMarketNews();
   if (!base.available) return base;
@@ -107,4 +133,45 @@ export async function getInstrumentNews(symbol: string): Promise<NewsResult> {
   const kw = [s, ...s.split(/\s+/)].map((x) => x.toLowerCase()).filter((x) => x.length >= minLen);
   const matched = base.items.filter((it) => kw.some((k) => it.title.toLowerCase().includes(k))).map((it) => ({ ...it, matched: s }));
   return { ...base, items: matched, message: matched.length === 0 ? `No recent headlines mentioning ${s} in the market feeds.` : undefined };
+}
+
+// Per-canonical relevance cache — NOT one global news cache. Invalidated when
+// the shared market feed refreshes (keyed by canonical + the feed's fetchedAt).
+const relCache = new Map<string, { feedAt: string; result: RelevantNews }>();
+
+/**
+ * Relevance-scored news for a canonical instrument identity (§ instrument-
+ * specific news). Every headline is classified DIRECT/UNDERLYING/SECTOR/
+ * BENCHMARK/MACRO/MARKET_WIDE/IRRELEVANT with a score + reason. Only items ≥
+ * minDisplayScore are shown; decisionItems (≥ minDecisionScore) are the only
+ * ones allowed to influence the decision. Cached per canonical symbol.
+ */
+export async function getRelevantNews(identity: InstrumentIdentity): Promise<RelevantNews> {
+  const base = await getMarketNews();
+  if (!base.available) {
+    return { available: false, fetchedAt: base.fetchedAt, sources: base.sources, message: base.message, items: [], decisionItems: [], contextItems: [], ignoredCount: 0 };
+  }
+  const cached = relCache.get(identity.canonical);
+  if (cached && cached.feedAt === base.fetchedAt) return cached.result;
+
+  const rel = intelConfig.news.relevance;
+  let ignoredCount = 0;
+  const scored: NewsItem[] = [];
+  for (const it of base.items) {
+    const r = scoreRelevance(it.title, identity);
+    if (r.score < rel.minDisplayScore) { ignoredCount++; continue; }
+    scored.push({ ...it, matched: identity.canonical, relevanceType: r.type, relevanceScore: r.score, relevanceReason: r.reason });
+  }
+  // Sort by relevance priority → impact → recency.
+  scored.sort((a, b) =>
+    relevancePriority(b.relevanceType!) - relevancePriority(a.relevanceType!) ||
+    IMPACT_RANK[b.impact] - IMPACT_RANK[a.impact] ||
+    (a.ageMinutes ?? 1e9) - (b.ageMinutes ?? 1e9),
+  );
+  const decisionItems = scored.filter((it) => (it.relevanceScore ?? 0) >= rel.minDecisionScore);
+  const contextItems = scored.filter((it) => (it.relevanceScore ?? 0) < rel.minDecisionScore);
+  const message = scored.length === 0 ? `No recent headlines relevant to ${identity.underlyingDisplay}.` : undefined;
+  const result: RelevantNews = { available: true, fetchedAt: base.fetchedAt, sources: base.sources, message, items: scored, decisionItems, contextItems, ignoredCount };
+  relCache.set(identity.canonical, { feedAt: base.fetchedAt, result });
+  return result;
 }

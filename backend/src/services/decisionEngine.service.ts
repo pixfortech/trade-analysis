@@ -16,9 +16,10 @@
 // =====================================================================
 
 import { getLiveSignalWithData } from "./liveTradePlan.service";
-import { fuseIntelligence, getBreadth, type MarketIntelligence } from "./marketIntelligence.service";
+import { fuseIntelligence, getBreadth, newsIdentity, type MarketIntelligence, type NewsDecisionImpact } from "./marketIntelligence.service";
+import type { NewsItem } from "./news.service";
 import { getVix } from "./vix.service";
-import { getMarketNews } from "./news.service";
+import { getRelevantNews } from "./news.service";
 import { classifyRegime, detectSetups, type Regime, type SetupCandidate } from "./setupDetectors";
 import { connorsRSI, chandelierExit, rangeFilter, hacolt, atrSeries, type ChandelierResult } from "./strategyIndicators";
 import { applyTransition, stateKey, type LoopAction, type LoopState, type Transition } from "./decisionState";
@@ -69,6 +70,9 @@ export interface DecisionSnapshot {
   setups: SetupCandidate[];
   vix: MarketIntelligence["vix"];
   newsSummary: { available: boolean; matched: number; total: number; label: string; message?: string };
+  newsDecisionImpact: NewsDecisionImpact;
+  relevantNews: NewsItem[]; // decision-relevant headlines only (DIRECT/UNDERLYING/SECTOR)
+  marketContext: NewsItem[]; // benchmark/macro/market-wide context (separate, non-deciding)
   trend: MarketIntelligence["trend"];
   history: Transition[];
   readOnly: true;
@@ -100,8 +104,9 @@ export async function getDecision(
   const cfg = intelConfig.loop;
   // STEP 1 — INGEST (one fetch → signal + candles).
   const { signal, candles, interval } = await getLiveSignalWithData(opts);
-  const [vix, marketNews, breadth] = await Promise.all([getVix(), getMarketNews(), getBreadth()]);
-  const intel = fuseIntelligence(signal, vix, marketNews, breadth);
+  const identity = newsIdentity(signal);
+  const [vix, relNews, breadth] = await Promise.all([getVix(), getRelevantNews(identity), getBreadth()]);
+  const intel = fuseIntelligence(signal, vix, relNews, breadth);
   const riskProfile = (opts.riskProfile as RiskProfile) ?? "balanced";
   const price = signal.currentPrice;
   const isFO = ["FUT", "CE", "PE"].includes(signal.resolvedInstrument.instrumentType);
@@ -117,7 +122,7 @@ export async function getDecision(
     { name: "Candles", state: candleState, note: ageMs != null ? `${Math.round(ageMs / 1000)}s old` : undefined },
     { name: "Indicators", state: warmedUp ? "AVAILABLE_FRESH" : candles && candles.length ? "INSUFFICIENT_DATA" : "UNAVAILABLE" },
     { name: "VIX", state: vix.available ? "AVAILABLE_FRESH" : "UNAVAILABLE" },
-    { name: "News", state: marketNews.available ? "AVAILABLE_FRESH" : "UNAVAILABLE" },
+    { name: "News", state: relNews.available ? "AVAILABLE_FRESH" : "UNAVAILABLE" },
     { name: "Breadth", state: breadth.ok ? "AVAILABLE_FRESH" : "UNAVAILABLE" },
     { name: "Open interest", state: isFO ? (signal.indicators.oi != null ? "AVAILABLE_FRESH" : "UNAVAILABLE") : "NOT_APPLICABLE" },
   ];
@@ -165,7 +170,7 @@ export async function getDecision(
     momentum: signal.indicators.rsi != null ? scale(signal.indicators.rsi, 20, 80) : 50,
     volumeOi: signal.indicators.volumeConfirmed == null ? 50 : signal.indicators.volumeConfirmed ? 70 : 35,
     vix: vix.available ? scale((vix.score + 1) * 50, 0, 100) : 50,
-    news: marketNews.available ? scale((clampNews(intel.sentiment.marketScore) + 1) * 50, 0, 100) : 50,
+    news: relNews.available ? scale((clampNews(intel.sentiment.marketScore) + 1) * 50, 0, 100) : 50,
     market: scale((intel.trend.breadthScore + 1) * 50, 0, 100),
     risk: intel.risk === "Low" ? 75 : intel.risk === "Medium" ? 50 : 25,
   };
@@ -213,7 +218,11 @@ export async function getDecision(
     supporting: intel.supporting, blocking: intel.blocking, conflicts,
     chandelier: chand, exit,
     timing, setups,
-    vix, newsSummary: { available: marketNews.available, matched: intel.newsMatched.length, total: marketNews.items.length, label: intel.sentiment.label, message: marketNews.message },
+    vix,
+    newsSummary: { available: relNews.available, matched: intel.newsDecisionImpact.directRelevantCount, total: relNews.items.length, label: intel.sentiment.label, message: relNews.message },
+    newsDecisionImpact: intel.newsDecisionImpact,
+    relevantNews: intel.newsMatched,
+    marketContext: intel.marketContext,
     trend: intel.trend, history: t.history, readOnly: true, disclaimer: signal.disclaimer,
   };
 }

@@ -22,7 +22,6 @@ import { STRATEGY_MODES, modeBlurb } from "@/lib/strategyModes";
 import { TimeBasedPlan } from "./TimeBasedPlan";
 import { TradeGuidance } from "./TradeGuidance";
 import { OhlcStrip, IndicatorGroups } from "./MarketContext";
-import { MarketIntelligence } from "./MarketIntelligence";
 import { DecisionPanel } from "./DecisionPanel";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
@@ -214,17 +213,6 @@ export function LiveMarketSignal() {
         </span>
       }
     >
-      {/* What is this? */}
-      <div className="mb-3">
-        <InfoTooltip label="What is this?">
-          Analyses <strong>live &amp; historical</strong> data (trend via EMA/Supertrend/ADX, momentum via RSI/MACD,
-          VWAP, volume confirmation, support/resistance and ATR volatility) to produce an advisory
-          <strong> LONG / SHORT / WAIT</strong> signal with entry, stop-loss and targets. It is{" "}
-          <strong>read-only decision support — it never places orders</strong>. Source: Zerodha Kite live/historical
-          data via the backend.
-        </InfoTooltip>
-      </div>
-
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span className="text-xs text-slate-500">Type:</span>
         <InstrumentTypeSelector value={segment} onChange={setSegment} />
@@ -358,13 +346,10 @@ export function LiveMarketSignal() {
                 to lock a trade plan (entry, stop-loss, targets) for {interval} · <span className="capitalize">{riskProfile}</span>.
               </div>
             )}
-            {/* Real-time decision loop — stateful ENTER/WAIT/HOLD/EXIT/AVOID/NO ACTION */}
+            {/* Single primary decision card — stateful ENTER/WAIT/HOLD/EXIT/AVOID/NO
+                ACTION with instrument-scoped news + all evidence collapsed inside. */}
             <div className="mb-4">
               <DecisionPanel instrument={sel.instrument} interval={interval} riskProfile={riskProfile} live={global.liveUpdates} />
-            </div>
-            {/* Real-time market intelligence — technicals + VIX + news + breadth */}
-            <div className="mb-4">
-              <MarketIntelligence instrument={sel.instrument} interval={interval} riskProfile={riskProfile} live={global.liveUpdates} />
             </div>
             {/* Indicators — the single, grouped & collapsible indicator section */}
             <div className="mb-4">

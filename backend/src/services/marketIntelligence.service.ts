@@ -7,10 +7,28 @@
 
 import { getLiveSignal } from "./liveTradePlan.service";
 import { getVix, type VixResult } from "./vix.service";
-import { getMarketNews, type NewsItem, type NewsResult } from "./news.service";
+import { getRelevantNews, type NewsItem, type NewsResult, type RelevantNews } from "./news.service";
+import { resolveIdentity, type InstrumentIdentity } from "./instrumentIdentity";
 import { aggregateSentiment, scoreHeadline, type SentimentAggregate } from "./sentiment.service";
 import { getTopMovers } from "./topMovers";
 import { intelConfig } from "../config/intelligence.config";
+
+/** Canonical news identity for a resolved signal (used for relevance scoring). */
+export function newsIdentity(signal: Awaited<ReturnType<typeof getLiveSignal>>): InstrumentIdentity {
+  const ri = signal.resolvedInstrument;
+  return resolveIdentity({ exchange: ri.exchange, tradingsymbol: ri.tradingsymbol, instrumentType: ri.instrumentType, name: ri.displayName, displayName: ri.displayName, expiry: ri.expiry || null, strike: ri.strike || null, optionType: ri.optionType || null });
+}
+
+/** Auditable record of exactly how news affected (or didn't) the decision. */
+export interface NewsDecisionImpact {
+  directRelevantCount: number;
+  marketContextCount: number;
+  ignoredCount: number;
+  score: number; // news bias in [-1,1]
+  label: "positive" | "negative" | "neutral";
+  supportingHeadlineIds: string[];
+  blockingHeadlineIds: string[];
+}
 
 const D = intelConfig.decision;
 const W = D.weights;
@@ -37,7 +55,9 @@ export interface MarketIntelligence {
   study: { technical: string; vix: string; news: string; trend: string; risk: string; recommendation: string };
   vix: VixResult;
   news: NewsResult;
-  newsMatched: NewsItem[];
+  newsMatched: NewsItem[]; // decision-relevant headlines (DIRECT/UNDERLYING/SECTOR)
+  marketContext: NewsItem[]; // context-only headlines (BENCHMARK/MACRO/MARKET_WIDE)
+  newsDecisionImpact: NewsDecisionImpact;
   sentiment: SentimentAggregate;
   trend: { breadthAdv: number; breadthDec: number; breadthScore: number; note: string };
   technical: { action: string; trend: string; strength: string; bullishPercent: number; invalidation: number; dataQuality: string };
@@ -59,31 +79,39 @@ export async function getBreadth(): Promise<{ adv: number; dec: number; ok: bool
 
 export async function getMarketIntelligence(opts: { instrument?: string; underlying?: string; segment?: string; instrumentType?: string; expiry?: string; strike?: string; optionType?: string; interval?: string; riskProfile?: string }): Promise<MarketIntelligence> {
   const signal = await getLiveSignal({ ...opts });
-  const [vix, marketNews, breadth] = await Promise.all([getVix(), getMarketNews(), getBreadth()]);
-  return fuseIntelligence(signal, vix, marketNews, breadth);
+  const identity = newsIdentity(signal);
+  const [vix, relNews, breadth] = await Promise.all([getVix(), getRelevantNews(identity), getBreadth()]);
+  return fuseIntelligence(signal, vix, relNews, breadth);
 }
 
 /**
- * Pure fusion of a live signal + VIX + news + breadth into the intelligence
- * result. Extracted from getMarketIntelligence so the real-time decision loop
- * can reuse the exact same fused scores/action WITHOUT re-fetching Kite data.
+ * Pure fusion of a live signal + VIX + RELEVANCE-SCORED news + breadth into the
+ * intelligence result. Only decision-relevant headlines (DIRECT/UNDERLYING/
+ * SECTOR ≥ threshold) affect the news score, supporting/blocking factors and
+ * confidence — context-only news never does. Extracted so the decision loop
+ * reuses the exact same fusion WITHOUT re-fetching Kite data.
  */
 export function fuseIntelligence(
   signal: Awaited<ReturnType<typeof getLiveSignal>>,
   vix: VixResult,
-  marketNews: NewsResult,
+  relevantNews: RelevantNews,
   breadth: { adv: number; dec: number; ok: boolean },
 ): MarketIntelligence {
   const displayName = signal.resolvedInstrument.displayName || signal.instrument;
   const now = new Date().toISOString();
 
-  // ----- news sentiment (stock + market) -----
-  const symClean = (signal.resolvedInstrument.tradingsymbol || displayName).toUpperCase();
-  const kws = [symClean, ...displayName.toUpperCase().split(/\s+/)].filter((k) => k.length >= intelConfig.news.symbolMinKeywordLen);
-  const items = marketNews.available ? marketNews.items : [];
-  const forAgg = items.map((it) => ({ ageMinutes: it.ageMinutes, matched: kws.some((k) => it.title.toUpperCase().includes(k)) ? symClean : undefined, score: scoreHeadline(it.title) }));
+  // ----- news sentiment — ONLY decision-relevant headlines affect the score -----
+  const symClean = newsIdentity(signal).canonical;
+  const newsAvailable = relevantNews.available;
+  const decisionNews = newsAvailable ? relevantNews.decisionItems : [];
+  const marketContext = newsAvailable ? relevantNews.contextItems : [];
+  // DIRECT/UNDERLYING drive the stock score; SECTOR contributes to market bias.
+  const forAgg = decisionNews.map((it) => ({ ageMinutes: it.ageMinutes, matched: it.relevanceType === "DIRECT_INSTRUMENT" || it.relevanceType === "UNDERLYING" ? symClean : undefined, score: scoreHeadline(it.title) }));
   const sentiment = aggregateSentiment(forAgg);
-  const newsMatched = items.filter((it) => kws.some((k) => it.title.toUpperCase().includes(k))).map((it) => ({ ...it, matched: symClean }));
+  const newsMatched = decisionNews;
+  const newsResult: NewsResult = { available: newsAvailable, items: relevantNews.items, sources: relevantNews.sources, fetchedAt: relevantNews.fetchedAt, message: relevantNews.message };
+  const supportingHeadlineIds = decisionNews.filter((it) => it.sentiment === "positive").map((it) => it.id);
+  const blockingHeadlineIds = decisionNews.filter((it) => it.sentiment === "negative" && it.impact !== "low").map((it) => it.id);
 
   // ----- factor scores (bias in [-1,1]) -----
   const action = signal.finalDecision.action;
@@ -186,7 +214,7 @@ export function fuseIntelligence(
   const cards: FactorCard[] = [
     { key: "technical", label: "Technical bias", status: `${signal.trend.direction} ${signal.trend.strength}`, value: `${signal.probability.bullishPercent}% bull`, tone: tone(techScore), reason: signal.trend.reason },
     { key: "vix", label: "VIX / volatility", status: vix.available ? vix.status : "unavailable", value: vix.available ? `${vix.value}${vix.change != null ? ` (${vix.change >= 0 ? "+" : ""}${vix.change})` : ""}` : "—", tone: !vix.available ? "neutral" : vix.score >= 0 ? "bull" : "warn", reason: vix.interpretation },
-    { key: "news", label: "News sentiment", status: marketNews.available ? sentiment.label : "unavailable", value: marketNews.available ? `${newsMatched.length} stock · ${items.length} mkt` : "—", tone: !marketNews.available ? "neutral" : tone(newsScore), reason: marketNews.available ? (sentiment.reasons[0] ?? `Market news ${sentiment.label}.`) : (marketNews.message ?? "News unavailable.") },
+    { key: "news", label: "News sentiment", status: newsAvailable ? (decisionNews.length ? sentiment.label : "no relevant") : "unavailable", value: newsAvailable ? `${newsMatched.length} relevant · ${marketContext.length} context` : "—", tone: !newsAvailable || !decisionNews.length ? "neutral" : tone(newsScore), reason: newsAvailable ? (decisionNews.length ? (sentiment.reasons[0] ?? `${newsMatched.length} relevant headline(s), ${sentiment.label}.`) : `No headlines directly relevant to ${symClean}.`) : (relevantNews.message ?? "News unavailable.") },
     { key: "trend", label: "Market trend / breadth", status: breadth.ok ? (breadthScore > D.breadth.supportThreshold ? "advancing" : breadthScore < -D.breadth.supportThreshold ? "declining" : "mixed") : "unavailable", value: breadth.ok ? `${breadth.adv} up / ${breadth.dec} down` : "—", tone: tone(breadthScore), reason: breadth.ok ? "Index breadth from the bounded live scan." : "Breadth needs live Kite." },
     { key: "volume", label: "Volume / OI", status: volConfirmed == null ? "n/a" : volConfirmed ? "confirmed" : "weak", value: signal.indicators.oi != null ? `OI ${signal.indicators.oi}` : volConfirmed == null ? "—" : volConfirmed ? "confirms" : "no confirm", tone: volConfirmed ? tone(dir) : "neutral", reason: volConfirmed == null ? "Volume confirmation unavailable." : volConfirmed ? "Volume supports the move." : "Volume does not confirm." },
     { key: "final", label: "Final action", status: finalAction, value: `${confidence}% · ${risk} risk`, tone: finalAction === "ENTER" ? (dirBull ? "bull" : "bear") : finalAction === "AVOID" ? "bear" : "warn", reason },
@@ -195,7 +223,7 @@ export function fuseIntelligence(
   const study = {
     technical: `${signal.trend.direction} trend (${signal.trend.strength}), ${signal.probability.bullishPercent}% bullish / ${signal.probability.bearishPercent}% bearish, win estimate ${win}% (${signal.probability.dataQuality}). Preferred setup: ${signal.preferredSetup}. ${signal.finalDecision.reason}`,
     vix: vix.available ? `India VIX ${vix.value} (${vix.change != null && vix.change >= 0 ? "+" : ""}${vix.change ?? "—"}, ${vix.direction}). ${vix.interpretation}. ${vix.score < 0 ? "Reduces approval confidence / suggests smaller size." : "Supports trend-following if technicals confirm."}` : "VIX unavailable — the decision uses technicals + news + breadth only.",
-    news: marketNews.available ? `${items.length} market headlines, ${newsMatched.length} mention ${symClean}. Market bias ${sentiment.label} (score ${sentiment.marketScore}). ${sentiment.reasons.join(" ") || "No high-impact news blocking the setup."}` : `${marketNews.message ?? "News unavailable"} — decision is technical + VIX only.`,
+    news: newsAvailable ? `${newsMatched.length} directly relevant to ${symClean} (${marketContext.length} market-context, ${relevantNews.ignoredCount} ignored). ${decisionNews.length ? `Relevant bias ${sentiment.label} (score ${sentiment.marketScore}).` : "No directly relevant news affects the decision."} ${sentiment.reasons.join(" ")}`.trim() : `${relevantNews.message ?? "News unavailable"} — decision is technical + VIX only.`,
     trend: breadth.ok ? `Breadth (indices scan): ${breadth.adv} advancing / ${breadth.dec} declining → ${breadthScore > D.breadth.supportThreshold ? "supports longs" : breadthScore < -D.breadth.supportThreshold ? "supports shorts / caution longs" : "mixed, no edge"}.` : "Market breadth unavailable (needs live Kite).",
     risk: `Risk ${risk}. ${highVol ? "Elevated/high volatility — size down or wait." : "Volatility manageable."} ${sentiment.strongNegative ? "A high-impact negative headline is active." : ""} Caution: ${caution}.`,
     recommendation: `${finalAction} — ${reason} ${supporting.length ? `Supporting: ${supporting.length}.` : ""} ${blocking.length ? `Blocking: ${blocking.length}.` : ""}`,
@@ -219,8 +247,18 @@ export function fuseIntelligence(
     cards,
     study,
     vix,
-    news: marketNews,
+    news: newsResult,
     newsMatched,
+    marketContext,
+    newsDecisionImpact: {
+      directRelevantCount: decisionNews.filter((it) => it.relevanceType === "DIRECT_INSTRUMENT" || it.relevanceType === "UNDERLYING").length,
+      marketContextCount: marketContext.length,
+      ignoredCount: relevantNews.ignoredCount,
+      score: newsScore,
+      label: sentiment.label,
+      supportingHeadlineIds,
+      blockingHeadlineIds,
+    },
     sentiment,
     trend: { breadthAdv: breadth.adv, breadthDec: breadth.dec, breadthScore: Math.round(breadthScore * 100) / 100, note: breadth.ok ? "" : "breadth unavailable" },
     technical: { action, trend: signal.trend.direction, strength: signal.trend.strength, bullishPercent: signal.probability.bullishPercent, invalidation: inval, dataQuality: signal.probability.dataQuality },
