@@ -23,10 +23,13 @@ import { useDecision } from "@/hooks/useDecision";
 import { useMonitoringSession } from "@/hooks/useMonitoringSession";
 import { fmtMarketTime } from "@/lib/marketTime";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
+import { useAnalysisSession } from "@/hooks/useAnalysisSession";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { useKiteConnected } from "@/hooks/useKiteConnected";
 import { Icon } from "@/components/terminal/ds";
-import { buildTradePlan, evaluatePlan, type TradePlanSnapshot } from "@/lib/tradePlan";
+import { buildTradePlan, evaluatePlan, computePointsToAction, type TradePlanSnapshot } from "@/lib/tradePlan";
+import { TentativePnL } from "./TentativePnL";
+import { unlockAudio, playEntryBeep } from "@/lib/beep";
 
 // Kite-supported candle intervals (API enum — not a tunable business value).
 const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"];
@@ -39,11 +42,17 @@ const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60m
  */
 export function LiveMarketSignal() {
   const global = useGlobalControls();
+  const as = useAnalysisSession();
   const cfg = usePublicConfig();
   const sel = global.selectedInstrument;
-  const [interval, setInterval] = useState("5minute");
-  const [riskProfile, setRiskProfile] = useState("balanced");
-  const [segment, setSegment] = useState<InstrumentSegment>("all");
+  // Durable controls — live in AnalysisSessionProvider so they (and the locked
+  // plan / monitoring baseline below) survive a cockpit screen switch and reload.
+  const interval = as.interval;
+  const riskProfile = as.riskProfile;
+  const segment = (as.segment as InstrumentSegment) || "all";
+  const setInterval = as.setInterval;
+  const setRiskProfile = as.setRiskProfile;
+  const setSegment = useCallback((v: InstrumentSegment) => as.setSegment(v), [as]);
   const active = useMemo<IndicatorId[]>(() => cfg.defaults.activeIndicators as IndicatorId[], [cfg.defaults.activeIndicators]);
   const [chart, setChart] = useState<ChartDataResponse | null>(null);
   const signal = useAsync(api.liveSignal);
@@ -51,8 +60,6 @@ export function LiveMarketSignal() {
   const prevTrend = useRef<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveNote, setResolveNote] = useState<string | null>(null);
-  // LOCKED trade plan (entry/SL/targets) — CMP/indicators keep updating; levels don't.
-  const [plan, setPlan] = useState<TradePlanSnapshot | null>(null);
   const [vix, setVix] = useState<number | null>(null);
   const { theme } = useTheme();
   const [indicatorsOpen, setIndicatorsOpen] = useState(false);
@@ -60,14 +67,26 @@ export function LiveMarketSignal() {
 
   const referenceOnly = !!sel && sel.quotable === false;
 
+  // The LOCKED trade plan is derived from the durable session ONLY when it matches
+  // the current (instrument, timeframe, mode) triple — so switching screens keeps
+  // it, while changing timeframe/mode/instrument correctly stops showing stale
+  // locked levels (no on-mount reset that a screen switch would wrongly fire).
+  const activeSession =
+    as.session && sel && as.session.instrumentKey === sel.instrument && as.session.interval === interval && as.session.riskProfile === riskProfile
+      ? as.session
+      : null;
+  const plan = activeSession?.plan ?? null;
+
   // Real-time decision snapshot (single source of truth) for the strip + tabs.
   const dec = useDecision(sel && sel.quotable !== false ? sel.instrument : null, interval, riskProfile, global.liveUpdates);
   const evalResult = plan && signal.data ? evaluatePlan(plan, signal.data.currentPrice, signal.data, null) : null;
+  const points = plan && signal.data ? computePointsToAction(plan, signal.data.currentPrice, activeSession?.analysedCmp ?? null) : null;
 
-  // Continuous monitoring session (baseline + movement/MFE/MAE/distance + last-tick
-  // timestamps). Created on Analyse; resets on instrument/timeframe/mode change.
-  const mon = useMonitoringSession({ plan, signal: signal.data ?? null, decision: dec.d, chart, instrument: sel && sel.quotable !== false ? sel.instrument : null, interval, riskProfile, live: global.liveUpdates });
-  const monitorSummary = mon.session ? { analysedCmp: mon.session.analysedCmp, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
+  // Continuous monitoring — DERIVED over the durable session (baseline + MFE/MAE
+  // live in the provider, so they survive unmount/reload). Active until Reset,
+  // instrument/timeframe/mode change, pause, or global Live OFF.
+  const mon = useMonitoringSession({ session: activeSession, signal: signal.data ?? null, decision: dec.d, chart, live: global.liveUpdates, bumpExcursion: as.bumpExcursion });
+  const monitorSummary = mon.hasSession ? { analysedCmp: mon.analysedCmp ?? 0, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
   const tz = cfg.session.timezone;
 
   const onSelect = (ins: SelectedInstrument) => {
@@ -124,13 +143,70 @@ export function LiveMarketSignal() {
   }, [sel, interval, riskProfile, active, signal, alerts, fetchChart]);
 
   const analyze = useCallback(async () => {
+    unlockAudio(); // this click is the user gesture that enables the ENTER blip
     const res = await run();
-    if (res) setPlan(buildTradePlan(res, interval, riskProfile));
+    if (res && sel) {
+      const built = buildTradePlan(res, interval, riskProfile);
+      as.startSession({
+        instrumentKey: sel.instrument,
+        displayName: sel.displayName,
+        interval,
+        riskProfile,
+        plan: built,
+        analysedCmp: res.currentPrice,
+        analysedAt: Number.isNaN(Date.parse(res.timestamp)) ? null : Date.parse(res.timestamp),
+      });
+    }
     void dec.reload();
-  }, [run, interval, riskProfile, dec]);
+  }, [run, interval, riskProfile, dec, sel, as]);
 
-  // Levels are locked per cycle — clear on instrument / timeframe / mode change.
-  useEffect(() => { setPlan(null); }, [sel?.instrument, interval, riskProfile]);
+  // RESET — stop monitoring, clear the analysed instrument / locked plan /
+  // decision / news-VIX / alerts / saved session, and return to a blank search.
+  // Deliberately does NOT disconnect Kite, delete the Watchlist, or reset modules.
+  const reset = useCallback(() => {
+    as.clearSession();
+    global.setSelectedInstrument(null);
+    signal.reset();
+    setChart(null);
+    setVix(null);
+    prevTrend.current = null;
+    setResolveNote(null);
+  }, [as, global, signal]);
+
+  // Auto-RESUME: on (re)mount with a matching saved session but no live data yet,
+  // fetch fresh live signal + chart once so monitoring resumes WITHOUT rebuilding
+  // the locked plan. This is what makes returning to the tab restore the session.
+  const resumedRef = useRef(false);
+  useEffect(() => {
+    if (resumedRef.current || !as.hydrated) return;
+    if (activeSession && sel && sel.quotable !== false && signal.isIdle) {
+      resumedRef.current = true;
+      void run();
+      void dec.reload();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [as.hydrated, activeSession, sel, signal.isIdle]);
+
+  // BUZZ on the WAIT → ENTER transition (transition-based, per-session dedupe,
+  // config cooldown, sound toggle). In-app toast always; browser notification if
+  // granted; short sound if enabled. Audio was unlocked by the Analyse click.
+  const prevEntryState = useRef<string | null>(null);
+  const lastEnterAlertAt = useRef<number>(0);
+  useEffect(() => {
+    const st = evalResult?.state ?? null;
+    const isEnter = st === "ENTER_NOW" && !!evalResult?.approved;
+    const wasEnter = prevEntryState.current === "ENTER_NOW";
+    if (isEnter && !wasEnter && activeSession) {
+      const now = Date.now();
+      if (now - lastEnterAlertAt.current >= cfg.trade.alerts.enterCooldownMs) {
+        lastEnterAlertAt.current = now;
+        alerts.push(`enter-${activeSession.instrumentKey}`, `ENTER ${plan?.direction ?? ""} approved`, `${sel?.displayName ?? activeSession.displayName}: ${evalResult?.reason ?? "Entry gates satisfied."}`, "urgent");
+        if (cfg.trade.alerts.soundEnabled) playEntryBeep();
+      }
+    }
+    prevEntryState.current = st;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evalResult?.state, evalResult?.approved, activeSession]);
 
   // Live polling (CMP/indicators) — locked plan levels are NOT recalculated here.
   useEffect(() => {
@@ -182,19 +258,30 @@ export function LiveMarketSignal() {
           <InstrumentTypeSelector value={segment} onChange={setSegment} />
         </div>
         {sel && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-            <span style={{ minWidth: 0, flex: "1 1 auto", display: "inline-flex", alignItems: "baseline", gap: 6, overflow: "hidden" }}>
-              <span style={{ fontSize: 15, fontWeight: 800, color: "var(--ink-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel.displayName}</span>
-              <span className="num" style={{ fontSize: 11, color: "var(--ink-4)", whiteSpace: "nowrap" }}>{sel.instrument}{sel.lotSize ? ` · lot ${sel.lotSize}` : ""}</span>
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+            {/* Selected instrument identity — its own line so it never squeezes the controls. */}
+            <div style={{ minWidth: 0, display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: "var(--ink-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{sel.displayName}</span>
+              <span className="num" style={{ fontSize: 11, color: "var(--ink-4)" }}>{sel.instrument}{sel.lotSize ? ` · lot ${sel.lotSize}` : ""}</span>
               {!sel.quotable && <span style={{ fontSize: 9, fontWeight: 700, color: "var(--action-avoid)", border: "1px solid var(--action-avoid-border)", borderRadius: 3, padding: "0 4px" }}>reference</span>}
-            </span>
-            <ThemedSelect value={interval} onChange={setInterval} ariaLabel="Timeframe" className="w-24" options={INTERVALS.map((i) => ({ value: i, label: i }))} />
-            <ThemedSelect value={riskProfile} onChange={setRiskProfile} ariaLabel="Strategy mode" className="w-36" options={STRATEGY_MODES.map((m) => ({ value: m.value, label: m.label }))} />
-            <button type="button" onClick={() => void analyze()} disabled={signal.isLoading || referenceOnly} title="Lock a fresh trade plan"
-              style={{ height: 32, padding: "0 14px", borderRadius: "var(--radius-md)", border: "none", background: "var(--brand-500)", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: signal.isLoading || referenceOnly ? "not-allowed" : "pointer", opacity: signal.isLoading || referenceOnly ? 0.5 : 1, whiteSpace: "nowrap" }}>
-              {signal.isLoading ? "Analysing…" : plan ? "Re-analyse" : "Analyse"}
-            </button>
-            <button type="button" onClick={() => global.setSelectedInstrument(null)} title="Clear selection" aria-label="Clear" style={{ width: 30, height: 30, borderRadius: "var(--radius-sm)", border: "1px solid var(--border-2)", background: "var(--surface-card)", color: "var(--ink-3)", cursor: "pointer" }}><Icon n="x" size={14} /></button>
+            </div>
+            {/* Controls — responsive: selects grow to fit full labels; buttons stay
+                together; the whole row wraps cleanly with no clipping. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <ThemedSelect value={interval} onChange={setInterval} ariaLabel="Timeframe" className="min-w-[116px] flex-1 basis-[116px] max-w-[180px]" options={INTERVALS.map((i) => ({ value: i, label: i }))} />
+              <ThemedSelect value={riskProfile} onChange={setRiskProfile} ariaLabel="Strategy mode" className="min-w-[150px] flex-1 basis-[150px] max-w-[220px]" options={STRATEGY_MODES.map((m) => ({ value: m.value, label: m.label }))} />
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <button type="button" onClick={() => void analyze()} disabled={signal.isLoading || referenceOnly} title="Lock a fresh trade plan"
+                  style={{ height: 32, padding: "0 14px", borderRadius: "var(--radius-md)", border: "none", background: "var(--brand-500)", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: signal.isLoading || referenceOnly ? "not-allowed" : "pointer", opacity: signal.isLoading || referenceOnly ? 0.5 : 1, whiteSpace: "nowrap" }}>
+                  {signal.isLoading ? "Analysing…" : plan ? "Re-analyse" : "Analyse"}
+                </button>
+                <button type="button" onClick={reset} title="Reset — stop monitoring, clear selection & plan (keeps Kite, watchlist & modules)"
+                  style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 32, padding: "0 12px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-2)", background: "var(--surface-card)", color: "var(--ink-2)", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  <Icon n="refresh" size={13} /> Reset
+                </button>
+                <button type="button" onClick={() => global.setSelectedInstrument(null)} title="Clear selection" aria-label="Clear" style={{ width: 32, height: 32, borderRadius: "var(--radius-sm)", border: "1px solid var(--border-2)", background: "var(--surface-card)", color: "var(--ink-3)", cursor: "pointer", flexShrink: 0 }}><Icon n="x" size={14} /></button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -214,23 +301,35 @@ export function LiveMarketSignal() {
           {/* OHLC — compact inline stats (reorderable, saved) */}
           <OhlcStrip signal={signal.data} chart={chart} />
 
-          {/* Compact monitoring status — session, last tick/candle/VIX/news, MFE/MAE */}
-          {mon.session && (
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-3)", padding: "3px 4px" }}>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 700, color: mon.active ? "var(--action-enter)" : "var(--action-wait)" }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: mon.active ? "var(--action-enter)" : "var(--action-wait)" }} />
-                Monitoring {mon.active ? "live" : "paused"}
-              </span>
-              <span>· tick <span className="num">{fmtMarketTime(mon.lastTickMs, tz) ?? "—"}</span></span>
-              <span>· candle <span className="num">{fmtMarketTime(mon.lastCandleMs, tz, false) ?? "—"}</span></span>
-              <span className="hide-sm">· VIX <span className="num">{fmtMarketTime(mon.lastVixMs, tz, false) ?? "n/a"}</span></span>
-              <span className="hide-sm">· news <span className="num">{fmtMarketTime(mon.lastNewsMs, tz, false) ?? "n/a"}</span></span>
-              {mon.mfe != null && <span className="hide-sm">· MFE <span className="num" style={{ color: "var(--price-up)" }}>+{mon.mfe}</span> / MAE <span className="num" style={{ color: "var(--price-down)" }}>-{mon.mae}</span></span>}
-            </div>
-          )}
+          {/* Monitoring proof strip — verifiable live state: status + last tick /
+              candle / decision / VIX / news times + MFE/MAE. */}
+          {mon.hasSession && (() => {
+            const stale = mon.lastTickMs != null && Date.now() - mon.lastTickMs > cfg.stream.quoteStaleSec * 1000;
+            const monState = !global.liveUpdates || !mon.active ? "paused" : stale ? "stale" : "live";
+            const monColor = monState === "live" ? "var(--action-enter)" : monState === "stale" ? "var(--action-avoid)" : "var(--action-wait)";
+            return (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-3)", padding: "3px 4px" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 700, color: monColor }}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: monColor }} />
+                  Monitoring {monState}
+                </span>
+                <span>· tick <span className="num">{fmtMarketTime(mon.lastTickMs, tz) ?? "—"}</span></span>
+                <span>· candle <span className="num">{fmtMarketTime(mon.lastCandleMs, tz, false) ?? "—"}</span></span>
+                <span className="hide-sm">· decision <span className="num">{fmtMarketTime(dec.refreshedAt, tz) ?? "—"}</span></span>
+                <span className="hide-sm">· VIX <span className="num">{fmtMarketTime(mon.lastVixMs, tz, false) ?? "n/a"}</span></span>
+                <span className="hide-sm">· news <span className="num">{fmtMarketTime(mon.lastNewsMs, tz, false) ?? "n/a"}</span></span>
+                {mon.mfe != null && <span className="hide-sm">· MFE <span className="num" style={{ color: "var(--price-up)" }}>+{mon.mfe}</span> / MAE <span className="num" style={{ color: "var(--price-down)" }}>-{mon.mae}</span></span>}
+              </div>
+            );
+          })()}
 
           {/* THE one primary decision strip */}
-          <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} monitor={monitorSummary} />
+          <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} points={points} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} monitor={monitorSummary} />
+
+          {/* Tentative P/L preview for the locked plan (estimate — decoupled from approval). */}
+          {plan && plan.direction !== "WAIT" && (
+            <TentativePnL plan={plan} cmp={signal.data.currentPrice} lotSize={sel.lotSize} approved={!!evalResult?.approved} updatedAt={dec.refreshedAt} />
+          )}
 
           {/* Chart — appears high; locked levels; native indicators */}
           <div style={{ borderRadius: "var(--radius-lg)", border: "1px solid var(--border-1)", background: "var(--surface-card)", padding: 10 }}>

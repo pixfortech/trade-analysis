@@ -52,7 +52,30 @@ export interface PublicConfig {
   };
   winThreshold: number;
   minEnterConfidence: number;
+  trade: TradeConfig;
   readOnly: boolean;
+}
+
+/** Trade-preview config (Tentative P/L, safe-exit, sizing, costs, ENTER alert). */
+export interface TradeConfig {
+  defaultLots: number;
+  safeExit: {
+    atrMult: number;
+    minSpanFraction: number;
+    maxSpanFraction: number;
+    structureBufferPct: number;
+  };
+  costs: {
+    enabled: boolean;
+    brokeragePerOrder: number;
+    orderLegs: number;
+    taxesPctOfTurnover: number;
+  };
+  alerts: {
+    enterCooldownMs: number;
+    soundEnabled: boolean;
+  };
+  continuationAtrMult: number;
 }
 
 /**
@@ -95,6 +118,13 @@ export const FALLBACK_PUBLIC_CONFIG: PublicConfig = {
   stream: { tickReconnectMs: 5_000, pollingFallbackMs: 5_000, quoteStaleSec: 90, showMillis: true },
   winThreshold: 75,
   minEnterConfidence: 75,
+  trade: {
+    defaultLots: 1,
+    safeExit: { atrMult: 1, minSpanFraction: 0.25, maxSpanFraction: 0.95, structureBufferPct: 0.05 },
+    costs: { enabled: false, brokeragePerOrder: 20, orderLegs: 2, taxesPctOfTurnover: 0.05 },
+    alerts: { enterCooldownMs: 60_000, soundEnabled: true },
+    continuationAtrMult: 0.75,
+  },
   readOnly: true,
 };
 
@@ -121,7 +151,20 @@ export function mergePublicConfig(raw: unknown): PublicConfig {
     stream: { ...base.stream, ...(r.stream ?? {}) },
     winThreshold: typeof r.winThreshold === "number" ? r.winThreshold : base.winThreshold,
     minEnterConfidence: typeof r.minEnterConfidence === "number" ? r.minEnterConfidence : base.minEnterConfidence,
+    trade: mergeTrade(r.trade, base.trade),
     readOnly: typeof r.readOnly === "boolean" ? r.readOnly : base.readOnly,
+  };
+}
+
+/** Deep-merge the trade block so a partial/malformed payload keeps valid nested defaults. */
+function mergeTrade(r: Partial<TradeConfig> | undefined, base: TradeConfig): TradeConfig {
+  if (!r || typeof r !== "object") return base;
+  return {
+    defaultLots: typeof r.defaultLots === "number" && r.defaultLots > 0 ? r.defaultLots : base.defaultLots,
+    safeExit: { ...base.safeExit, ...(r.safeExit ?? {}) },
+    costs: { ...base.costs, ...(r.costs ?? {}) },
+    alerts: { ...base.alerts, ...(r.alerts ?? {}) },
+    continuationAtrMult: typeof r.continuationAtrMult === "number" ? r.continuationAtrMult : base.continuationAtrMult,
   };
 }
 

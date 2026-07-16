@@ -9,7 +9,6 @@
 import type {
   FuturesRow,
   MarketIndex,
-  OptionsSummary,
   RiskMetrics,
   ScannerRow,
   SentimentGauge,
@@ -86,23 +85,10 @@ export const futuresRows: FuturesRow[] = [
   { symbol: "TCS", expiry: "29 Jan", ltp: 3894, basis: 3.9, oiChangePercent: 6.7, interpretation: "Short Buildup", signal: "bearish" },
 ];
 
-export const optionsSummary: OptionsSummary = {
-  symbol: "NIFTY",
-  expiry: "29 Jan",
-  spot: 21512,
-  pcr: 0.92,
-  maxPain: 21500,
-  support: [21300, 21000],
-  resistance: [21700, 22000],
-  signal: "neutral",
-  chain: [
-    { strike: 21300, callOI: 32_00_000, putOI: 58_00_000 },
-    { strike: 21400, callOI: 41_00_000, putOI: 49_00_000 },
-    { strike: 21500, callOI: 55_00_000, putOI: 52_00_000, isATM: true },
-    { strike: 21600, callOI: 47_00_000, putOI: 38_00_000 },
-    { strike: 21700, callOI: 61_00_000, putOI: 29_00_000 },
-  ],
-};
+// NOTE: the legacy static `optionsSummary` sample chain (NIFTY spot 21,512 /
+// max-pain 21,500 / "29 Jan" expiry) was REMOVED. The Options Chain is now
+// exclusively the live Kite-backed component (dashboard/OptionsAnalysis.tsx);
+// there is no sample fallback anywhere in the render tree.
 
 export const tradePlan: TradePlan = {
   symbol: "RELIANCE",

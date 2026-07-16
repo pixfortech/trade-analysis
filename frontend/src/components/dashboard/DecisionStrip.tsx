@@ -3,7 +3,7 @@
 import { num, tsec } from "@/lib/format";
 import { Icon } from "@/components/terminal/ds";
 import type { DecisionSnapshot } from "@/types/api";
-import type { PlanEval, TradePlanSnapshot } from "@/lib/tradePlan";
+import type { PlanEval, PointsToAction, TradePlanSnapshot } from "@/lib/tradePlan";
 
 const TONE: Record<string, string> = { enter: "var(--action-enter)", exit: "var(--action-exit)", wait: "var(--action-wait)", avoid: "var(--action-avoid)", none: "var(--ink-3)" };
 const ACTION_TONE: Record<string, keyof typeof TONE> = { ENTER: "enter", HOLD: "enter", WAIT: "wait", "NO ACTION": "none", AVOID: "avoid", EXIT: "exit" };
@@ -25,11 +25,12 @@ export interface MonitorSummary {
 }
 
 export function DecisionStrip({
-  d, plan, evalResult, refreshedAt, live, onReanalyse, monitor,
+  d, plan, evalResult, points, refreshedAt, live, onReanalyse, monitor,
 }: {
   d: DecisionSnapshot | null;
   plan: TradePlanSnapshot | null;
   evalResult: PlanEval | null;
+  points?: PointsToAction | null;
   refreshedAt: number | null;
   live: boolean;
   onReanalyse: () => void;
@@ -85,6 +86,16 @@ export function DecisionStrip({
             <Stat label="Stop" value={lvl.stop != null ? num(lvl.stop) : "—"} tone="exit" />
             <Stat label="Target 1" value={lvl.t1 != null ? num(lvl.t1) : "—"} tone="enter" />
             <Stat label="Safe zone" value={lvl.zLo != null && lvl.zHi != null ? `${num(lvl.zLo)}–${num(lvl.zHi)}` : "—"} tone={lvl.inZone ? "enter" : "wait"} />
+          </div>
+        )}
+
+        {/* POINTS TO ACTION — direction-aware distance to entry / stop / target 1. */}
+        {points && points.direction !== "WAIT" && (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, fontSize: 11 }}>
+            <span style={{ fontWeight: 800, color: points.entryZone === "inside" ? "var(--action-enter)" : "var(--action-wait)" }}>{points.entryLabel}</span>
+            {points.pointsToStop != null && <span style={{ color: "var(--ink-3)" }}>· stop cushion <span className="num" style={{ fontWeight: 700, color: points.pointsToStop >= 0 ? "var(--ink-2)" : "var(--action-exit)" }}>{num(points.pointsToStop)}</span></span>}
+            {points.pointsToTarget1 != null && <span style={{ color: "var(--ink-3)" }}>· to T1 <span className="num" style={{ fontWeight: 700, color: "var(--ink-2)" }}>{num(points.pointsToTarget1)}</span></span>}
+            {points.movementSinceAnalysis != null && <span style={{ color: "var(--ink-3)" }}>· moved <span className="num" style={{ fontWeight: 700, color: points.movementSinceAnalysis >= 0 ? "var(--price-up)" : "var(--price-down)" }}>{points.movementSinceAnalysis >= 0 ? "+" : ""}{num(points.movementSinceAnalysis)}</span> since analysis</span>}
           </div>
         )}
 

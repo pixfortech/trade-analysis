@@ -370,6 +370,44 @@ export const intelConfig = {
     autoLock: flagEnv("LOOP_AUTO_LOCK", false), // fresh setups need explicit Lock unless true
     backtestMinSample: numEnv("LOOP_BACKTEST_MIN_SAMPLE", 30, 5, 1000),
   },
+  // =====================================================================
+  // TRADE PREVIEW config — Tentative P/L, conservative safe-exit, position
+  // sizing, cost model and the ENTER-transition alert. Read-only/advisory:
+  // these drive an ESTIMATE only, never any order. Every value env-overridable.
+  // =====================================================================
+  trade: {
+    // Position sizing. Real lot size always comes from the instrument catalogue;
+    // this is only the DEFAULT number of lots when the user hasn't chosen.
+    defaultLots: numEnv("TRADE_DEFAULT_LOTS", 1, 1, 10_000),
+    // Conservative safe-exit derivation (booking a realistic partial before the
+    // full target). Distance from entry toward Target-1, in ATRs, clamped so the
+    // safe-exit is NEVER beyond Target-1 and never trivially small.
+    safeExit: {
+      atrMult: numEnv("TRADE_SAFE_EXIT_ATR_MULT", 1, 0, 10),
+      minSpanFraction: numEnv("TRADE_SAFE_EXIT_MIN_SPAN_FRACTION", 0.25, 0.01, 1),
+      maxSpanFraction: numEnv("TRADE_SAFE_EXIT_MAX_SPAN_FRACTION", 0.95, 0.05, 1),
+      structureBufferPct: numEnv("TRADE_SAFE_EXIT_STRUCT_BUFFER_PCT", 0.05, 0, 5), // % of price kept before S/R
+    },
+    // Trading-cost model. OFF by default — while disabled the preview shows GROSS
+    // only and labels net "unavailable until trading costs are configured" (never
+    // presents a gross figure as net). All rates env-overridable when enabled.
+    costs: {
+      enabled: flagEnv("TRADE_COSTS_ENABLED", false),
+      brokeragePerOrder: numEnv("TRADE_COST_BROKERAGE_PER_ORDER", 20, 0), // ₹ flat per order leg
+      orderLegs: numEnv("TRADE_COST_ORDER_LEGS", 2, 1, 4), // entry + exit
+      taxesPctOfTurnover: numEnv("TRADE_COST_TAXES_PCT_TURNOVER", 0.05, 0, 5), // STT+exch+GST+stamp approx, % of turnover
+    },
+    // ENTER-transition alert (WAIT → ENTER). Config-driven cooldown + sound flag;
+    // per-session dedupe lives in the client.
+    alerts: {
+      enterCooldownMs: numEnv("TRADE_ALERT_ENTER_COOLDOWN_MS", 60_000, 0),
+      soundEnabled: flagEnv("TRADE_ALERT_SOUND_ENABLED", true),
+    },
+    // Continuation guard (§12): when CMP runs beyond the entry zone in the trade
+    // direction, how far (in ATRs) a continuation entry is still allowed before it
+    // becomes "reversal risk / wait for pullback".
+    continuationAtrMult: numEnv("TRADE_CONTINUATION_ATR_MULT", 0.75, 0, 5),
+  },
 } as const;
 
 export function isNewsEnabled(): boolean {
@@ -416,6 +454,29 @@ export function publicConfig() {
     },
     winThreshold: intelConfig.decision.winThreshold,
     minEnterConfidence: intelConfig.decision.minEnterConfidence,
+    // Trade-preview settings the client needs to compute the live Tentative P/L,
+    // safe-exit and ENTER alert. Cost RATES are exposed ONLY as a flag + rates so
+    // the client can compute net when enabled; no secrets here.
+    trade: {
+      defaultLots: intelConfig.trade.defaultLots,
+      safeExit: {
+        atrMult: intelConfig.trade.safeExit.atrMult,
+        minSpanFraction: intelConfig.trade.safeExit.minSpanFraction,
+        maxSpanFraction: intelConfig.trade.safeExit.maxSpanFraction,
+        structureBufferPct: intelConfig.trade.safeExit.structureBufferPct,
+      },
+      costs: {
+        enabled: intelConfig.trade.costs.enabled,
+        brokeragePerOrder: intelConfig.trade.costs.brokeragePerOrder,
+        orderLegs: intelConfig.trade.costs.orderLegs,
+        taxesPctOfTurnover: intelConfig.trade.costs.taxesPctOfTurnover,
+      },
+      alerts: {
+        enterCooldownMs: intelConfig.trade.alerts.enterCooldownMs,
+        soundEnabled: intelConfig.trade.alerts.soundEnabled,
+      },
+      continuationAtrMult: intelConfig.trade.continuationAtrMult,
+    },
     readOnly: true as const,
   };
 }

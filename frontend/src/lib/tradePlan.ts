@@ -220,6 +220,74 @@ export function buildTradePlan(s: LiveSignal, timeframe: string, mode: string): 
   };
 }
 
+export type EntryZone = "approach" | "inside" | "beyond";
+
+export interface PointsToAction {
+  direction: PlanDirection;
+  cmp: number | null;
+  /** Direction-aware distance to the locked entry. Positive = price still has to
+   *  travel to REACH entry (LONG: entry−CMP; SHORT: CMP−entry). Negative = beyond. */
+  pointsToEntry: number | null;
+  entryZone: EntryZone | null;
+  entryLabel: string; // "5.85 pts to entry" / "In entry zone" / "3.20 pts past entry"
+  /** Cushion from CMP to the stop in the trade direction (positive = room left). */
+  pointsToStop: number | null;
+  /** Remaining points to Target-1 in the trade direction (positive = not yet hit). */
+  pointsToTarget1: number | null;
+  /** liveCMP − analysedCMP (raw signed), when an analysis baseline is available. */
+  movementSinceAnalysis: number | null;
+}
+
+/** 2-dp, sign-free points string (e.g. 5.85). */
+function pts(n: number): string {
+  return f(r2(Math.abs(n)));
+}
+
+/**
+ * Direction-aware "points to action" for a LOCKED plan against live CMP. Entry
+ * distance is signed by trade direction so a LONG below entry and a SHORT above
+ * entry both read as positive "pts to entry"; inside the safe zone it reads "In
+ * entry zone"; beyond the zone (in the trade direction) it reads "past entry"
+ * and the caller decides continuation vs pullback. Pure — no live recompute of
+ * the locked levels.
+ */
+export function computePointsToAction(plan: TradePlanSnapshot, cmp: number | null, analysedCmp: number | null): PointsToAction {
+  const long = plan.direction === "LONG";
+  const base: PointsToAction = {
+    direction: plan.direction,
+    cmp,
+    pointsToEntry: null,
+    entryZone: null,
+    entryLabel: "—",
+    pointsToStop: null,
+    pointsToTarget1: null,
+    movementSinceAnalysis: cmp != null && analysedCmp != null ? r2(cmp - analysedCmp) : null,
+  };
+  if (cmp == null || plan.direction === "WAIT") return base;
+
+  if (plan.entry != null) {
+    const toEntry = r2(long ? plan.entry - cmp : cmp - plan.entry);
+    base.pointsToEntry = toEntry;
+    // Zone relative to the safe entry band, in trade-progress terms.
+    const lo = plan.safeLow;
+    const hi = plan.safeHigh;
+    let zone: EntryZone;
+    if (lo != null && hi != null) {
+      if (cmp >= lo && cmp <= hi) zone = "inside";
+      else if (long ? cmp > hi : cmp < lo) zone = "beyond"; // past the zone in the trade direction
+      else zone = "approach";
+    } else {
+      zone = (long ? cmp >= plan.entry : cmp <= plan.entry) ? "beyond" : "approach";
+    }
+    base.entryZone = zone;
+    base.entryLabel = zone === "inside" ? "In entry zone" : zone === "approach" ? `${pts(toEntry)} pts to entry` : `${pts(toEntry)} pts past entry`;
+  }
+  if (plan.stopLoss != null) base.pointsToStop = r2(long ? cmp - plan.stopLoss : plan.stopLoss - cmp);
+  const t1 = plan.targets[0];
+  if (t1 != null) base.pointsToTarget1 = r2(long ? t1 - cmp : cmp - t1);
+  return base;
+}
+
 function mk(p: Partial<PlanEval> & { state: PlanState; label: string; tone: PlanTone; reason: string }, ctx: { cmp: number | null; distToEntry: number | null; distToStop: number | null; distToTarget: number | null }): PlanEval {
   return {
     approved: false,
