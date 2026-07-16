@@ -17,6 +17,7 @@
 import { createHash } from "node:crypto";
 import { env } from "../config/env";
 import { intelConfig } from "../config/intelligence.config";
+import { wallClockToMs } from "./sessionOhlc";
 
 const KITE_API_VERSION = "3";
 
@@ -232,6 +233,8 @@ export interface KiteQuoteData {
   lastPrice: number;
   volume: number;
   ohlc: { open: number; high: number; low: number; close: number };
+  // Exchange / last-trade time as epoch ms (from Kite's IST wall-clock), or null.
+  exchangeTimeMs: number | null;
 }
 
 /**
@@ -247,6 +250,10 @@ export async function getQuoteData(instrument: string): Promise<KiteQuoteData> {
   }
   const ohlcRaw = (entry.ohlc as Record<string, unknown>) ?? {};
   const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  // Kite quote carries IST wall-clock times (no offset). Convert to an epoch
+  // instant ONCE here; the frontend renders it back to IST once (no double-convert).
+  const ltt = typeof entry.last_trade_time === "string" ? entry.last_trade_time : typeof entry.timestamp === "string" ? entry.timestamp : null;
+  const exchangeTimeMs = ltt ? wallClockToMs(ltt, intelConfig.session.timezone) : null;
   return {
     instrumentToken: typeof entry.instrument_token === "number" ? entry.instrument_token : null,
     lastPrice: num(entry.last_price),
@@ -257,6 +264,7 @@ export async function getQuoteData(instrument: string): Promise<KiteQuoteData> {
       low: num(ohlcRaw.low),
       close: num(ohlcRaw.close),
     },
+    exchangeTimeMs,
   };
 }
 

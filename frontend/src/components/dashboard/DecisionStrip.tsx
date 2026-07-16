@@ -15,8 +15,17 @@ const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
  * volume context, plus one reason + one blocker. No paragraphs; no duplicate
  * cards. Locked plan levels win when a plan exists (levels never silently move).
  */
+export interface MonitorSummary {
+  analysedCmp: number;
+  liveCmp: number | null;
+  movement: number | null;
+  movementPct: number | null;
+  distToTrigger: number | null;
+  candleState: "live" | "closed" | null;
+}
+
 export function DecisionStrip({
-  d, plan, evalResult, refreshedAt, live, onReanalyse,
+  d, plan, evalResult, refreshedAt, live, onReanalyse, monitor,
 }: {
   d: DecisionSnapshot | null;
   plan: TradePlanSnapshot | null;
@@ -24,6 +33,7 @@ export function DecisionStrip({
   refreshedAt: number | null;
   live: boolean;
   onReanalyse: () => void;
+  monitor?: MonitorSummary | null;
 }) {
   if (!d) {
     return <div style={card}><div style={{ padding: 14, fontSize: 13, color: "var(--ink-3)" }}>Analysing…</div></div>;
@@ -75,6 +85,16 @@ export function DecisionStrip({
             <Stat label="Stop" value={lvl.stop != null ? num(lvl.stop) : "—"} tone="exit" />
             <Stat label="Target 1" value={lvl.t1 != null ? num(lvl.t1) : "—"} tone="enter" />
             <Stat label="Safe zone" value={lvl.zLo != null && lvl.zHi != null ? `${num(lvl.zLo)}–${num(lvl.zHi)}` : "—"} tone={lvl.inZone ? "enter" : "wait"} />
+          </div>
+        )}
+
+        {/* MONITORING: analysed vs live, movement, distance to trigger, candle state */}
+        {monitor && (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 11, color: "var(--ink-3)" }}>
+            <span>Analysed <span className="num" style={{ color: "var(--ink-2)", fontWeight: 700 }}>{num(monitor.analysedCmp)}</span> → Live <span className="num" style={{ color: "var(--ink-1)", fontWeight: 700 }}>{monitor.liveCmp != null ? num(monitor.liveCmp) : "—"}</span></span>
+            {monitor.movement != null && <span className="num" style={{ fontWeight: 700, color: monitor.movement >= 0 ? "var(--price-up)" : "var(--price-down)" }}>{monitor.movement >= 0 ? "+" : ""}{num(monitor.movement)}{monitor.movementPct != null ? ` (${monitor.movement >= 0 ? "+" : ""}${monitor.movementPct}%)` : ""}</span>}
+            {monitor.distToTrigger != null && <span>· →Entry <span className="num" style={{ color: "var(--ink-2)", fontWeight: 700 }}>{monitor.distToTrigger >= 0 ? "+" : ""}{num(monitor.distToTrigger)}</span></span>}
+            {monitor.candleState && <span style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", color: monitor.candleState === "closed" ? "var(--action-enter)" : "var(--action-wait)", border: "1px solid var(--border-2)", borderRadius: "var(--radius-pill)", padding: "0 6px" }}>{monitor.candleState === "closed" ? "closed candle" : "live candle"}</span>}
           </div>
         )}
 

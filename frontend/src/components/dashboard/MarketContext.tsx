@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { numFlex } from "@/lib/format";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { deriveOhlc, estimateTiming, groupIndicators, type IndChip, type IndTone, type OhlcPoint } from "@/lib/marketContext";
 import { Icon } from "@/components/terminal/ds";
 import type { ChartDataResponse, LiveSignal } from "@/types/api";
@@ -36,7 +37,8 @@ function orderPoints(pts: OhlcPoint[], order: string[]): OhlcPoint[] {
 }
 
 export function OhlcStrip({ signal, chart }: { signal: LiveSignal; chart: ChartDataResponse | null }) {
-  const pts = deriveOhlc(signal, chart);
+  const cfg = usePublicConfig();
+  const pts = deriveOhlc(signal, chart, { timezone: cfg.session.timezone, showMillis: cfg.stream.showMillis });
   const { value: order, setValue: setOrder, reset } = useLocalStorage<string[]>(OHLC_ORDER_KEY, OHLC_DEFAULT_ORDER);
   const [editing, setEditing] = useState(false);
   const [dragI, setDragI] = useState<number | null>(null);
@@ -70,7 +72,7 @@ export function OhlcStrip({ signal, chart }: { signal: LiveSignal; chart: ChartD
             <div key={p.label} style={{ minWidth: 0 }}>
               <div className="eyebrow" style={{ fontSize: 9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.label}</div>
               <div className="num" style={{ fontSize: 14, fontWeight: 700, color: p.value == null ? "var(--ink-4)" : c, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.value == null ? "—" : numFlex(p.value)}</div>
-              <div style={{ fontSize: 10, color: "var(--ink-4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.time ?? p.note ?? "—"}</div>
+              <div title={p.title ?? p.note ?? undefined} style={{ fontSize: 10, color: "var(--ink-4)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.time ? `${p.approx ? "~" : ""}${p.time}` : p.note ?? "—"}</div>
             </div>
           );
         })}

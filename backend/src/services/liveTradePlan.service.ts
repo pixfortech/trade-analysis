@@ -14,6 +14,7 @@ import { resolveInstrumentInput, type ResolveQuery } from "./resolveInput";
 import { buildLiveSignal, type LiveSignalResult } from "./liveSignal";
 import { DEFAULT_INDICATORS, type IndicatorId } from "./indicatorEngine";
 import { buildChartData } from "./chartData";
+import { computeSessionOhlc, intervalToMs, type SessionOhlc } from "./sessionOhlc";
 import { evaluatePosition, type MonitorResult, type PositionDirection } from "./activeTradeMonitor";
 import {
   buildLiveTradePlan,
@@ -293,9 +294,9 @@ export interface ResolvedInstrumentInfo {
  */
 export async function getChartData(
   opts: { interval?: string; activeIndicators?: IndicatorId[] } & ResolveQuery,
-): Promise<ReturnType<typeof buildChartData> & { instrument: string; interval: string }> {
+): Promise<ReturnType<typeof buildChartData> & { instrument: string; interval: string; sessionOhlc: SessionOhlc }> {
   const active = opts.activeIndicators?.length ? opts.activeIndicators : undefined;
-  const { resolved, candles, interval } = await fetchMarketData(opts);
+  const { resolved, quote, candles, interval } = await fetchMarketData(opts);
   if (!candles || candles.length === 0) {
     throw new KiteError(
       "No candle history available for this instrument/interval (chart needs candles). Try a different interval or ensure Kite is authorised.",
@@ -321,7 +322,15 @@ export async function getChartData(
     prevDay = null;
   }
   const chart = buildChartData(candles, active ?? DEFAULT_INDICATORS, prevDay, new Date().toISOString());
-  return { ...chart, instrument: resolved.instrument, interval };
+  // Current-session OHLC with correct, non-future, single-conversion event times.
+  const sessionOhlc = computeSessionOhlc({
+    candles,
+    intervalMs: intervalToMs(interval),
+    quote: { open: quote.ohlc.open, high: quote.ohlc.high, low: quote.ohlc.low, previousClose: quote.ohlc.close, lastPrice: quote.lastPrice },
+    cmpMs: quote.exchangeTimeMs,
+    nowMs: Date.now(),
+  });
+  return { ...chart, instrument: resolved.instrument, interval, sessionOhlc };
 }
 
 /**

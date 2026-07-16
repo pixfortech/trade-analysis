@@ -38,6 +38,18 @@ export interface PublicConfig {
   labels: {
     readOnlyNotice: string;
   };
+  session: {
+    timezone: string;
+    openMinutes: number;
+    closeMinutes: number;
+    preopenMinutes: number;
+  };
+  stream: {
+    tickReconnectMs: number;
+    pollingFallbackMs: number;
+    quoteStaleSec: number;
+    showMillis: boolean;
+  };
   winThreshold: number;
   minEnterConfidence: number;
   readOnly: boolean;
@@ -79,6 +91,8 @@ export const FALLBACK_PUBLIC_CONFIG: PublicConfig = {
   labels: {
     readOnlyNotice: "Advisory market intelligence — read-only. No order placement, modification or execution.",
   },
+  session: { timezone: "Asia/Kolkata", openMinutes: 555, closeMinutes: 930, preopenMinutes: 540 },
+  stream: { tickReconnectMs: 5_000, pollingFallbackMs: 5_000, quoteStaleSec: 90, showMillis: true },
   winThreshold: 75,
   minEnterConfidence: 75,
   readOnly: true,
@@ -103,6 +117,8 @@ export function mergePublicConfig(raw: unknown): PublicConfig {
     },
     features: { ...base.features, ...(r.features ?? {}) },
     labels: { ...base.labels, ...(r.labels ?? {}) },
+    session: { ...base.session, ...(r.session ?? {}) },
+    stream: { ...base.stream, ...(r.stream ?? {}) },
     winThreshold: typeof r.winThreshold === "number" ? r.winThreshold : base.winThreshold,
     minEnterConfidence: typeof r.minEnterConfidence === "number" ? r.minEnterConfidence : base.minEnterConfidence,
     readOnly: typeof r.readOnly === "boolean" ? r.readOnly : base.readOnly,

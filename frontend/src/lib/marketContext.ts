@@ -4,8 +4,9 @@
 // or time isn't available it returns null (the UI shows "—" / "unavailable").
 
 import { num, numFlex, compact } from "@/lib/format";
-import type { ChartDataResponse, LiveSignal } from "@/types/api";
+import type { ChartDataResponse, LiveSignal, OhlcEvent } from "@/types/api";
 import type { PlanEval, TradePlanSnapshot } from "@/lib/tradePlan";
+import { fmtMarketTime, fmtCandleWindow } from "@/lib/marketTime";
 
 /* ------------------------------- OHLC strip ------------------------------ */
 export interface OhlcPoint {
@@ -14,43 +15,51 @@ export interface OhlcPoint {
   time: string | null;
   tone: "up" | "down" | "neutral";
   note?: string;
+  approx?: boolean; // candle-precision (not an exact tick)
+  title?: string;
 }
 
-function fmtTime(t: string | null): string | null {
-  if (!t) return null;
-  const d = new Date(t);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true }).toLowerCase();
-}
-
-/** Open/High/Low/PrevClose/CMP with event times derived from intraday candles. */
-export function deriveOhlc(s: LiveSignal, chart: ChartDataResponse | null): OhlcPoint[] {
-  const md = s.marketData;
-  const intraday = !!chart && /minute|hour/.test(chart.interval);
-  const candles = intraday ? chart!.candles : [];
-
-  let openTime: string | null = candles.length ? candles[0].t : null;
-  let highTime: string | null = null;
-  let lowTime: string | null = null;
-  if (candles.length) {
-    let hi = -Infinity;
-    let lo = Infinity;
-    for (const c of candles) {
-      if (c.h > hi) { hi = c.h; highTime = c.t; }
-      if (c.l < lo) { lo = c.l; lowTime = c.t; }
-    }
-  }
-
-  const prev = md.previousClose;
+/**
+ * Open/High/Low/PrevClose/CMP. Uses the backend sessionOhlc (current-session
+ * only, epoch-ms instants) and renders each time in the market timezone ONCE.
+ * No sessionOhlc → values only, no fabricated event times.
+ */
+export function deriveOhlc(s: LiveSignal, chart: ChartDataResponse | null, opts?: { timezone?: string; showMillis?: boolean }): OhlcPoint[] {
+  const tz = opts?.timezone ?? "Asia/Kolkata";
+  const showMs = opts?.showMillis ?? true;
+  const so = chart?.sessionOhlc ?? null;
+  const prev = so?.prevClose.value ?? s.marketData.previousClose;
   const tone = (v: number | null): "up" | "down" | "neutral" => (v == null || prev == null ? "neutral" : v >= prev ? "up" : "down");
 
-  // Order: Previous Close → High → Low → Open → CMP.
+  if (so) {
+    const evT = (ev: OhlcEvent, kind: "hilo" | "open" | "cmp"): Pick<OhlcPoint, "time" | "note" | "approx" | "title"> => {
+      if (ev.ms == null) return { time: null, note: ev.precision === "receipt" ? "recv n/a" : undefined };
+      if (ev.precision === "candle") return { time: fmtMarketTime(ev.ms, tz, false), approx: true, note: "candle", title: fmtCandleWindow(ev.ms, tz) ?? undefined };
+      // tick / exchange precision
+      return { time: fmtMarketTime(ev.ms, tz, showMs), note: kind === "cmp" ? "exchange" : undefined, title: kind === "cmp" ? "exchange / last-trade time" : undefined };
+    };
+    const cmpVal = so.cmp.value ?? s.currentPrice;
+    const h = evT(so.high, "hilo");
+    const l = evT(so.low, "hilo");
+    const o = evT(so.open, "open");
+    const cmpMeta = so.cmp.ms != null ? evT(so.cmp, "cmp") : { time: fmtMarketTime(Date.parse(s.timestamp), tz, showMs), note: "recv", title: "backend receipt time" };
+    return [
+      { label: "Prev close", value: prev, time: null, tone: "neutral", note: "prev session" },
+      { label: "High", value: so.high.value, tone: "up", ...h },
+      { label: "Low", value: so.low.value, tone: "down", ...l },
+      { label: "Open", value: so.open.value, tone: tone(so.open.value), ...o },
+      { label: "CMP", value: cmpVal, tone: tone(cmpVal), ...cmpMeta },
+    ];
+  }
+
+  // Fallback (no sessionOhlc) — values only; CMP shows the labelled receipt time.
+  const md = s.marketData;
   return [
-    { label: "Prev close", value: prev, time: null, tone: "neutral", note: "prev session" },
-    { label: "High", value: md.high, time: fmtTime(highTime), tone: "up" },
-    { label: "Low", value: md.low, time: fmtTime(lowTime), tone: "down" },
-    { label: "Open", value: md.open, time: fmtTime(openTime), tone: tone(md.open) },
-    { label: "CMP", value: s.currentPrice, time: fmtTime(s.timestamp), tone: tone(s.currentPrice) },
+    { label: "Prev close", value: md.previousClose, time: null, tone: "neutral", note: "prev session" },
+    { label: "High", value: md.high, time: null, tone: "up" },
+    { label: "Low", value: md.low, time: null, tone: "down" },
+    { label: "Open", value: md.open, time: null, tone: tone(md.open) },
+    { label: "CMP", value: s.currentPrice, time: fmtMarketTime(Date.parse(s.timestamp), tz, showMs), tone: tone(s.currentPrice), note: "recv", title: "backend receipt time" },
   ];
 }
 

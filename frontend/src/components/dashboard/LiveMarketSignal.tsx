@@ -20,6 +20,8 @@ import { OhlcStrip } from "./MarketContext";
 import { DecisionStrip } from "./DecisionStrip";
 import { EvidenceTabs } from "./EvidenceTabs";
 import { useDecision } from "@/hooks/useDecision";
+import { useMonitoringSession } from "@/hooks/useMonitoringSession";
+import { fmtMarketTime } from "@/lib/marketTime";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { useKiteConnected } from "@/hooks/useKiteConnected";
@@ -61,6 +63,12 @@ export function LiveMarketSignal() {
   // Real-time decision snapshot (single source of truth) for the strip + tabs.
   const dec = useDecision(sel && sel.quotable !== false ? sel.instrument : null, interval, riskProfile, global.liveUpdates);
   const evalResult = plan && signal.data ? evaluatePlan(plan, signal.data.currentPrice, signal.data, null) : null;
+
+  // Continuous monitoring session (baseline + movement/MFE/MAE/distance + last-tick
+  // timestamps). Created on Analyse; resets on instrument/timeframe/mode change.
+  const mon = useMonitoringSession({ plan, signal: signal.data ?? null, decision: dec.d, chart, instrument: sel && sel.quotable !== false ? sel.instrument : null, interval, riskProfile, live: global.liveUpdates });
+  const monitorSummary = mon.session ? { analysedCmp: mon.session.analysedCmp, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
+  const tz = cfg.session.timezone;
 
   const onSelect = (ins: SelectedInstrument) => {
     global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize, quotable: ins.quotable, name: ins.name });
@@ -206,8 +214,23 @@ export function LiveMarketSignal() {
           {/* OHLC — compact inline stats (reorderable, saved) */}
           <OhlcStrip signal={signal.data} chart={chart} />
 
+          {/* Compact monitoring status — session, last tick/candle/VIX/news, MFE/MAE */}
+          {mon.session && (
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-3)", padding: "3px 4px" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 700, color: mon.active ? "var(--action-enter)" : "var(--action-wait)" }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: mon.active ? "var(--action-enter)" : "var(--action-wait)" }} />
+                Monitoring {mon.active ? "live" : "paused"}
+              </span>
+              <span>· tick <span className="num">{fmtMarketTime(mon.lastTickMs, tz) ?? "—"}</span></span>
+              <span>· candle <span className="num">{fmtMarketTime(mon.lastCandleMs, tz, false) ?? "—"}</span></span>
+              <span className="hide-sm">· VIX <span className="num">{fmtMarketTime(mon.lastVixMs, tz, false) ?? "n/a"}</span></span>
+              <span className="hide-sm">· news <span className="num">{fmtMarketTime(mon.lastNewsMs, tz, false) ?? "n/a"}</span></span>
+              {mon.mfe != null && <span className="hide-sm">· MFE <span className="num" style={{ color: "var(--price-up)" }}>+{mon.mfe}</span> / MAE <span className="num" style={{ color: "var(--price-down)" }}>-{mon.mae}</span></span>}
+            </div>
+          )}
+
           {/* THE one primary decision strip */}
-          <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} />
+          <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} monitor={monitorSummary} />
 
           {/* Chart — appears high; locked levels; native indicators */}
           <div style={{ borderRadius: "var(--radius-lg)", border: "1px solid var(--border-1)", background: "var(--surface-card)", padding: 10 }}>

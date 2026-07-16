@@ -211,6 +211,20 @@ export interface ChartDataResponse {
     prevClose: number | null;
   };
   lastUpdated: string;
+  sessionOhlc?: SessionOhlc;
+}
+
+export type EventPrecision = "tick" | "candle" | "session" | "receipt" | "none";
+export interface OhlcEvent { value: number | null; ms: number | null; precision: EventPrecision }
+export interface SessionOhlc {
+  timezone: string;
+  sessionDate: string | null;
+  intervalMs: number;
+  prevClose: OhlcEvent;
+  open: OhlcEvent;
+  high: OhlcEvent;
+  low: OhlcEvent;
+  cmp: OhlcEvent;
 }
 
 export type MonitorAction = "HOLD" | "TIGHTEN_SL" | "EXIT_NOW" | "PARTIAL_EXIT" | "REVERSE_SETUP" | "WAIT_FOR_REENTRY";

@@ -223,6 +223,8 @@ export const intelConfig = {
     tokenVerifyCacheMs: numEnv("KITE_TOKEN_VERIFY_CACHE_MS", 20_000, 0),
   },
   // Refresh intervals (ms) — the backend owns them so frontend can read via /config/public.
+  // These are the layered pipeline: liveSignalMs = FAST (CMP/quote), intelligenceMs
+  // = SLOW (VIX/news/breadth). Medium (candles/decision) uses liveSignalMs too.
   refresh: {
     liveSignalMs: numEnv("LIVE_SIGNAL_REFRESH_MS", 5_000, 1000),
     watchlistMs: numEnv("WATCHLIST_REFRESH_MS", 12_000, 1000),
@@ -230,6 +232,22 @@ export const intelConfig = {
     topStripMs: numEnv("TOP_STRIP_REFRESH_MS", 10_000, 1000),
     vixMs: numEnv("VIX_REFRESH_MS", 60_000, 5000),
     kiteStatusMs: numEnv("KITE_STATUS_REFRESH_MS", 20_000, 5000),
+  },
+  // Market-session model (config-driven — no scattered NSE times in code). Minutes
+  // are minutes-since-IST-midnight: 09:15 = 555, 15:30 = 930, pre-open 09:00 = 540.
+  session: {
+    timezone: (process.env.MARKET_TIMEZONE ?? "Asia/Kolkata").trim() || "Asia/Kolkata",
+    openMinutes: numEnv("MARKET_OPEN_MINUTES", 555, 0, 1439),
+    closeMinutes: numEnv("MARKET_CLOSE_MINUTES", 930, 0, 1439),
+    preopenMinutes: numEnv("MARKET_PREOPEN_MINUTES", 540, 0, 1439),
+  },
+  // Real-time stream (tick reconnect + polling fallback + freshness) and the
+  // timestamp display preference — all config-driven.
+  stream: {
+    tickReconnectMs: numEnv("TICK_RECONNECT_MS", 5_000, 500),
+    pollingFallbackMs: numEnv("POLLING_FALLBACK_MS", 5_000, 1000),
+    quoteStaleSec: numEnv("STREAM_QUOTE_STALE_SEC", 90, 5, 3600),
+    showMillis: flagEnv("MARKET_TIME_SHOW_MILLIS", true),
   },
   defaults: {
     topStripSymbols: symbolListEnv("TOP_STRIP_DEFAULT_SYMBOLS", DEFAULT_TOP_STRIP),
@@ -337,6 +355,19 @@ export function publicConfig() {
     },
     labels: {
       readOnlyNotice: "Advisory market intelligence — read-only. No order placement, modification or execution.",
+    },
+    // Market-session + timestamp-format + stream cadence — safe, client-consumable.
+    session: {
+      timezone: intelConfig.session.timezone,
+      openMinutes: intelConfig.session.openMinutes,
+      closeMinutes: intelConfig.session.closeMinutes,
+      preopenMinutes: intelConfig.session.preopenMinutes,
+    },
+    stream: {
+      tickReconnectMs: intelConfig.stream.tickReconnectMs,
+      pollingFallbackMs: intelConfig.stream.pollingFallbackMs,
+      quoteStaleSec: intelConfig.stream.quoteStaleSec,
+      showMillis: intelConfig.stream.showMillis,
     },
     winThreshold: intelConfig.decision.winThreshold,
     minEnterConfidence: intelConfig.decision.minEnterConfidence,
