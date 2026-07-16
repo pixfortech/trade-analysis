@@ -140,15 +140,31 @@ export const intelConfig = {
     // supporting/blocking factors or entry/exit — BENCHMARK/MACRO/MARKET_WIDE
     // are context-only. Below minDisplayScore it is omitted entirely.
     relevance: {
+      // Thresholds. Decision-impact: only ≥ minDecisionScore (DIRECT/UNDERLYING/
+      // SECTOR) affects score/blockers. Context-only band: minDisplayScore..
+      // minDecisionScore. minDirectScore is the "directly relevant" cutoff used
+      // by newsDecisionImpact.directRelevantCount.
       minDecisionScore: numEnv("NEWS_MIN_DECISION_RELEVANCE", 55, 0, 100),
       minDisplayScore: numEnv("NEWS_MIN_DISPLAY_RELEVANCE", 25, 0, 100),
+      minDirectScore: numEnv("NEWS_MIN_DIRECT_RELEVANCE", 80, 0, 100),
       scores: {
-        direct: numEnv("NEWS_REL_DIRECT", 95, 0, 100),
-        underlying: numEnv("NEWS_REL_UNDERLYING", 85, 0, 100),
-        sector: numEnv("NEWS_REL_SECTOR", 60, 0, 100),
-        benchmark: numEnv("NEWS_REL_BENCHMARK", 40, 0, 100),
-        macro: numEnv("NEWS_REL_MACRO", 32, 0, 100),
-        marketWide: numEnv("NEWS_REL_MARKET_WIDE", 28, 0, 100),
+        direct: numEnv("NEWS_RELEVANCE_DIRECT_SCORE", 95, 0, 100),
+        underlying: numEnv("NEWS_RELEVANCE_UNDERLYING_SCORE", 85, 0, 100),
+        sector: numEnv("NEWS_RELEVANCE_SECTOR_SCORE", 60, 0, 100),
+        benchmark: numEnv("NEWS_RELEVANCE_BENCHMARK_SCORE", 40, 0, 100),
+        macro: numEnv("NEWS_RELEVANCE_MACRO_SCORE", 32, 0, 100),
+        marketWide: numEnv("NEWS_RELEVANCE_MARKET_SCORE", 28, 0, 100),
+        irrelevant: numEnv("NEWS_RELEVANCE_IRRELEVANT_SCORE", 0, 0, 100),
+      },
+      // Tie/order priorities for ranking relevant headlines (higher = first).
+      priorities: {
+        direct: numEnv("NEWS_PRIORITY_DIRECT", 6, 0, 100),
+        underlying: numEnv("NEWS_PRIORITY_UNDERLYING", 5, 0, 100),
+        sector: numEnv("NEWS_PRIORITY_SECTOR", 4, 0, 100),
+        benchmark: numEnv("NEWS_PRIORITY_BENCHMARK", 3, 0, 100),
+        marketWide: numEnv("NEWS_PRIORITY_MARKET_WIDE", 2, 0, 100),
+        macro: numEnv("NEWS_PRIORITY_MACRO", 2, 0, 100),
+        irrelevant: numEnv("NEWS_PRIORITY_IRRELEVANT", 0, 0, 100),
       },
     },
   },

@@ -8,12 +8,11 @@
 // =====================================================================
 
 import { intelConfig } from "../config/intelligence.config";
+import { taxonomy, benchmarkAliasesFor } from "../config/instrumentTaxonomy.config";
 import type { InstrumentIdentity } from "./instrumentIdentity";
 
 export type RelevanceType = "DIRECT_INSTRUMENT" | "UNDERLYING" | "SECTOR" | "BENCHMARK" | "MARKET_WIDE" | "MACRO" | "IRRELEVANT";
 export interface RelevanceResult { type: RelevanceType; score: number; reason: string }
-
-const MARKET_WIDE_TERMS = ["market", "markets", "sensex", "nifty", "index", "indices", "stocks", "equities", "d-street", "dalal street", "fii", "dii", "rupee", "share market", "stock market"];
 
 function esc(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -31,12 +30,6 @@ function firstHit(hay: string, phrases: string[]): string | null {
   return null;
 }
 
-function benchmarkAliases(b: string): string[] {
-  if (b === "BANKNIFTY") return ["bank nifty", "banknifty", "nifty bank"];
-  if (b === "SENSEX") return ["sensex", "bse"];
-  return ["nifty", "nifty 50", "nifty50"];
-}
-
 export function scoreRelevance(title: string, identity: InstrumentIdentity): RelevanceResult {
   const hay = ` ${title.toLowerCase()} `;
   const S = intelConfig.news.relevance.scores;
@@ -51,20 +44,22 @@ export function scoreRelevance(title: string, identity: InstrumentIdentity): Rel
   const sector = firstHit(hay, identity.relatedEntities);
   if (sector) return { type: "SECTOR", score: S.sector, reason: `${identity.sector ?? "related"} context ("${sector}")` };
   // 3) Benchmark index reference.
-  const bench = firstHit(hay, benchmarkAliases(identity.benchmark));
+  const bench = firstHit(hay, benchmarkAliasesFor(identity.benchmark));
   if (bench) return { type: "BENCHMARK", score: S.benchmark, reason: `${identity.benchmark} benchmark ("${bench}")` };
   // 4) Macro driver (RBI/Fed/inflation/crude/budget …) — context only.
   const macro = firstHit(hay, intelConfig.news.highImpact);
   if (macro) return { type: "MACRO", score: S.macro, reason: `macro event ("${macro}")` };
   // 5) Generic market-wide.
-  const mw = firstHit(hay, MARKET_WIDE_TERMS);
+  const mw = firstHit(hay, taxonomy.marketWideTerms);
   if (mw) return { type: "MARKET_WIDE", score: S.marketWide, reason: `general market ("${mw}")` };
-  return { type: "IRRELEVANT", score: 0, reason: "no proven relevance to this instrument" };
+  return { type: "IRRELEVANT", score: S.irrelevant, reason: "no proven relevance to this instrument" };
 }
 
-/** Ranking priority (higher first). */
+/** Ranking priority (higher first) — from central config. */
 export function relevancePriority(t: RelevanceType): number {
-  return ({ DIRECT_INSTRUMENT: 6, UNDERLYING: 5, SECTOR: 4, BENCHMARK: 3, MARKET_WIDE: 2, MACRO: 2, IRRELEVANT: 0 } as Record<RelevanceType, number>)[t];
+  const p = intelConfig.news.relevance.priorities;
+  const map: Record<RelevanceType, number> = { DIRECT_INSTRUMENT: p.direct, UNDERLYING: p.underlying, SECTOR: p.sector, BENCHMARK: p.benchmark, MARKET_WIDE: p.marketWide, MACRO: p.macro, IRRELEVANT: p.irrelevant };
+  return map[t];
 }
 
 /** Does this relevance clear the decision-impact gate? */

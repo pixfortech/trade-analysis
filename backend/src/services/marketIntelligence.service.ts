@@ -251,7 +251,7 @@ export function fuseIntelligence(
     newsMatched,
     marketContext,
     newsDecisionImpact: {
-      directRelevantCount: decisionNews.filter((it) => it.relevanceType === "DIRECT_INSTRUMENT" || it.relevanceType === "UNDERLYING").length,
+      directRelevantCount: decisionNews.filter((it) => (it.relevanceScore ?? 0) >= intelConfig.news.relevance.minDirectScore).length,
       marketContextCount: marketContext.length,
       ignoredCount: relevantNews.ignoredCount,
       score: newsScore,
