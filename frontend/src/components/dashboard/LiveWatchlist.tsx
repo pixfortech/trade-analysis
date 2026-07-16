@@ -167,26 +167,27 @@ function WatchRow({ symbol, segment, quote, open, onAnalyse, onRemove }: {
     <div
       onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = "var(--surface-sunken)"; }}
       onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = "transparent"; }}
-      style={{ position: "relative", display: "grid", gridTemplateColumns: "1fr auto auto", alignItems: "center", gap: 10, padding: "10px 10px 10px 16px", borderRadius: "var(--radius-sm)", background: open ? "var(--brand-50)" : "transparent", transition: "background var(--dur-fast) var(--ease-out)" }}
+      style={{ position: "relative", display: "grid", gridTemplateColumns: "1fr auto auto", alignItems: "center", gap: 8, padding: "6px 8px 6px 12px", borderRadius: "var(--radius-sm)", background: open ? "var(--brand-50)" : "transparent", transition: "background var(--dur-fast) var(--ease-out)" }}
     >
-      {open && <span style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: "var(--brand-500)" }} />}
+      {open && <span style={{ position: "absolute", left: 0, top: 5, bottom: 5, width: 3, borderRadius: 2, background: "var(--brand-500)" }} />}
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{symbol}</div>
-        <div className="eyebrow" style={{ color: "var(--ink-4)" }}>{segment}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ink-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{symbol}</div>
+        <div className="eyebrow" style={{ fontSize: 9, color: "var(--ink-4)" }}>{segment}</div>
       </div>
       <div style={{ textAlign: "right" }}>
-        <div className="num" style={{ fontSize: 14, fontWeight: 700, color: "var(--ink-1)" }}>{quote ? num(quote.ltp) : "—"}</div>
-        <div className="num" style={{ fontSize: 11, fontWeight: 700, color: cp == null ? "var(--ink-4)" : down ? "var(--price-down)" : "var(--price-up)" }}>
+        <div className="num" style={{ fontSize: 12.5, fontWeight: 700, color: "var(--ink-1)" }}>{quote ? num(quote.ltp) : "—"}</div>
+        <div className="num" style={{ fontSize: 10.5, fontWeight: 700, color: cp == null ? "var(--ink-4)" : down ? "var(--price-down)" : "var(--price-up)" }}>
           {cp == null ? "—" : `${down ? "▼" : "▲"} ${pct(cp)}`}
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        <button type="button" onClick={onAnalyse} title="Open floating AI Trade Assistant" aria-label={`Analyse ${symbol}`}
-          style={{ display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 9px", borderRadius: "var(--radius-sm)", border: `1px solid ${open ? "var(--brand-500)" : "var(--action-wait-border)"}`, background: open ? "var(--brand-500)" : "var(--action-wait-soft)", color: open ? "#fff" : "var(--action-wait-strong)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-          <Icon n="bot" size={13} />{open ? "Open" : "Analyse"}
+      {/* Subtle icon action — no big green pills stacking down the rail. */}
+      <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+        <button type="button" onClick={onAnalyse} title={open ? "Open assistant" : "Analyse (floating assistant)"} aria-label={`Analyse ${symbol}`}
+          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: "var(--radius-sm)", border: "none", background: open ? "var(--brand-500)" : "transparent", color: open ? "#fff" : "var(--ink-3)", cursor: "pointer" }}>
+          <Icon n="bot" size={14} />
         </button>
-        <button type="button" onClick={onRemove} title="Remove" aria-label={`Remove ${symbol}`} style={{ ...iconBtn, width: 24, height: 24, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: "var(--radius-sm)" }}>
-          <Icon n="x" size={14} />
+        <button type="button" onClick={onRemove} title="Remove" aria-label={`Remove ${symbol}`} style={{ ...iconBtn, width: 22, height: 22, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: "var(--radius-sm)" }}>
+          <Icon n="x" size={13} />
         </button>
       </div>
     </div>

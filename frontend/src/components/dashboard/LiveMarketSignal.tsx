@@ -1,13 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/States";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
-import { num, tsec } from "@/lib/format";
-import { actionToneFor, toneVisual } from "@/lib/actionStyles";
-import type { ChartDataResponse, IndicatorId, LiveSignal, SignalSetup } from "@/types/api";
+import type { ChartDataResponse, IndicatorId, LiveSignal } from "@/types/api";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
 import { LiveChart } from "./LiveChart";
 import { IndicatorsPanel } from "./IndicatorsPanel";
@@ -17,27 +14,26 @@ import { useTheme } from "@/hooks/useTheme";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useAlerts } from "@/hooks/useAlerts";
 import { AlertToasts } from "./AlertToasts";
-import { ThemedSelect, InfoTooltip, InstrumentTypeSelector, type InstrumentSegment } from "@/components/ui/Inputs";
-import { STRATEGY_MODES, modeBlurb } from "@/lib/strategyModes";
-import { TimeBasedPlan } from "./TimeBasedPlan";
-import { TradeGuidance } from "./TradeGuidance";
-import { OhlcStrip, IndicatorGroups } from "./MarketContext";
-import { DecisionPanel } from "./DecisionPanel";
+import { ThemedSelect, InstrumentTypeSelector, type InstrumentSegment } from "@/components/ui/Inputs";
+import { STRATEGY_MODES } from "@/lib/strategyModes";
+import { OhlcStrip } from "./MarketContext";
+import { DecisionStrip } from "./DecisionStrip";
+import { EvidenceTabs } from "./EvidenceTabs";
+import { useDecision } from "@/hooks/useDecision";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { useKiteConnected } from "@/hooks/useKiteConnected";
-import { Expandable } from "@/components/ui/Expandable";
+import { Icon } from "@/components/terminal/ds";
 import { buildTradePlan, evaluatePlan, type TradePlanSnapshot } from "@/lib/tradePlan";
 
 // Kite-supported candle intervals (API enum — not a tunable business value).
 const INTERVALS = ["1minute", "3minute", "5minute", "15minute", "30minute", "60minute", "day"];
 
 /**
- * Live Market Signal — primary READ-ONLY analysis card (Phase 3E/3F).
- * Search → live chart + indicator toggles + real-time polling. Recalculates
- * trend/probability/entry/exit when indicators change, and raises a toast +
- * (opt-in) browser notification on trend reversal. No order controls anywhere.
- * The selected instrument is shared globally (Live Signal / AI Rec / assistant).
+ * Live Market Signal cockpit — READ-ONLY. Summary-first information architecture:
+ * a compact instrument header, ONE primary decision strip (action/approval/win/
+ * levels/context), the chart near the top, and all secondary evidence inside a
+ * tabbed panel. No duplicate decision cards; Market Movers lives in the rail.
  */
 export function LiveMarketSignal() {
   const global = useGlobalControls();
@@ -46,9 +42,6 @@ export function LiveMarketSignal() {
   const [interval, setInterval] = useState("5minute");
   const [riskProfile, setRiskProfile] = useState("balanced");
   const [segment, setSegment] = useState<InstrumentSegment>("all");
-  // Default indicator set comes from the public runtime config (env-overridable).
-  // The old toggle/recalculate table was removed; the grouped indicator section
-  // below is summary-first and read-only.
   const active = useMemo<IndicatorId[]>(() => cfg.defaults.activeIndicators as IndicatorId[], [cfg.defaults.activeIndicators]);
   const [chart, setChart] = useState<ChartDataResponse | null>(null);
   const signal = useAsync(api.liveSignal);
@@ -56,20 +49,18 @@ export function LiveMarketSignal() {
   const prevTrend = useRef<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveNote, setResolveNote] = useState<string | null>(null);
-  // The LOCKED trade plan (entry/SL/targets/confidence) for this analysis cycle.
-  // CMP/indicators keep updating via `signal`; these levels do NOT move per tick.
+  // LOCKED trade plan (entry/SL/targets) — CMP/indicators keep updating; levels don't.
   const [plan, setPlan] = useState<TradePlanSnapshot | null>(null);
-  // Best-effort India VIX (volatility context for the timing estimate). Unavailable
-  // → the estimate falls back to ATR and labels VIX unavailable; never fabricated.
   const [vix, setVix] = useState<number | null>(null);
   const { theme } = useTheme();
   const [indicatorsOpen, setIndicatorsOpen] = useState(false);
-  // User-configurable NATIVE chart indicators, computed from Kite candles. Persisted.
   const { value: indicators, setValue: setIndicators } = useLocalStorage<IndicatorInstance[]>("cockpit.indicators.chart.v1", DEFAULT_INDICATORS);
 
-  // Reference-only instruments (e.g. GIFT NIFTY on NSEIX) are visible/selectable
-  // but Kite can't quote them, so we never call live-signal with them.
   const referenceOnly = !!sel && sel.quotable === false;
+
+  // Real-time decision snapshot (single source of truth) for the strip + tabs.
+  const dec = useDecision(sel && sel.quotable !== false ? sel.instrument : null, interval, riskProfile, global.liveUpdates);
+  const evalResult = plan && signal.data ? evaluatePlan(plan, signal.data.currentPrice, signal.data, null) : null;
 
   const onSelect = (ins: SelectedInstrument) => {
     global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize, quotable: ins.quotable, name: ins.name });
@@ -77,7 +68,6 @@ export function LiveMarketSignal() {
     setResolveNote(null);
   };
 
-  // Map a reference instrument to its nearest tradable future via Kite search.
   const chooseNearestTradable = useCallback(async () => {
     if (!sel) return;
     setResolving(true);
@@ -105,27 +95,19 @@ export function LiveMarketSignal() {
         const c = await api.chartData({ instrument, interval, activeIndicators: active.join(",") });
         setChart(c);
       } catch {
-        setChart(null); // chart needs candles; signal still works quote-only
+        setChart(null);
       }
     },
     [interval, active],
   );
 
-  // Live refresh: updates CMP + indicators (and chart) WITHOUT touching the
-  // locked plan. Returns the latest signal so `analyze` can lock a fresh plan.
   const run = useCallback(async (): Promise<LiveSignal | null> => {
-    if (!sel || sel.quotable === false) return null; // never analyse a reference-only key
+    if (!sel || sel.quotable === false) return null;
     const res = await signal.run({ instrument: sel.instrument, interval, riskProfile, activeIndicators: active.join(",") });
     if (res) {
-      // Trend reversal detection (vs the previous successful read).
       const dir = res.trend.direction;
       if (prevTrend.current && prevTrend.current !== dir && (dir === "bullish" || dir === "bearish") && prevTrend.current !== "sideways") {
-        alerts.push(
-          `reversal-${sel.instrument}`,
-          `Trend changed: ${dir.toUpperCase()}`,
-          `${res.resolvedInstrument.displayName}: ${prevTrend.current} → ${dir}. ${res.finalDecision.reason}`,
-          dir === "bearish" ? "urgent" : "caution",
-        );
+        alerts.push(`reversal-${sel.instrument}`, `Trend changed: ${dir.toUpperCase()}`, `${res.resolvedInstrument.displayName}: ${prevTrend.current} → ${dir}. ${res.finalDecision.reason}`, dir === "bearish" ? "urgent" : "caution");
       }
       prevTrend.current = dir;
     }
@@ -133,35 +115,25 @@ export function LiveMarketSignal() {
     return res ?? null;
   }, [sel, interval, riskProfile, active, signal, alerts, fetchChart]);
 
-  // Analyze / Re-analyse: refresh live data AND LOCK a fresh trade plan.
   const analyze = useCallback(async () => {
     const res = await run();
     if (res) setPlan(buildTradePlan(res, interval, riskProfile));
-  }, [run, interval, riskProfile]);
+    void dec.reload();
+  }, [run, interval, riskProfile, dec]);
 
-  // Levels are locked per analysis cycle — clear the plan (forcing a fresh
-  // Re-analyse) when the instrument, timeframe or strategy mode changes.
-  useEffect(() => {
-    setPlan(null);
-  }, [sel?.instrument, interval, riskProfile]);
+  // Levels are locked per cycle — clear on instrument / timeframe / mode change.
+  useEffect(() => { setPlan(null); }, [sel?.instrument, interval, riskProfile]);
 
-  // Real-time polling driven by the GLOBAL live-updates control. Refreshes
-  // CMP/indicators every 5s while live updates are ON and an analysis exists —
-  // the locked plan's levels are NOT recalculated here.
+  // Live polling (CMP/indicators) — locked plan levels are NOT recalculated here.
   useEffect(() => {
     if (!global.liveUpdates || !sel || !signal.data) return;
     const id = window.setInterval(() => void run(), cfg.refresh.liveSignalMs);
     return () => window.clearInterval(id);
   }, [global.liveUpdates, sel, signal.data, run, cfg.refresh.liveSignalMs]);
 
-  // Kite just connected → if an instrument is engaged (errored or loaded),
-  // re-run the live signal so a stale "login required" error is cleared.
-  useKiteConnected(() => {
-    if (sel && sel.quotable !== false && (signal.isError || signal.data)) void run();
-  });
+  useKiteConnected(() => { if (sel && sel.quotable !== false && (signal.isError || signal.data)) void run(); });
 
-  // Best-effort India VIX via the existing quote endpoint (read-only). Resilient:
-  // if it isn't quotable / subscribed, vix stays null and timing computes without it.
+  // Best-effort India VIX (advisory) for the timing estimate. Never fabricated.
   useEffect(() => {
     if (!signal.data) return;
     let cancelled = false;
@@ -180,226 +152,94 @@ export function LiveMarketSignal() {
     return () => { cancelled = true; window.clearInterval(id); };
   }, [signal.data, cfg.defaults.vixQuoteSymbol, cfg.refresh.vixMs]);
 
-  // Reflow the grid once a result arrives so the summary/indicators fit cleanly.
   useEffect(() => {
     if (!signal.data) return;
     const timers = [0, 120, 320].map((ms) => window.setTimeout(() => window.dispatchEvent(new Event("resize")), ms));
     return () => timers.forEach((t) => window.clearTimeout(t));
   }, [signal.data]);
 
-  // Refresh the Kite instruments cache, then re-analyse (used by the error state).
   const refreshCache = useCallback(async () => {
-    try {
-      await api.kite.instrumentsRefresh();
-    } catch {
-      /* ignore — analyze() surfaces any remaining issue */
-    }
+    try { await api.kite.instrumentsRefresh(); } catch { /* analyze() surfaces issues */ }
     void analyze();
   }, [analyze]);
 
   return (
-    <Card
-      id="live-market-signal"
-      title="Live Market Signal"
-      subtitle="Advisory LONG / SHORT / WAIT from live Kite data"
-      eyebrow="Primary signal"
-      action={
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-bull/40 bg-bull-soft px-3 py-1 text-[11px] font-bold uppercase tracking-[0.06em] text-bull">
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-bull opacity-60" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-bull" />
-          </span>
-          Live Kite · Read-only
-        </span>
-      }
-    >
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className="text-xs text-slate-500">Type:</span>
-        <InstrumentTypeSelector value={segment} onChange={setSegment} />
-      </div>
-      <InstrumentSearch onSelect={onSelect} autoFocus={false} segment={segment === "all" ? undefined : segment} />
-
-      {/* Selected instrument + controls */}
-      <div className="mt-3 flex flex-col gap-2.5 lg:flex-row lg:items-end">
-        <div className={`min-w-0 flex-1 rounded-lg border px-3 py-2.5 ${sel ? "border-accent/20 bg-accent/5" : "border-white/5 bg-base-800/60"}`}>
-          <div className="flex items-center justify-between gap-2">
-            <p className="eyebrow text-slate-500">Selected instrument</p>
-            {sel && (
-              <button type="button" onClick={() => global.setSelectedInstrument(null)} className="text-[11px] font-medium text-slate-500 hover:text-bear">
-                Clear ✕
-              </button>
-            )}
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)", minWidth: 0 }}>
+      {/* Compact instrument header */}
+      <div style={{ borderRadius: "var(--radius-lg)", border: "1px solid var(--border-1)", background: "var(--surface-card)", padding: 10 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+            <InstrumentSearch onSelect={onSelect} autoFocus={false} segment={segment === "all" ? undefined : segment} placeholder="Search instrument…" />
           </div>
-          {sel ? (
-            <>
-              <p className="truncate text-base font-bold text-slate-100">
-                {sel.displayName}
-                <span className="num ml-1 text-xs font-medium text-slate-500">· {sel.instrument}{sel.lotSize ? ` · lot ${sel.lotSize}` : ""}</span>
-              </p>
-              <span className={`mt-1 inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold ${sel.quotable ? "border-bull/40 bg-bull-soft text-bull" : "border-neutralSignal/40 bg-neutralSignal-soft text-neutralSignal"}`}>
-                {sel.quotable ? "Kite direct" : "Reference only — map to tradable"}
-              </span>
-            </>
-          ) : (
-            <p className="text-sm font-medium text-slate-400">None — search above to select</p>
-          )}
+          <InstrumentTypeSelector value={segment} onChange={setSegment} />
         </div>
-        <label className="block">
-          <span className="mb-1 block text-xs text-slate-500">Timeframe</span>
-          <ThemedSelect
-            value={interval}
-            onChange={setInterval}
-            ariaLabel="Timeframe"
-            className="w-full lg:w-32"
-            options={INTERVALS.map((i) => ({ value: i, label: i }))}
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 flex items-center gap-1.5 text-xs text-slate-500">
-            Strategy mode
-            <InfoTooltip label="?">
-              <span className="space-y-1.5">
-                {STRATEGY_MODES.map((m) => (
-                  <span key={m.value} className="block">
-                    <strong className="text-slate-100">{m.label}:</strong> {m.blurb}
-                  </span>
-                ))}
-              </span>
-            </InfoTooltip>
-          </span>
-          <ThemedSelect
-            value={riskProfile}
-            onChange={setRiskProfile}
-            ariaLabel="Strategy mode"
-            className="w-full lg:w-44"
-            options={STRATEGY_MODES.map((m) => ({ value: m.value, label: m.label }))}
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => void analyze()}
-          disabled={signal.isLoading || !sel || referenceOnly}
-          title={referenceOnly ? "Reference-only instrument — choose a nearest tradable instrument first" : "Lock a fresh trade plan from current structure"}
-          className="rounded-lg bg-accent/20 px-5 py-2.5 text-sm font-semibold text-accent transition-colors hover:bg-accent/30 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {signal.isLoading ? "Analyzing…" : plan ? "Re-analyse" : "Analyze"}
-        </button>
-      </div>
-      <p className="mt-1.5 text-[11px] text-slate-500">{modeBlurb(riskProfile)}</p>
-
-      {/* Live status — controlled globally from the top control bar */}
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-        {!global.liveUpdates ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-neutralSignal/40 bg-neutralSignal-soft px-2.5 py-0.5 font-semibold text-neutralSignal">
-            ⏸ Live paused — manual refresh only (toggle in top bar)
-          </span>
-        ) : signal.data ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-bull/40 bg-bull-soft px-2.5 py-0.5 font-semibold text-bull">
-            <span className="h-1.5 w-1.5 rounded-full bg-bull" /> Live (auto-refresh {Math.round(cfg.refresh.liveSignalMs / 1000)}s)
-          </span>
-        ) : (
-          <span className="rounded-full border border-white/10 bg-base-800/60 px-2.5 py-0.5">Live updates ON</span>
+        {sel && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+            <span style={{ minWidth: 0, flex: "1 1 auto", display: "inline-flex", alignItems: "baseline", gap: 6, overflow: "hidden" }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: "var(--ink-1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sel.displayName}</span>
+              <span className="num" style={{ fontSize: 11, color: "var(--ink-4)", whiteSpace: "nowrap" }}>{sel.instrument}{sel.lotSize ? ` · lot ${sel.lotSize}` : ""}</span>
+              {!sel.quotable && <span style={{ fontSize: 9, fontWeight: 700, color: "var(--action-avoid)", border: "1px solid var(--action-avoid-border)", borderRadius: 3, padding: "0 4px" }}>reference</span>}
+            </span>
+            <ThemedSelect value={interval} onChange={setInterval} ariaLabel="Timeframe" className="w-24" options={INTERVALS.map((i) => ({ value: i, label: i }))} />
+            <ThemedSelect value={riskProfile} onChange={setRiskProfile} ariaLabel="Strategy mode" className="w-36" options={STRATEGY_MODES.map((m) => ({ value: m.value, label: m.label }))} />
+            <button type="button" onClick={() => void analyze()} disabled={signal.isLoading || referenceOnly} title="Lock a fresh trade plan"
+              style={{ height: 32, padding: "0 14px", borderRadius: "var(--radius-md)", border: "none", background: "var(--brand-500)", color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: signal.isLoading || referenceOnly ? "not-allowed" : "pointer", opacity: signal.isLoading || referenceOnly ? 0.5 : 1, whiteSpace: "nowrap" }}>
+              {signal.isLoading ? "Analysing…" : plan ? "Re-analyse" : "Analyse"}
+            </button>
+            <button type="button" onClick={() => global.setSelectedInstrument(null)} title="Clear selection" aria-label="Clear" style={{ width: 30, height: 30, borderRadius: "var(--radius-sm)", border: "1px solid var(--border-2)", background: "var(--surface-card)", color: "var(--ink-3)", cursor: "pointer" }}><Icon n="x" size={14} /></button>
+          </div>
         )}
       </div>
 
-      <div className="mt-4">
-        {!sel ? (
-          <EmptyState
-            title="Search and select an instrument to analyse"
-            message="Pick an equity, index, future or option above. Nothing is selected by default."
-          />
-        ) : referenceOnly ? (
-          <ReferenceCard
-            sel={sel}
-            resolving={resolving}
-            note={resolveNote}
-            onMap={() => void chooseNearestTradable()}
-            onRefresh={() => void refreshCache()}
-            onClear={() => global.setSelectedInstrument(null)}
-          />
-        ) : signal.isIdle ? (
-          <EmptyState title={`Ready: ${sel.displayName}`} message="Click Analyze for a live read-only signal. Needs Kite enabled & authorised." />
-        ) : signal.isLoading && !signal.data ? (
-          <p className="text-sm text-slate-400">Fetching live data and computing the signal…</p>
-        ) : signal.isError ? (
-          <InstrumentError name={sel.displayName} message={signal.error} onRetry={() => void analyze()} onRefresh={() => void refreshCache()} onClear={() => global.setSelectedInstrument(null)} />
-        ) : signal.data ? (
-          <>
-            <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
-              <span>Timeframe: {interval}</span>
-              <span>· Mode: <span className="capitalize">{riskProfile}</span></span>
-              <span>· Updated: {formatTime(signal.data.timestamp)}</span>
-            </div>
-            {/* OHLC + event-time context strip (high/low times derived from candles) */}
-            <div className="mb-4">
-              <OhlcStrip signal={signal.data} chart={chart} />
-            </div>
-            {/* LOCKED trade plan — entry/SL/targets stay fixed; CMP stays live. */}
-            {plan ? (
-              <div className="mb-4">
-                <TradeGuidance plan={plan} evalResult={evaluatePlan(plan, signal.data.currentPrice, signal.data, null)} signal={signal.data} vix={vix} onReanalyse={() => void analyze()} />
+      {!sel ? (
+        <EmptyState title="Select an instrument to analyse" message="Search above — equity, index, future or option. Nothing is selected by default." />
+      ) : referenceOnly ? (
+        <ReferenceCard sel={sel} resolving={resolving} note={resolveNote} onMap={() => void chooseNearestTradable()} onRefresh={() => void refreshCache()} onClear={() => global.setSelectedInstrument(null)} />
+      ) : signal.isIdle ? (
+        <EmptyState title={`Ready: ${sel.displayName}`} message="Analyse for a live read-only decision. Needs Kite enabled & authorised." />
+      ) : signal.isLoading && !signal.data ? (
+        <p style={{ fontSize: 13, color: "var(--ink-3)" }}>Fetching live data and computing the signal…</p>
+      ) : signal.isError ? (
+        <InstrumentError name={sel.displayName} message={signal.error} onRetry={() => void analyze()} onRefresh={() => void refreshCache()} onClear={() => global.setSelectedInstrument(null)} />
+      ) : signal.data ? (
+        <>
+          {/* OHLC — compact inline stats (reorderable, saved) */}
+          <OhlcStrip signal={signal.data} chart={chart} />
+
+          {/* THE one primary decision strip */}
+          <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} />
+
+          {/* Chart — appears high; locked levels; native indicators */}
+          <div style={{ borderRadius: "var(--radius-lg)", border: "1px solid var(--border-1)", background: "var(--surface-card)", padding: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <span className="eyebrow">Chart · locked levels</span>
+              <div style={{ position: "relative" }}>
+                <button type="button" onClick={() => setIndicatorsOpen((v) => !v)} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-2)", background: "var(--surface-sunken)", color: "var(--ink-2)", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
+                  <Icon n="activity" size={13} /> Indicators ({indicators.filter((i) => i.enabled).length})
+                </button>
+                {indicatorsOpen && <IndicatorsPanel indicators={indicators} setIndicators={setIndicators} onClose={() => setIndicatorsOpen(false)} />}
               </div>
-            ) : (
-              <div className="mb-4 rounded-lg border border-accent/20 bg-accent/5 px-4 py-3 text-sm text-slate-300">
-                Live data is loaded. Click{" "}
-                <button type="button" onClick={() => void analyze()} className="font-semibold text-accent underline underline-offset-2">Analyze</button>{" "}
-                to lock a trade plan (entry, stop-loss, targets) for {interval} · <span className="capitalize">{riskProfile}</span>.
-              </div>
-            )}
-            {/* Single primary decision card — stateful ENTER/WAIT/HOLD/EXIT/AVOID/NO
-                ACTION with instrument-scoped news + all evidence collapsed inside. */}
-            <div className="mb-4">
-              <DecisionPanel instrument={sel.instrument} interval={interval} riskProfile={riskProfile} live={global.liveUpdates} />
             </div>
-            {/* Indicators — the single, grouped & collapsible indicator section */}
-            <div className="mb-4">
-              <IndicatorGroups signal={signal.data} />
-            </div>
-            {/* Chart — Kite candles with NATIVE indicator overlays; locked levels stay fixed */}
-            <div className="mb-4">
-              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[11px] text-slate-500">Chart · Kite candles · Entry/SL/Target lines stay locked</span>
-                <div className="relative">
-                  <button type="button" onClick={() => setIndicatorsOpen((v) => !v)} className="inline-flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/20">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5" aria-hidden>
-                      <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" strokeLinecap="round" />
-                    </svg>
-                    Indicators ({indicators.filter((i) => i.enabled).length})
-                  </button>
-                  {indicatorsOpen && <IndicatorsPanel indicators={indicators} setIndicators={setIndicators} onClose={() => setIndicatorsOpen(false)} />}
+            {chart && chart.candles.length > 0 ? (
+              <>
+                <div style={{ borderRadius: "var(--radius-md)", border: "1px solid var(--border-1)", background: "var(--surface-sunken)", padding: 6 }}>
+                  <LiveChart data={chart} priceLines={plan ? planPriceLines(plan) : priceLinesFor(signal.data)} indicators={indicators} theme={theme} />
                 </div>
-              </div>
-              {chart && chart.candles.length > 0 ? (
-                <>
-                  <div className="rounded-lg border border-white/5 bg-base-800/30 p-2">
-                    <LiveChart data={chart} priceLines={plan ? planPriceLines(plan) : priceLinesFor(signal.data)} indicators={indicators} theme={theme} />
-                  </div>
-                  <div className="mt-2">
-                    <OscillatorCards candles={chart.candles} indicators={indicators} />
-                  </div>
-                </>
-              ) : (
-                <p className="rounded-lg border border-white/5 bg-base-800/30 px-3 py-4 text-center text-xs text-slate-500">
-                  Chart needs Kite candles — none returned for this view yet. Indicators compute from candle data.
-                </p>
-              )}
-            </div>
-            <Expandable title={`Live Market Signal — ${signal.data.resolvedInstrument.displayName || signal.data.instrument}`}>
-              <SignalView s={signal.data} />
-              <TimeBasedPlan signal={signal.data} />
-            </Expandable>
-          </>
-        ) : null}
-      </div>
+                <div style={{ marginTop: 8 }}><OscillatorCards candles={chart.candles} indicators={indicators} /></div>
+              </>
+            ) : (
+              <p style={{ fontSize: 12, color: "var(--ink-3)", textAlign: "center", padding: "16px 0" }}>Chart needs Kite candles — none returned for this view yet.</p>
+            )}
+          </div>
+
+          {/* Secondary evidence — tabbed; only the active tab renders */}
+          <EvidenceTabs d={dec.d} plan={plan} evalResult={evalResult} signal={signal.data} vix={vix} onReanalyse={() => void analyze()} />
+        </>
+      ) : null}
 
       <AlertToasts toasts={alerts.toasts} onDismiss={alerts.dismiss} />
-    </Card>
+    </div>
   );
-}
-
-/** Local IST-ish time formatter for the "last updated" line. */
-function formatTime(iso: string): string {
-  return tsec(iso);
 }
 
 /** Friendly error/unavailable state for a selected instrument (e.g. GIFT/NSEIX). */
@@ -409,14 +249,12 @@ function InstrumentError({ name, message, onRetry, onRefresh, onClear }: { name:
     <div className="rounded-xl border border-neutralSignal/30 bg-neutralSignal-soft p-4">
       <p className="text-sm font-bold text-neutralSignal">{friendly ? `${name} is currently unavailable in Kite data` : "Couldn't compute the signal"}</p>
       <p className="mt-1 text-xs leading-relaxed text-slate-400">
-        {friendly
-          ? "It may not be quotable via Kite (e.g. GIFT / NSEIX), or the instruments cache is stale. Refresh the cache, or clear the selection and pick another instrument."
-          : "Enable & authorise Kite (see the Kite Status card), then retry. The live signal needs live Kite data."}
+        {friendly ? "It may not be quotable via Kite (e.g. GIFT / NSEIX), or the instruments cache is stale. Refresh the cache, or clear and pick another instrument." : "Enable & authorise Kite (top bar), then retry. The live signal needs live Kite data."}
       </p>
       <div className="mt-2.5 flex flex-wrap gap-2">
         <button type="button" onClick={onRetry} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/5">Retry</button>
-        <button type="button" onClick={onRefresh} className="rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/20">Refresh instruments cache</button>
-        <button type="button" onClick={onClear} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-bear">Clear selection</button>
+        <button type="button" onClick={onRefresh} className="rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/20">Refresh cache</button>
+        <button type="button" onClick={onClear} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-bear">Clear</button>
       </div>
     </div>
   );
@@ -432,22 +270,18 @@ function ReferenceCard({ sel, resolving, note, onMap, onRefresh, onClear }: { se
         <p className="text-sm font-bold text-neutralSignal">Index / reference instrument</p>
       </div>
       <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-        <strong className="text-slate-200">{sel.displayName}</strong> is visible, but not directly quoteable via the current Kite instrument cache
-        {ex ? ` (exchange ${ex})` : ""}. Choose a mapped / nearest tradable instrument for live analysis.
+        <strong className="text-slate-200">{sel.displayName}</strong> is visible but not directly quoteable via Kite{ex ? ` (exchange ${ex})` : ""}. Choose a nearest tradable instrument for live analysis.
       </p>
       {note && <p className="mt-1.5 text-xs font-medium text-bear">{note}</p>}
       <div className="mt-2.5 flex flex-wrap gap-2">
-        <button type="button" onClick={onMap} disabled={resolving} className="rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/20 disabled:opacity-50">
-          {resolving ? "Finding nearest future…" : "Choose nearest tradable instrument"}
-        </button>
-        <button type="button" onClick={onRefresh} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/5">Refresh instruments cache</button>
-        <button type="button" onClick={onClear} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-bear">Clear selection</button>
+        <button type="button" onClick={onMap} disabled={resolving} className="rounded-md border border-accent/30 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/20 disabled:opacity-50">{resolving ? "Finding nearest future…" : "Choose nearest tradable"}</button>
+        <button type="button" onClick={onRefresh} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-white/5">Refresh cache</button>
+        <button type="button" onClick={onClear} className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-slate-400 hover:text-bear">Clear</button>
       </div>
     </div>
   );
 }
 
-/** Best-effort underlying name for resolving a reference instrument to a future. */
 function underlyingFor(sel: SharedInstrument): string {
   const key = sel.instrument.toUpperCase();
   const n = (sel.name || sel.displayName || "").toUpperCase();
@@ -456,7 +290,8 @@ function underlyingFor(sel: SharedInstrument): string {
   return cleaned || "NIFTY";
 }
 
-/** Entry/SL/target price lines for the chart, from the preferred setup. */
+const LINE = { entry: "#5b82ee", sl: "#f04438", target: "#12b76a" } as const;
+
 function priceLinesFor(s: LiveSignal): { price: number; color: string; title: string }[] {
   const setup = s.preferredSetup === "short" ? s.shortSetup : s.longSetup;
   const entry = setup.entryAbove ?? setup.entryBelow;
@@ -468,10 +303,6 @@ function priceLinesFor(s: LiveSignal): { price: number; color: string; title: st
   return lines;
 }
 
-// Chart price-line colours mirror the design tokens (accent / bear / bull).
-const LINE = { entry: "#5b82ee", sl: "#f04438", target: "#12b76a" } as const;
-
-/** Chart price lines from the LOCKED plan (so the chart matches the plan). */
 function planPriceLines(p: TradePlanSnapshot): { price: number; color: string; title: string }[] {
   const lines: { price: number; color: string; title: string }[] = [];
   if (p.entry != null) lines.push({ price: p.entry, color: LINE.entry, title: "Entry" });
@@ -480,145 +311,3 @@ function planPriceLines(p: TradePlanSnapshot): { price: number; color: string; t
   if (p.targets[1] != null) lines.push({ price: p.targets[1], color: LINE.target, title: "T2" });
   return lines;
 }
-
-function SignalView({ s }: { s: LiveSignal }) {
-  return (
-    <div className="space-y-5">
-      {/* Top: price + decision */}
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-slate-400">{s.resolvedInstrument.displayName || s.instrument}</p>
-          <p className="num text-4xl font-bold leading-none tracking-tight text-slate-100">{num(s.currentPrice)}</p>
-          <p className="num mt-1 text-sm text-slate-500">prev {num(s.marketData.previousClose)}{s.marketData.vwap != null ? ` · VWAP ${num(s.marketData.vwap)}` : ""}</p>
-        </div>
-        <div className="text-right">
-          <span className={`inline-block rounded-xl border px-5 py-2 text-2xl font-extrabold tracking-tight ${toneVisual(actionToneFor(s.finalDecision.action)).chip}`}>
-            {s.finalDecision.action}
-          </span>
-          <p className="mt-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-            {s.probability.confidence} confidence · {s.probability.dataQuality}
-          </p>
-        </div>
-      </div>
-
-      {/* Probability bar */}
-      <div>
-        <div className="mb-1.5 flex items-center justify-between text-sm">
-          <span className="font-medium text-bull">Bullish {s.probability.bullishPercent}%</span>
-          <span className="text-slate-400">Win (est.) {s.probability.estimatedWinPercent}%</span>
-          <span className="font-medium text-bear">{s.probability.bearishPercent}% Bearish</span>
-        </div>
-        <div className="flex h-3 overflow-hidden rounded-full bg-base-700">
-          <div className="bg-bull" style={{ width: `${s.probability.bullishPercent}%` }} />
-          <div className="bg-bear" style={{ width: `${s.probability.bearishPercent}%` }} />
-        </div>
-        <p className="mt-1.5 text-xs text-slate-500">
-          Trend: <span className="capitalize text-slate-300">{s.trend.direction} ({s.trend.strength})</span> · {s.trend.reason}
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-lg border border-bull/20 bg-bull-soft px-3 py-2.5">
-          <p className="text-slate-400">Support</p>
-          <p className="num text-[15px] font-semibold text-bull">{num(s.levels.support1)} · {num(s.levels.support2)}</p>
-        </div>
-        <div className="rounded-lg border border-bear/20 bg-bear-soft px-3 py-2.5">
-          <p className="text-slate-400">Resistance</p>
-          <p className="num text-[15px] font-semibold text-bear">{num(s.levels.resistance1)} · {num(s.levels.resistance2)}</p>
-        </div>
-      </div>
-
-      {/* Long / short setups */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <SetupView title="Long Setup" tone="bull" entryLabel="Entry above" entry={s.longSetup.entryAbove} setup={s.longSetup} />
-        <SetupView title="Short Setup" tone="bear" entryLabel="Entry below" entry={s.shortSetup.entryBelow} setup={s.shortSetup} />
-      </div>
-
-      {/* Decision reason */}
-      <p className="rounded-lg border border-white/5 bg-base-800/40 px-4 py-3 text-sm text-slate-300">
-        <span className="font-semibold text-slate-100">Decision:</span> {s.finalDecision.reason}{" "}
-        <span className="text-slate-500">(invalidation {num(s.finalDecision.invalidationLevel)})</span>
-      </p>
-
-      {/* Disclaimer (mandatory) */}
-      <p className="rounded-lg border border-neutralSignal/20 bg-neutralSignal-soft px-4 py-3 text-xs leading-relaxed text-neutralSignal">
-        ⚠️ {s.disclaimer}
-      </p>
-    </div>
-  );
-}
-
-function SetupView({
-  title,
-  tone,
-  entryLabel,
-  entry,
-  setup,
-}: {
-  title: string;
-  tone: "bull" | "bear";
-  entryLabel: string;
-  entry?: number;
-  setup: SignalSetup;
-}) {
-  const head = tone === "bull" ? "text-bull" : "text-bear";
-  const statusCls =
-    setup.status === "active"
-      ? tone === "bull"
-        ? "border-bull/40 bg-bull-soft text-bull"
-        : "border-bear/40 bg-bear-soft text-bear"
-      : "border-white/10 bg-base-800 text-slate-400";
-  return (
-    <div className="rounded-xl border border-white/5 bg-base-800/40 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <p className={`text-base font-semibold ${head}`}>{title}</p>
-        <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase ${statusCls}`}>
-          {setup.status}
-        </span>
-      </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-        <Level label={entryLabel} value={entry} big />
-        <Level label="Stop-loss" value={setup.stopLoss} tone="bear" big />
-        <Level label="Target 1" value={setup.target1} tone="bull" />
-        <Level label="Target 2" value={setup.target2} tone="bull" />
-        <Level label="Target 3" value={setup.target3} tone="bull" />
-        <Level label={`R:R`} text={setup.riskReward} />
-      </div>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-        <div className="rounded-lg border border-bull/20 bg-bull-soft px-3 py-2 text-center">
-          <p className="text-[11px] text-slate-400">Est. profit / lot</p>
-          <p className="num text-[15px] font-semibold text-bull">{num(setup.estimatedProfitForOneLot)}</p>
-        </div>
-        <div className="rounded-lg border border-bear/20 bg-bear-soft px-3 py-2 text-center">
-          <p className="text-[11px] text-slate-400">Est. loss / lot</p>
-          <p className="num text-[15px] font-semibold text-bear">{num(setup.estimatedLossForOneLot)}</p>
-        </div>
-      </div>
-      <p className="mt-3 text-xs leading-relaxed text-slate-500">{setup.condition}</p>
-    </div>
-  );
-}
-
-function Level({
-  label,
-  value,
-  text,
-  tone,
-  big,
-}: {
-  label: string;
-  value?: number;
-  text?: string;
-  tone?: "bull" | "bear";
-  big?: boolean;
-}) {
-  const c = tone === "bull" ? "text-bull" : tone === "bear" ? "text-bear" : "text-slate-100";
-  const size = big ? "text-xl" : "text-base";
-  return (
-    <div className="flex items-baseline justify-between gap-2">
-      <span className="text-sm text-slate-400">{label}</span>
-      <span className={`num font-bold ${size} ${c}`}>{text ?? (value == null ? "—" : `₹${num(value)}`)}</span>
-    </div>
-  );
-}
-

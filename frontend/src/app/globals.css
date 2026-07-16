@@ -227,8 +227,15 @@ html.light input::placeholder { color: #94a3b8; }
 :root[data-density="compact"] .cockpit-main { padding: var(--space-5) var(--space-5) 88px; }
 @media (max-width: 640px) { .cockpit-main { padding: var(--space-4) var(--space-4) 96px; } }
 
-.cockpit-grid { display: grid; grid-template-columns: minmax(0, 1fr) 372px; gap: var(--space-6); align-items: start; }
+.cockpit-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: var(--space-5); align-items: start; }
 @media (max-width: 1120px) { .cockpit-grid { grid-template-columns: 1fr; } }
+
+/* Sticky right rail — tracked instruments + compact widgets stay in view while
+   the main workspace scrolls. Collapses to normal flow on narrow screens. */
+.cockpit-rail { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; position: sticky; top: calc(var(--bar-height) + var(--space-4)); max-height: calc(100vh - var(--bar-height) - var(--space-5)); overflow-y: auto; }
+.cockpit-rail::-webkit-scrollbar { width: 6px; }
+.cockpit-rail::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 3px; }
+@media (max-width: 1120px) { .cockpit-rail { position: static; max-height: none; overflow: visible; } }
 
 .cockpit-twocol { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); align-items: start; }
 @media (max-width: 900px) { .cockpit-twocol { grid-template-columns: 1fr; } }

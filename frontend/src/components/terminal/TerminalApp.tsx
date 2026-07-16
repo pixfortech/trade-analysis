@@ -9,6 +9,7 @@ import { useKiteConnectedBridge } from "@/hooks/useKiteConnected";
 import { useGlobalControls, type Density } from "@/hooks/useGlobalControls";
 import { LiveMarketSignal } from "@/components/dashboard/LiveMarketSignal";
 import { TopPerformersCard } from "@/components/dashboard/TopPerformersCard";
+import { MoversSummary } from "@/components/dashboard/MoversSummary";
 import { LiveWatchlist } from "@/components/dashboard/LiveWatchlist";
 import { RiskManagementCard } from "@/components/dashboard/RiskManagementCard";
 import { PaperTradingPanel } from "@/components/dashboard/PaperTradingPanel";
@@ -89,38 +90,33 @@ export function TerminalApp() {
 }
 
 /* ----------------------------- dashboard screen -------------------------- */
+// Three-region cockpit: left nav (rail outside) · main workspace (the decision
+// cockpit) · sticky right rail (tracked instruments + compact movers). Market
+// Movers is NO LONGER a full section in the main flow — only a compact rail
+// summary here; the full table lives on the Movers screen.
 function DashboardScreen({ onNav }: { onNav: (s: Screen) => void }) {
   const { isOn } = useModules();
   const signalOn = isOn("liveSignal");
-  const leftHas = signalOn || isOn("marketMovers");
-  const railHas = isOn("watchlist") || isOn("riskPlanner") || isOn("paperTrade");
+  const railHas = isOn("watchlist") || isOn("marketMovers") || isOn("riskPlanner") || isOn("paperTrade");
 
-  const left = (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)", minWidth: 0 }}>
-      {signalOn && <LiveMarketSignal />}
-      {isOn("marketMovers") && <TopPerformersCard />}
-    </div>
-  );
+  const main = signalOn ? <LiveMarketSignal /> : null;
 
   return (
     <>
-      <div style={{ marginBottom: "var(--space-5)" }}>
-        <h1 style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-0.02em", color: "var(--ink-1)" }}>{signalOn ? "Live Market Signal" : "Trading cockpit"}</h1>
-      </div>
-
-      {!leftHas && !railHas ? (
+      {!signalOn && !railHas ? (
         <Hidden onNav={onNav} />
       ) : railHas ? (
         <div className="cockpit-grid">
-          {left}
-          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)", minWidth: 0 }}>
+          <div style={{ minWidth: 0 }}>{main ?? <Hidden onNav={onNav} />}</div>
+          <aside className="cockpit-rail">
             {isOn("watchlist") && <LiveWatchlist />}
+            {isOn("marketMovers") && <MoversSummary onOpenFull={() => onNav("movers")} />}
             {isOn("riskPlanner") && <RiskManagementCard />}
             {isOn("paperTrade") && <PaperTradingPanel />}
-          </div>
+          </aside>
         </div>
       ) : (
-        left
+        main
       )}
 
       <footer style={{ marginTop: "var(--space-6)", borderTop: "1px solid var(--border-1)", paddingTop: "var(--space-5)", textAlign: "center", fontSize: 11.5, lineHeight: 1.5, color: "var(--ink-4)" }}>
