@@ -27,7 +27,7 @@ import { useAnalysisSession } from "@/hooks/useAnalysisSession";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { useKiteConnected } from "@/hooks/useKiteConnected";
 import { Icon } from "@/components/terminal/ds";
-import { buildTradePlan, evaluatePlan, computePointsToAction, type TradePlanSnapshot } from "@/lib/tradePlan";
+import { buildTradePlan, evaluatePlan, computePointsToAction, MIN_SETUP_STRENGTH, type TradePlanSnapshot } from "@/lib/tradePlan";
 import { TentativePnL } from "./TentativePnL";
 import { unlockAudio, playEntryBeep } from "@/lib/beep";
 
@@ -88,6 +88,33 @@ export function LiveMarketSignal() {
   const mon = useMonitoringSession({ session: activeSession, signal: signal.data ?? null, decision: dec.d, chart, live: global.liveUpdates, bumpExcursion: as.bumpExcursion });
   const monitorSummary = mon.hasSession ? { analysedCmp: mon.analysedCmp ?? 0, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
   const tz = cfg.session.timezone;
+
+  // Live-data staleness (shared by the proof strip, the ENTER buzz gate and the
+  // P/L approval gate) — the quote hasn't updated within the configured window.
+  const dataStale = mon.lastTickMs != null && Date.now() - mon.lastTickMs > cfg.stream.quoteStaleSec * 1000;
+
+  // P/L presentation gate. Active (green) ONLY when entry is approved AND data is
+  // fresh; PLAN VOID when the locked invalidation is broken; otherwise a disabled
+  // scenario with one concise reason (Win/setup/stale/state).
+  const planVoid = evalResult?.state === "INVALIDATED";
+  const pnlApproved = evalResult?.state === "ENTER_NOW" && !!evalResult.approved && !dataStale;
+  const notApprovedReason = useMemo<string | null>(() => {
+    if (!plan || plan.direction === "WAIT" || pnlApproved) return null;
+    if (planVoid) return "Plan void — the locked invalidation level was broken. Re-analyse for a fresh plan.";
+    const parts: string[] = [];
+    const minWin = dec.d?.approval.minWin ?? cfg.winThreshold;
+    if (plan.winEstimate < minWin) parts.push(`Win ${plan.winEstimate}% < required ${minWin}%`);
+    if (plan.setupStrength < MIN_SETUP_STRENGTH) parts.push(`setup ${plan.setupStrength}% < ${MIN_SETUP_STRENGTH}%`);
+    if (dataStale) parts.push("market data stale");
+    const st = evalResult?.state;
+    if (st === "AVOID") parts.push("conditions unfavourable");
+    else if (st === "WAIT_BREAKOUT") parts.push("price hasn't reached the entry trigger");
+    else if (st === "WAIT_PULLBACK") parts.push("price past the safe zone — wait for a pullback");
+    else if (st === "WAIT_CONFIRMATION" && parts.length === 0) parts.push("awaiting confirmation");
+    else if (st === "WAIT_SETUP" && parts.length === 0) parts.push("no valid setup");
+    if (parts.length === 0) parts.push("entry gates not satisfied");
+    return `Not approved: ${parts.join("; ")}.`;
+  }, [plan, pnlApproved, planVoid, dataStale, evalResult?.state, dec.d, cfg.winThreshold]);
 
   const onSelect = (ins: SelectedInstrument) => {
     global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize, quotable: ins.quotable, name: ins.name });
@@ -187,16 +214,16 @@ export function LiveMarketSignal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [as.hydrated, activeSession, sel, signal.isIdle]);
 
-  // BUZZ on the WAIT → ENTER transition (transition-based, per-session dedupe,
-  // config cooldown, sound toggle). In-app toast always; browser notification if
-  // granted; short sound if enabled. Audio was unlocked by the Analyse click.
-  const prevEntryState = useRef<string | null>(null);
+  // BUZZ on the transition INTO a valid, approved, fresh-data ENTER (transition-
+  // based, per-session dedupe, config cooldown, sound toggle). In-app toast
+  // always; browser notification if granted; short sound if enabled. Suppressed
+  // when not approved OR data is stale (mirrors the P/L gate). Audio was unlocked
+  // by the Analyse click.
+  const prevEnterValid = useRef(false);
   const lastEnterAlertAt = useRef<number>(0);
   useEffect(() => {
-    const st = evalResult?.state ?? null;
-    const isEnter = st === "ENTER_NOW" && !!evalResult?.approved;
-    const wasEnter = prevEntryState.current === "ENTER_NOW";
-    if (isEnter && !wasEnter && activeSession) {
+    const enterValid = evalResult?.state === "ENTER_NOW" && !!evalResult.approved && !dataStale;
+    if (enterValid && !prevEnterValid.current && activeSession) {
       const now = Date.now();
       if (now - lastEnterAlertAt.current >= cfg.trade.alerts.enterCooldownMs) {
         lastEnterAlertAt.current = now;
@@ -204,9 +231,9 @@ export function LiveMarketSignal() {
         if (cfg.trade.alerts.soundEnabled) playEntryBeep();
       }
     }
-    prevEntryState.current = st;
+    prevEnterValid.current = enterValid;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [evalResult?.state, evalResult?.approved, activeSession]);
+  }, [evalResult?.state, evalResult?.approved, dataStale, activeSession]);
 
   // Live polling (CMP/indicators) — locked plan levels are NOT recalculated here.
   useEffect(() => {
@@ -304,8 +331,7 @@ export function LiveMarketSignal() {
           {/* Monitoring proof strip — verifiable live state: status + last tick /
               candle / decision / VIX / news times + MFE/MAE. */}
           {mon.hasSession && (() => {
-            const stale = mon.lastTickMs != null && Date.now() - mon.lastTickMs > cfg.stream.quoteStaleSec * 1000;
-            const monState = !global.liveUpdates || !mon.active ? "paused" : stale ? "stale" : "live";
+            const monState = !global.liveUpdates || !mon.active ? "paused" : dataStale ? "stale" : "live";
             const monColor = monState === "live" ? "var(--action-enter)" : monState === "stale" ? "var(--action-avoid)" : "var(--action-wait)";
             return (
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-3)", padding: "3px 4px" }}>
@@ -326,9 +352,11 @@ export function LiveMarketSignal() {
           {/* THE one primary decision strip */}
           <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} points={points} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} monitor={monitorSummary} />
 
-          {/* Tentative P/L preview for the locked plan (estimate — decoupled from approval). */}
+          {/* Tentative P/L preview for the locked plan. Estimate — decoupled from
+              approval; renders as a disabled scenario when entry isn't approved and
+              is disabled entirely when the plan is void. */}
           {plan && plan.direction !== "WAIT" && (
-            <TentativePnL plan={plan} cmp={signal.data.currentPrice} lotSize={sel.lotSize} approved={!!evalResult?.approved} updatedAt={dec.refreshedAt} />
+            <TentativePnL plan={plan} cmp={signal.data.currentPrice} lotSize={sel.lotSize} approved={pnlApproved} planVoid={planVoid} notApprovedReason={notApprovedReason} updatedAt={dec.refreshedAt} />
           )}
 
           {/* Chart — appears high; locked levels; native indicators */}
