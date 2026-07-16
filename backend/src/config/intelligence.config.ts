@@ -73,6 +73,18 @@ function flagEnv(name: string, def: boolean): boolean {
   return raw.trim().toLowerCase() === "true";
 }
 
+/** "KEY=VALUE,KEY=VALUE" → record, merged over `def`. Keys are upper-cased. */
+function mapEnv(name: string, def: Record<string, string>): Record<string, string> {
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === "") return { ...def };
+  const out = { ...def };
+  for (const pair of raw.split(",")) {
+    const [k, v] = pair.split("=");
+    if (k && v) out[k.trim().toUpperCase()] = v.trim();
+  }
+  return out;
+}
+
 /* --------------------------------- defaults ------------------------------ */
 const DEFAULT_RSS = [
   "https://www.moneycontrol.com/rss/marketreports.xml",
@@ -215,8 +227,41 @@ export const intelConfig = {
   movers: {
     equityUniverse: listEnv("MOVERS_EQUITY_UNIVERSE", DEFAULT_EQUITY_UNIVERSE),
     equityExchange: (process.env.MOVERS_EQUITY_EXCHANGE ?? "NSE").trim() || "NSE",
-    scanLimit: numEnv("MOVERS_SCAN_LIMIT", 40, 1, 200),
+    scanLimit: numEnv("MOVERS_SCAN_LIMIT", 40, 1, 400),
     breadthCacheMs: numEnv("MOVERS_BREADTH_CACHE_MS", 60_000, 0),
+    resultsLimit: numEnv("MOVERS_RESULTS_LIMIT", 10, 1, 50),
+    // Liquidity / quality filters applied BEFORE sorting (0 = off). Options add
+    // their own, tighter defaults below (low-premium contracts must not dominate).
+    minLtp: numEnv("MOVERS_MIN_LTP", 0, 0),
+    minVolume: numEnv("MOVERS_MIN_VOLUME", 0, 0),
+    minOi: numEnv("MOVERS_MIN_OI", 0, 0),
+    maxSpreadPct: numEnv("MOVERS_MAX_SPREAD_PCT", 100, 0, 100),
+    maxQuoteAgeSec: numEnv("MOVERS_MAX_QUOTE_AGE_SEC", 0, 0), // 0 = don't age-filter
+    // A near-zero previous close makes %change explode (±hundreds%). Exclude those.
+    excludeNearZeroPrevClose: flagEnv("MOVERS_EXCLUDE_NEAR_ZERO_PREVCLOSE", true),
+    nearZeroPrevClose: numEnv("MOVERS_NEAR_ZERO_PREVCLOSE", 1, 0),
+    options: {
+      underlyings: listEnv("MOVERS_OPTION_UNDERLYINGS", ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]).map((s) => s.toUpperCase()),
+      minLtp: numEnv("OPTIONS_MOVERS_MIN_LTP", 2, 0),
+      minVolume: numEnv("OPTIONS_MOVERS_MIN_VOLUME", 0, 0),
+      minOi: numEnv("OPTIONS_MOVERS_MIN_OI", 0, 0),
+      maxSpreadPct: numEnv("OPTIONS_MOVERS_MAX_SPREAD_PCT", 25, 0, 100),
+      strikeRange: numEnv("OPTIONS_MOVERS_STRIKE_RANGE", 0, 0), // 0 = off (ATM range needs spot)
+      expiryMode: enumEnv("OPTIONS_MOVERS_EXPIRY_MODE", "nearest", ["nearest", "current"] as const),
+      sortField: enumEnv("OPTIONS_MOVERS_SORT_FIELD", "percent", ["percent", "absolute", "volume", "oi"] as const),
+      maxResults: numEnv("OPTIONS_MOVERS_MAX_RESULTS", 10, 1, 50),
+    },
+  },
+  // Live options-chain construction (from the Kite instrument catalogue + batched
+  // quotes). Bounded around ATM; rate-limit-safe batching.
+  optionsChain: {
+    defaultStrikes: numEnv("OPTIONS_CHAIN_STRIKES", 12, 2, 60), // strikes each side of ATM
+    maxContracts: numEnv("OPTIONS_CHAIN_MAX_CONTRACTS", 80, 4, 400),
+    quoteBatchSize: numEnv("OPTIONS_CHAIN_BATCH_SIZE", 200, 10, 500),
+    cacheMs: numEnv("OPTIONS_CHAIN_CACHE_MS", 5_000, 0),
+    // Underlying → live spot instrument key (for ATM/spot). Equity underlyings not
+    // listed fall back to NSE:<underlying>. Override via OPTIONS_SPOT_SYMBOLS.
+    spotSymbols: mapEnv("OPTIONS_SPOT_SYMBOLS", { NIFTY: "NSE:NIFTY 50", BANKNIFTY: "NSE:NIFTY BANK", FINNIFTY: "NSE:NIFTY FIN SERVICE", MIDCPNIFTY: "NSE:NIFTY MIDCAP SELECT", SENSEX: "BSE:SENSEX" }),
   },
   kite: {
     tokenVerifySymbol: (process.env.KITE_TOKEN_VERIFY_SYMBOL ?? "NSE:INFY").trim() || "NSE:INFY",

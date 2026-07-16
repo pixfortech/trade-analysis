@@ -3,6 +3,7 @@ import * as kite from "../services/kite.service";
 import { KiteError } from "../services/kite.service";
 import * as instruments from "../services/instruments.service";
 import { resolveInstrumentInput, toCandidate } from "../services/resolveInput";
+import { getOptionsChain, getOptionExpiries } from "../services/optionsChain.service";
 import { env, isProd } from "../config/env";
 
 // Phase 3A/3C — READ-ONLY. Status, login flow, market-data reads and the
@@ -255,6 +256,43 @@ export async function resolveInstrument(req: Request, res: Response) {
       candidates: result.candidates.map(toCandidate),
       message: result.message,
     });
+  } catch (err) {
+    handleError(res, err);
+  }
+}
+
+/** GET /api/kite/option-expiries?underlying=NIFTY — non-expired expiries. */
+export async function getOptionExpiriesHandler(req: Request, res: Response) {
+  try {
+    const underlying = String(req.query.underlying ?? "").trim();
+    if (!underlying) {
+      res.status(400).json({ error: { message: "Provide ?underlying=SYMBOL (e.g. NIFTY).", code: "KITE_BAD_REQUEST" }, readOnly: true });
+      return;
+    }
+    const expiries = await getOptionExpiries(underlying);
+    res.json({ readOnly: true, underlying: underlying.toUpperCase(), expiries });
+  } catch (err) {
+    handleError(res, err);
+  }
+}
+
+/**
+ * GET /api/kite/options-chain?underlying=NIFTY&expiry=2026-07-24&strikes=12
+ * LIVE chain from the Kite catalogue + batched quotes. Read-only.
+ */
+export async function getOptionsChainHandler(req: Request, res: Response) {
+  try {
+    const underlying = String(req.query.underlying ?? "").trim();
+    if (!underlying) {
+      res.status(400).json({ error: { message: "Provide ?underlying=SYMBOL (e.g. NIFTY).", code: "KITE_BAD_REQUEST" }, readOnly: true });
+      return;
+    }
+    const result = await getOptionsChain({
+      underlying,
+      expiry: req.query.expiry ? String(req.query.expiry) : undefined,
+      strikes: req.query.strikes ? Number(req.query.strikes) : undefined,
+    });
+    res.json(result);
   } catch (err) {
     handleError(res, err);
   }

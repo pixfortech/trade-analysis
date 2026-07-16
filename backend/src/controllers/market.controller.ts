@@ -4,7 +4,7 @@ import { getChartData } from "../services/liveTradePlan.service";
 import { parseActiveIndicators } from "../services/indicatorEngine";
 import { KiteError } from "../services/kite.service";
 import { getMarketStatus } from "../services/marketStatus";
-import { getTopMovers, type MoverSegment } from "../services/topMovers";
+import { getTopMovers, type MoverSegment, type MoverSort } from "../services/topMovers";
 
 /** GET /api/market/quote?symbol=RELIANCE&segment=equity */
 export function getQuote(req: Request, res: Response) {
@@ -60,7 +60,10 @@ export async function getTopMoversHandler(req: Request, res: Response) {
     const seg = String(req.query.segment ?? "equity").toLowerCase();
     const valid: MoverSegment[] = ["equity", "indices", "futures", "options"];
     const segment = (valid.includes(seg as MoverSegment) ? seg : "equity") as MoverSegment;
-    const result = await getTopMovers(segment);
+    const sortRaw = String(req.query.sort ?? "").toLowerCase();
+    const sorts: MoverSort[] = ["percent", "absolute", "volume", "oi"];
+    const sort = sorts.includes(sortRaw as MoverSort) ? (sortRaw as MoverSort) : undefined;
+    const result = await getTopMovers(segment, { sort });
     res.json({ readOnly: true, ...result });
   } catch (err) {
     if (err instanceof KiteError) {

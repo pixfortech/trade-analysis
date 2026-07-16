@@ -3,6 +3,8 @@ import {
   getHistorical,
   getInstrumentsStatus,
   getLoginUrl,
+  getOptionExpiriesHandler,
+  getOptionsChainHandler,
   getQuote,
   getQuotes,
   getStatus,
@@ -45,6 +47,12 @@ kiteRouter.get("/quote", getQuote);
 
 // GET /api/kite/quotes?instruments=NSE:RELIANCE,NFO:MIDCPNIFTY26JUNFUT  (batch)
 kiteRouter.get("/quotes", getQuotes);
+
+// GET /api/kite/option-expiries?underlying=NIFTY
+kiteRouter.get("/option-expiries", getOptionExpiriesHandler);
+
+// GET /api/kite/options-chain?underlying=NIFTY&expiry=YYYY-MM-DD&strikes=12
+kiteRouter.get("/options-chain", getOptionsChainHandler);
 
 // GET /api/kite/historical?instrumentToken=...&interval=day&from=...&to=...
 kiteRouter.get("/historical", getHistorical);

@@ -62,7 +62,7 @@ function Col({ rows, up }: { rows: Mover[]; up: boolean }) {
       ) : (
         rows.map((m) => (
           <div key={m.instrument} style={{ display: "flex", justifyContent: "space-between", gap: 6, fontSize: 11, padding: "2px 0" }}>
-            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink-1)" }}>{m.displayName}</span>
+            <span title={m.displayName} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink-1)" }}>{m.compactName}</span>
             <span className="num" style={{ color: c, fontWeight: 700, flexShrink: 0 }}>{m.changePercent >= 0 ? "+" : ""}{num(m.changePercent)}%</span>
           </div>
         ))

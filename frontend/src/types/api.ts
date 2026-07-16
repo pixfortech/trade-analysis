@@ -95,23 +95,47 @@ export interface PaperSummary {
   totalPnl: number;
 }
 
+export type MoverSort = "percent" | "absolute" | "volume" | "oi";
+export type Freshness = "LIVE" | "DELAYED" | "STALE" | "UNAVAILABLE";
 export interface Mover {
   instrument: string;
+  instrumentToken: number;
+  exchange: string;
+  tradingsymbol: string;
   displayName: string;
+  compactName: string;
+  underlying: string;
+  instrumentType: string;
+  segment: string;
+  expiry: string;
+  strike: number;
+  optionType: "CE" | "PE" | "";
+  lotSize: number;
+  tickSize: number;
   ltp: number;
   change: number;
   changePercent: number;
+  prevClose: number;
   volume: number;
+  oi: number | null;
+  bid: number | null;
+  ask: number | null;
+  spreadPct: number | null;
+  exchangeTimeMs: number | null;
+  freshness: Freshness;
 }
 export interface TopMoversResponse {
   segment: "equity" | "indices" | "futures" | "options";
   source: "kite";
   partialData: boolean;
+  sort: MoverSort;
   gainers: Mover[];
   losers: Mover[];
   timestamp: string;
   scanned: number;
+  passed: number;
   total: number;
+  filters: string[];
   message: string;
 }
 
@@ -536,3 +560,41 @@ export interface DecisionSnapshot {
   history: DecisionTransition[];
   readOnly: true; disclaimer: string;
 }
+
+// ---- Live options chain (READ-ONLY) — GET /api/kite/options-chain ----
+export interface OptionSide {
+  ltp: number | null;
+  change: number | null;
+  changePercent: number | null;
+  volume: number | null;
+  oi: number | null;
+  bid: number | null;
+  ask: number | null;
+  instrument: string | null;
+  token: number | null;
+}
+export interface OptionRow { strike: number; isATM: boolean; ce: OptionSide; pe: OptionSide }
+export interface ChainMetrics {
+  atm: number | null;
+  pcr: number | null;
+  maxPain: number | null;
+  support: number | null;
+  resistance: number | null;
+  completeness: number;
+  totalCeOi: number;
+  totalPeOi: number;
+}
+export interface OptionsChainResponse {
+  underlying: string;
+  expiry: string | null;
+  expiries: string[];
+  spot: { value: number | null; ms: number | null; source: "exchange" | "receipt" | "none" };
+  rows: OptionRow[];
+  metrics: ChainMetrics;
+  timestamp: string;
+  scanned: number;
+  total: number;
+  message: string;
+  readOnly: true;
+}
+export interface OptionExpiriesResponse { readOnly: true; underlying: string; expiries: string[] }

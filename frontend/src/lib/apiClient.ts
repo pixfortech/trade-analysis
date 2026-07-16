@@ -31,6 +31,9 @@ import type {
   PaperTradeView,
   SearchResponse,
   TopMoversResponse,
+  MoverSort,
+  OptionsChainResponse,
+  OptionExpiriesResponse,
   MarketIntelligenceResponse,
   NewsResponse,
   DecisionSnapshot,
@@ -254,9 +257,18 @@ export const api = {
   // Market status (Phase 3G) — real NSE session state (no Kite needed).
   marketStatus: () => request<MarketStatusResponse>("/api/market/status"),
 
-  // Top movers (Phase 3G) — read-only.
-  topMovers: (segment: "equity" | "indices" | "futures" | "options") =>
-    request<TopMoversResponse>(`/api/market/top-movers?segment=${segment}`),
+  // Top movers — read-only, with canonical labels + liquidity filters + sort.
+  topMovers: (segment: "equity" | "indices" | "futures" | "options", sort?: MoverSort) =>
+    request<TopMoversResponse>(`/api/market/top-movers?segment=${segment}${sort ? `&sort=${sort}` : ""}`),
+
+  // Live options chain (READ-ONLY) — from the Kite catalogue + batched quotes.
+  optionExpiries: (underlying: string) =>
+    request<OptionExpiriesResponse>(`/api/kite/option-expiries?underlying=${encodeURIComponent(underlying)}`),
+  optionsChain: (params: { underlying: string; expiry?: string; strikes?: number }) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
+    return request<OptionsChainResponse>(`/api/kite/options-chain?${qs.toString()}`);
+  },
 
   // Market intelligence — combined technical + VIX + news + breadth (READ-ONLY).
   intelligence: (params: { instrument?: string; interval?: string; riskProfile?: string } & Partial<ResolveParams>) => {
