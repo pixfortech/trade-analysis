@@ -68,6 +68,7 @@ export interface TradePlanSnapshot {
 
 export type PlanState =
   | "ENTER_NOW"
+  | "PREPARE"
   | "WAIT_BREAKOUT"
   | "WAIT_PULLBACK"
   | "WAIT_CONFIRMATION"
@@ -109,6 +110,23 @@ export interface PlanEval {
   exitConfidence: number | null;
   pnlPerUnit: number | null;
   pnlPercent: number | null;
+  /** Remaining reward/risk if entering at the CURRENT price (null until reached). */
+  remainingRR: number | null;
+  /** True when approving an entry ABOVE/BELOW the preferred zone (late continuation). */
+  lateEntry: boolean;
+}
+
+/** PREPARE proximity + late-entry + evidence-freshness options (config-driven). */
+export interface EvalOptions {
+  continuationAtrMult?: number;
+  /** CMP staleness (quote/candle) — blocks fresh ENTER. */
+  dataStale?: boolean;
+  /** Approval EVIDENCE (indicators/decision) staleness — also blocks fresh ENTER (§15). */
+  evidenceStale?: boolean;
+  /** GET-READY proximity thresholds (whichever is largest wins). */
+  prepare?: { points: number; pct: number; atrMult: number };
+  /** Minimum remaining reward/risk for a late continuation entry (§4B). */
+  lateEntryMinRR?: number;
 }
 
 function r2(n: number): number {
@@ -300,9 +318,29 @@ function mk(p: Partial<PlanEval> & { state: PlanState; label: string; tone: Plan
     exitConfidence: null,
     pnlPerUnit: null,
     pnlPercent: null,
+    remainingRR: null,
+    lateEntry: false,
     ...ctx,
     ...p,
   };
+}
+
+/** GET-READY proximity distance: CMP within any configured measure (points / % of
+ *  price / ATR-relative) of the preferred entry — whichever is largest. */
+function proximityDistance(cmp: number, atr: number | null, prep: { points: number; pct: number; atrMult: number }): number {
+  const byPct = (prep.pct / 100) * cmp;
+  const byAtr = atr != null && atr > 0 ? prep.atrMult * atr : 0;
+  return Math.max(prep.points, byPct, byAtr);
+}
+
+/** Remaining reward/risk entering at the CURRENT price (§4A): reward to Target-1
+ *  over risk to the stop, both measured from `cmp`. Null when undefined/negative. */
+function remainingRR(cmp: number, target1: number | null, stop: number | null, long: boolean): number | null {
+  if (target1 == null || stop == null) return null;
+  const reward = long ? target1 - cmp : cmp - target1;
+  const risk = long ? cmp - stop : stop - cmp;
+  if (!(risk > 0) || reward <= 0) return null;
+  return r2(reward / risk);
 }
 
 /** Live exit signals currently firing against a locked position direction. */
@@ -328,12 +366,16 @@ function exitSignals(live: LiveSignal | null, isLong: boolean, cmp: number | nul
  * the distances. ENTER approval needs win estimate ≥ MIN_WIN_ESTIMATE AND setup
  * strength ≥ MIN_SETUP_STRENGTH AND CMP in zone AND not invalidated.
  */
-export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: LiveSignal | null, position: PlanPosition | null, opts?: { continuationAtrMult?: number; dataStale?: boolean }): PlanEval {
+export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: LiveSignal | null, position: PlanPosition | null, opts?: EvalOptions): PlanEval {
   const long = plan.direction === "LONG";
   const continuationAtrMult = opts?.continuationAtrMult ?? 0.75;
-  // Critical-data staleness blocks any fresh ENTER approval (§12/§18): a locked
-  // trigger being touched is never enough when the live feed has gone stale.
-  const freshBlocked = !!opts?.dataStale;
+  const prep = opts?.prepare ?? { points: 12, pct: 0.08, atrMult: 0.5 };
+  const lateMinRR = opts?.lateEntryMinRR ?? 1.2;
+  // A fresh ENTER requires BOTH the CMP AND the approval EVIDENCE (indicators) to
+  // be fresh (§15). A touched trigger is never enough when either feed has gone
+  // stale — we never present a "LIVE" approval on stale evidence.
+  const freshBlocked = !!opts?.dataStale || !!opts?.evidenceStale;
+  const staleReason = opts?.dataStale ? "live price/candle data is stale" : "approval evidence (indicators) is stale";
   const dist = (lvl: number | null) => (lvl != null && cmp != null ? r2(cmp - lvl) : null);
   const ctx = { cmp, distToEntry: dist(plan.entry), distToStop: dist(plan.stopLoss), distToTarget: dist(plan.targets[0] ?? null) };
 
@@ -380,8 +422,15 @@ export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: 
     const reached = long ? cmp >= plan.entry : cmp <= plan.entry;
     const inZone = cmp >= plan.safeLow && cmp <= plan.safeHigh;
     const past = long ? cmp > plan.safeHigh : cmp < plan.safeLow;
+    const setupValid = plan.winEstimate >= MIN_WIN_ESTIMATE && plan.setupStrength >= MIN_SETUP_STRENGTH;
     if (!reached) {
-      return mk({ state: "WAIT_BREAKOUT", label: long ? "Wait for breakout" : "Wait for breakdown", tone: "info", approvalLabel: "Wait for breakout", reason: `Wait until price ${long ? "breaks above" : "breaks below"} the locked entry ₹${f(plan.entry)} (${f(Math.abs(ctx.distToEntry ?? 0))} pts away).` }, ctx);
+      const distToEntry = Math.abs(plan.entry - cmp);
+      // PREPARE / GET READY (§2): within the configured proximity AND the setup is
+      // still valid → prime the user; otherwise keep waiting for the breakout.
+      if (setupValid && distToEntry <= proximityDistance(cmp, plan.snapshot.atr, prep)) {
+        return mk({ state: "PREPARE", label: long ? "Get ready to enter" : "Get ready to short", tone: "info", approvalLabel: "Get ready", reason: `Preferred entry ₹${f(plan.entry)} is approaching (${f(distToEntry)} pts). Current ${long ? "bullish" : "bearish"} conditions remain valid.` }, ctx);
+      }
+      return mk({ state: "WAIT_BREAKOUT", label: long ? "Wait for breakout" : "Wait for breakdown", tone: "info", approvalLabel: "Wait for breakout", reason: `Wait until price ${long ? "breaks above" : "breaks below"} the locked entry ₹${f(plan.entry)} (${f(distToEntry)} pts away).` }, ctx);
     }
     if (past) {
       // CMP ran beyond the safe zone in the trade direction. Do NOT auto-reject:
@@ -395,18 +444,23 @@ export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: 
       const strengthOk = plan.setupStrength >= MIN_SETUP_STRENGTH;
       const dirWord = long ? "above" : "below";
 
-      // Reversal risk — the breakout is failing on live evidence.
+      const rr = remainingRR(cmp, plan.targets[0] ?? null, plan.stopLoss, long); // from CURRENT cmp (§4A)
+      // Reversal risk — the breakout is failing on live evidence (§4C).
       if (rev.triggered >= 2) {
-        return mk({ state: "REVERSAL_RISK", label: "No entry — reversal risk", currentApproval: 0, approvalLabel: `No entry · reversal risk`, tone: "warn", reason: `Blocked: ${rev.reasons.slice(0, 2).join(" and ")}. Breakout failed ${dirWord} the zone — do not enter.` }, ctx);
+        return mk({ state: "REVERSAL_RISK", label: "No entry — reversal risk", currentApproval: 0, approvalLabel: `No entry · reversal risk`, tone: "warn", reason: `Blocked: ${rev.reasons.slice(0, 2).join(" and ")}. Breakout failed ${dirWord} the zone — do not enter.`, remainingRR: rr }, ctx);
       }
-      // Overextended — trend intact but price ran too far past the zone.
-      if (beyondAtr != null && beyondAtr > continuationAtrMult) {
-        return mk({ state: "WAIT_PULLBACK", label: "Wait for pullback", currentApproval: 0, approvalLabel: `${cap(dirWord)} entry zone · wait for pullback`, tone: "warn", reason: `Price is ${beyondAtr.toFixed(2)} ATR ${dirWord} the safe entry range; remaining reward/risk is reduced. Wait for a pullback toward ₹${f(plan.entry)}.` }, ctx);
+      // Overextended (§4B): trend intact but price ran too far past the zone OR the
+      // remaining reward/risk from the CURRENT price has fallen below the minimum.
+      if ((beyondAtr != null && beyondAtr > continuationAtrMult) || (rr != null && rr < lateMinRR)) {
+        const why = beyondAtr != null && beyondAtr > continuationAtrMult ? `Price is ${beyondAtr.toFixed(2)} ATR ${dirWord} the preferred entry range` : `Remaining reward/risk from ₹${f(cmp)} is ${rr}× (< ${lateMinRR}×)`;
+        return mk({ state: "WAIT_PULLBACK", label: "Wait for pullback", currentApproval: 0, approvalLabel: `${cap(dirWord)} entry zone · wait for pullback`, tone: "warn", reason: `${why}. ${cap(long ? "bullish" : "bearish")} trend remains intact, but remaining reward/risk is reduced — wait for a pullback toward ₹${f(plan.entry)}.`, remainingRR: rr }, ctx);
       }
-      // Continuation valid — within the extension window, gates pass, no reversal.
+      // Continuation valid (§4A) — within the extension window, gates + RR pass, no
+      // reversal. This is a LATE entry: approve, but warn and use CURRENT-price R:R.
       if (winOk && strengthOk && rev.triggered === 0) {
-        if (freshBlocked) return mk({ state: "WAIT_CONFIRMATION", label: "No entry — data stale", currentApproval: 0, approvalLabel: "Blocked · data stale", tone: "warn", reason: "Continuation looks valid but live market data is stale — entry approval is blocked until a fresh quote/candle arrives." }, ctx);
-        return mk({ state: "ENTER_NOW", label: `Enter ${plan.direction} — continuation valid`, approved: true, currentApproval: Math.min(plan.winEstimate, plan.setupStrength), approvalLabel: `${cap(dirWord)} entry zone · continuation valid`, tone: long ? "bull" : "bear", reason: `Continuation valid: price extended ${beyondAtr != null ? `${beyondAtr.toFixed(2)} ATR ` : ""}${dirWord} the zone but trend and indicators remain supportive with no reversal signal. Enter with stop ₹${f(plan.stopLoss)}.` }, ctx);
+        if (freshBlocked) return mk({ state: "WAIT_CONFIRMATION", label: "No entry — data stale", currentApproval: 0, approvalLabel: "Blocked · data stale", tone: "warn", reason: `Continuation looks valid but ${staleReason} — entry approval is blocked until fresh data arrives.`, remainingRR: rr }, ctx);
+        const beyondPts = r2(beyond);
+        return mk({ state: "ENTER_NOW", label: `Enter ${plan.direction} — continuation valid`, approved: true, lateEntry: true, currentApproval: Math.min(plan.winEstimate, plan.setupStrength), approvalLabel: `${cap(dirWord)} entry zone · continuation valid`, tone: long ? "bull" : "bear", remainingRR: rr, reason: `LATE ENTRY: CMP is ${beyondPts} pts ${dirWord} the preferred entry zone — remaining profit potential is lower than at the preferred entry (R:R now ${rr ?? "—"}×). Trend and indicators remain supportive with no reversal signal; enter with stop ₹${f(plan.stopLoss)}.` }, ctx);
       }
       // Past the zone but continuation not confirmed — wait.
       const why = !winOk && !strengthOk ? `win ${plan.winEstimate}% & setup ${plan.setupStrength}% below thresholds` : !winOk ? `win ${plan.winEstimate}% < ${MIN_WIN_ESTIMATE}%` : rev.triggered > 0 ? rev.reasons[0] : `setup ${plan.setupStrength}% < ${MIN_SETUP_STRENGTH}%`;
@@ -419,7 +473,7 @@ export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: 
       const strengthOk = plan.setupStrength >= MIN_SETUP_STRENGTH;
       if (winOk && strengthOk) {
         if (freshBlocked) {
-          return mk({ state: "WAIT_CONFIRMATION", label: "No entry — data stale", currentApproval: 0, approvalLabel: "Blocked · data stale", tone: "warn", reason: `CMP is in the locked zone and the gates pass, but live market data is stale — entry approval is blocked until a fresh quote/candle arrives.` }, ctx);
+          return mk({ state: "WAIT_CONFIRMATION", label: "No entry — data stale", currentApproval: 0, approvalLabel: "Blocked · data stale", tone: "warn", reason: `CMP is in the locked zone and the gates pass, but ${staleReason} — entry approval is blocked until fresh data arrives.` }, ctx);
         }
         return mk(
           {
@@ -429,6 +483,7 @@ export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: 
             currentApproval: Math.min(plan.winEstimate, plan.setupStrength),
             approvalLabel: "Approved",
             tone: long ? "bull" : "bear",
+            remainingRR: remainingRR(cmp, plan.targets[0] ?? null, plan.stopLoss, long),
             reason: `Approved: win estimate ${plan.winEstimate}% (≥${MIN_WIN_ESTIMATE}%), setup strength ${plan.setupStrength}% (≥${MIN_SETUP_STRENGTH}%), CMP in the locked zone. Enter with stop ₹${f(plan.stopLoss)}.`,
           },
           ctx,

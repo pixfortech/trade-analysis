@@ -418,6 +418,22 @@ export const intelConfig = {
       orderLegs: numEnv("TRADE_COST_ORDER_LEGS", 2, 1, 4), // entry + exit
       taxesPctOfTurnover: numEnv("TRADE_COST_TAXES_PCT_TURNOVER", 0.05, 0, 5), // STT+exch+GST+stamp approx, % of turnover
     },
+    // PREPARE / GET-READY pre-entry proximity (§2). CMP within ANY of these of the
+    // preferred entry (whichever is larger) → GET READY, provided the setup is
+    // still valid. Config-driven; supports points, % of price and ATR-relative.
+    prepare: {
+      points: numEnv("TRADE_PREPARE_POINTS", 12, 0),
+      pct: numEnv("TRADE_PREPARE_PCT", 0.08, 0, 5), // % of CMP
+      atrMult: numEnv("TRADE_PREPARE_ATR_MULT", 0.5, 0, 5),
+    },
+    // Late-entry gate (§4A/§4B). Above the preferred zone, continuation is allowed
+    // only while the REMAINING reward/risk (recomputed from the CURRENT price) is
+    // at least this; below it → WAIT FOR PULLBACK.
+    lateEntryMinRR: numEnv("TRADE_LATE_ENTRY_MIN_RR", 1.2, 0, 20),
+    // Evidence-freshness gate (§15). Fresh ENTER requires the APPROVAL EVIDENCE
+    // (indicators/decision), not just CMP, to be newer than this. Older ⇒ block
+    // fresh entry even while CMP keeps ticking (never a false "LIVE" approval).
+    evidenceStaleMs: numEnv("TRADE_EVIDENCE_STALE_MS", 20_000, 1000),
     // ENTER-transition alert (WAIT → ENTER). Config-driven cooldown + sound flag;
     // per-session dedupe lives in the client.
     alerts: {
@@ -509,6 +525,9 @@ export function publicConfig() {
       },
       continuationAtrMult: intelConfig.trade.continuationAtrMult,
       planStaleMovePct: intelConfig.trade.planStaleMovePct,
+      prepare: intelConfig.trade.prepare,
+      lateEntryMinRR: intelConfig.trade.lateEntryMinRR,
+      evidenceStaleMs: intelConfig.trade.evidenceStaleMs,
     },
     readOnly: true as const,
   };

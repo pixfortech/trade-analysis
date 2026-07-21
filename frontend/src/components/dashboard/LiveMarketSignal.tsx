@@ -95,8 +95,18 @@ export function LiveMarketSignal() {
   const dataAgeMs = lastDataMs != null ? Date.now() - lastDataMs : null;
   const genuinelyStale = stream.state === "DISCONNECTED" || (stream.state !== "LIVE" && stream.state !== "DISABLED" && dataAgeMs != null && dataAgeMs > cfg.stream.quoteStaleSec * 1000);
 
-  // Locked-plan live evaluation from the CURRENT price.
-  const evalResult = plan && signal.data ? evaluatePlan(plan, liveCmp, signal.data, null, { continuationAtrMult: cfg.trade.continuationAtrMult, dataStale: genuinelyStale }) : null;
+  // Evidence freshness (§15): the APPROVAL EVIDENCE (indicators) refreshes on the
+  // liveSignal poll, NOT per tick. If that poll has not landed within evidenceStaleMs
+  // (backend down / poll failing), a fresh ENTER is blocked even while CMP ticks —
+  // never a "LIVE" approval on stale evidence. This is a documented current
+  // limitation: indicators are poll-fresh, not tick-fresh (see the audit report).
+  const evidenceOkAtRef = useRef<number | null>(null);
+  useEffect(() => { if (signal.data) evidenceOkAtRef.current = Date.now(); }, [signal.data]);
+  const evidenceStale = evidenceOkAtRef.current != null && Date.now() - evidenceOkAtRef.current > cfg.trade.evidenceStaleMs;
+
+  // Locked-plan live evaluation from the CURRENT price. Levels are LOCKED; only the
+  // state/approval/distance/R:R change per tick. PREPARE + late-entry are config-driven.
+  const evalResult = plan && signal.data ? evaluatePlan(plan, liveCmp, signal.data, null, { continuationAtrMult: cfg.trade.continuationAtrMult, dataStale: genuinelyStale, evidenceStale, prepare: cfg.trade.prepare, lateEntryMinRR: cfg.trade.lateEntryMinRR }) : null;
   const points = plan && signal.data ? computePointsToAction(plan, liveCmp, activeSession?.analysedCmp ?? null) : null;
   const monitorSummary = mon.hasSession ? { analysedCmp: mon.analysedCmp ?? 0, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
 
@@ -262,6 +272,25 @@ export function LiveMarketSignal() {
     prevEnterValid.current = enterValid;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [evalResult?.state, evalResult?.approved, genuinelyStale, activeSession]);
+
+  // GET READY notification (§2/§17): fires ONCE on the transition INTO the PREPARE
+  // proximity state (per-session dedupe + config cooldown). One short sound if
+  // enabled — never repeated every tick while lingering near the entry.
+  const prevPrepare = useRef(false);
+  const lastPrepareAlertAt = useRef<number>(0);
+  useEffect(() => {
+    const isPrepare = evalResult?.state === "PREPARE";
+    if (isPrepare && !prevPrepare.current && activeSession) {
+      const now = Date.now();
+      if (now - lastPrepareAlertAt.current >= cfg.trade.alerts.enterCooldownMs) {
+        lastPrepareAlertAt.current = now;
+        alerts.push(`prepare-${activeSession.instrumentKey}`, `Get ready to ${plan?.direction === "LONG" ? "enter" : "short"}`, `${sel?.displayName ?? activeSession.displayName}: preferred entry is approaching. ${evalResult?.reason ?? ""}`, "caution");
+        if (cfg.trade.alerts.soundEnabled) playEntryBeep();
+      }
+    }
+    prevPrepare.current = isPrepare;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evalResult?.state, activeSession]);
 
   // NOTE: there is deliberately NO price-triggered auto re-analysis. A tick or a
   // price-movement threshold must never regenerate the locked Entry/SL/Targets.

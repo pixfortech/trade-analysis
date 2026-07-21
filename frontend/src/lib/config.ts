@@ -84,6 +84,12 @@ export interface TradeConfig {
   /** Move % past the analysed price that flags the locked plan "no longer optimal —
    *  Re-analyse recommended". Never moves levels or auto-regenerates the plan. */
   planStaleMovePct: number;
+  /** PREPARE / GET-READY pre-entry proximity (points / % / ATR-relative). */
+  prepare: { points: number; pct: number; atrMult: number };
+  /** Minimum remaining reward/risk (from current price) for a late continuation entry. */
+  lateEntryMinRR: number;
+  /** Approval evidence older than this (ms) blocks fresh entry even if CMP is live. */
+  evidenceStaleMs: number;
 }
 
 /**
@@ -133,6 +139,9 @@ export const FALLBACK_PUBLIC_CONFIG: PublicConfig = {
     alerts: { enterCooldownMs: 60_000, soundEnabled: true },
     continuationAtrMult: 0.75,
     planStaleMovePct: 0.35,
+    prepare: { points: 12, pct: 0.08, atrMult: 0.5 },
+    lateEntryMinRR: 1.2,
+    evidenceStaleMs: 20_000,
   },
   readOnly: true,
 };
@@ -175,6 +184,9 @@ function mergeTrade(r: Partial<TradeConfig> | undefined, base: TradeConfig): Tra
     alerts: { ...base.alerts, ...(r.alerts ?? {}) },
     continuationAtrMult: typeof r.continuationAtrMult === "number" ? r.continuationAtrMult : base.continuationAtrMult,
     planStaleMovePct: typeof r.planStaleMovePct === "number" ? r.planStaleMovePct : base.planStaleMovePct,
+    prepare: { ...base.prepare, ...(r.prepare ?? {}) },
+    lateEntryMinRR: typeof r.lateEntryMinRR === "number" ? r.lateEntryMinRR : base.lateEntryMinRR,
+    evidenceStaleMs: typeof r.evidenceStaleMs === "number" ? r.evidenceStaleMs : base.evidenceStaleMs,
   };
 }
 

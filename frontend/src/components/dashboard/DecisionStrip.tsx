@@ -44,6 +44,8 @@ function trendState(breadthScore: number): { text: string; tone: keyof typeof TO
 function entryStatusLabel(points: PointsToAction | null | undefined, approved: boolean, state: string | undefined): { text: string; tone: keyof typeof TONE } | null {
   if (!points || points.direction === "WAIT") return null;
   const side = points.direction === "LONG" ? "Above" : "Below";
+  // GET READY (§2): within proximity of the preferred entry, setup still valid.
+  if (state === "PREPARE") return { text: `⚡ Get ready to ${points.direction === "LONG" ? "enter" : "short"} · ${points.entryLabel}`, tone: "avoid" };
   if (points.entryZone === "approach") return { text: points.entryLabel, tone: "wait" }; // "5.85 pts to entry"
   if (points.entryZone === "inside") return { text: "In entry zone", tone: approved ? "enter" : "wait" };
   // Beyond the zone in the trade direction — verdict comes from the live eval.
@@ -157,11 +159,19 @@ export function DecisionStrip({
           </span>
         </div>
 
-        {/* 5 Entry-range status (pts-to-entry / in-zone / continuation / reversal) */}
+        {/* 5 Entry-range status (pts-to-entry / GET READY / in-zone / continuation / reversal) */}
         {entryStatus && (
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, fontSize: 12 }}>
             <span style={{ fontWeight: 800, color: TONE[entryStatus.tone] }}>{entryStatus.text}</span>
+            {evalResult?.remainingRR != null && <span style={{ fontSize: 11, color: "var(--ink-3)" }}>· R:R now <span className="num" style={{ fontWeight: 700, color: "var(--ink-2)" }}>{evalResult.remainingRR}×</span></span>}
           </div>
+        )}
+
+        {/* LATE ENTRY warning (§4A): entering above/below the preferred zone — remaining profit is lower. */}
+        {evalResult?.lateEntry && (
+          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--action-avoid)", lineHeight: 1.35 }}>
+            ⚠ Late entry — CMP is past the preferred entry zone; remaining profit potential is lower than at the preferred entry. R:R recalculated from the current price.
+          </p>
         )}
 
         {/* 6 Entry · 7 Stop · 8 Target 1 · 9 Safe zone — LOCKED at Analyse; these
