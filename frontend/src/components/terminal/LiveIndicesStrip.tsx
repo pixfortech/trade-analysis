@@ -5,8 +5,10 @@ import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useGlobalControls } from "@/hooks/useGlobalControls";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { useKiteConnected } from "@/hooks/useKiteConnected";
+import { useInstrumentTicks } from "@/hooks/useTickStream";
 import { api } from "@/lib/apiClient";
 import { numFlex, tsec } from "@/lib/format";
+import { fmtMarketTime } from "@/lib/marketTime";
 import { InstrumentSearch, type SelectedInstrument } from "@/components/dashboard/InstrumentSearch";
 import { Icon } from "./ds";
 
@@ -35,6 +37,28 @@ export function StatusStrip() {
   const itemsRef = useRef(items);
   itemsRef.current = items;
 
+  // Live index ticks from the Kite→SSE relay. These are the PRIMARY source for
+  // streamed indices; REST is the fallback below when the stream isn't LIVE.
+  const streamKeys = items.map((i) => i.instrument);
+  const { getTick, live: streamLive, state: streamState } = useInstrumentTicks(streamKeys);
+  const tz = cfg.session.timezone;
+
+  /** Best display for an index: a FRESH stream tick wins over the REST quote. */
+  const displayFor = (instrument: string): { ltp: number; changePercent: number | null; streamed: boolean; tsMs: number } | null => {
+    const t = getTick(instrument);
+    if (t && Date.now() - t.clientMs <= cfg.stream.tickStaleMs) {
+      const close = t.ohlc?.close;
+      const cp = typeof close === "number" && close > 0 ? ((t.ltp - close) / close) * 100 : null;
+      return { ltp: t.ltp, changePercent: cp, streamed: true, tsMs: t.tsMs };
+    }
+    const q = quotes[instrument];
+    return q ? { ltp: q.ltp, changePercent: q.changePercent, streamed: false, tsMs: refreshedAt ?? 0 } : null;
+  };
+  const lastTickMs = streamKeys.reduce<number | null>((acc, k) => {
+    const t = getTick(k);
+    return t && (acc == null || t.tsMs > acc) ? t.tsMs : acc;
+  }, null);
+
   const refresh = useCallback(async () => {
     const list = itemsRef.current;
     if (list.length === 0) { setQuotes({}); setMissing(new Set()); return; }
@@ -58,12 +82,14 @@ export function StatusStrip() {
 
   // Initial + on list change.
   useEffect(() => { if (hydrated) void refresh(); }, [hydrated, items, refresh]);
-  // Auto-refresh ONLY while the global Live toggle is on (manual refresh always works).
+  // Auto-refresh via REST is the FALLBACK only: it runs while Live is on AND the
+  // WebSocket stream is NOT live. Streamed indices update from WS packets, not a
+  // fixed 5-second poll (§3). The initial refresh still runs (baseline + n/a flags).
   useEffect(() => {
-    if (!hydrated || !g.liveUpdates) return;
+    if (!hydrated || !g.liveUpdates || streamLive) return;
     const id = window.setInterval(() => void refresh(), cfg.refresh.topStripMs);
     return () => window.clearInterval(id);
-  }, [hydrated, g.liveUpdates, refresh, cfg.refresh.topStripMs]);
+  }, [hydrated, g.liveUpdates, streamLive, refresh, cfg.refresh.topStripMs]);
   // Kite just connected → refetch quotes immediately (clears the awaiting state).
   useKiteConnected(() => void refresh());
 
@@ -87,14 +113,15 @@ export function StatusStrip() {
           <span style={{ fontSize: 11, color: "#5d6b82" }}>No indices — use Edit to add.</span>
         ) : (
           items.map((it) => {
-            const q = quotes[it.instrument];
+            const q = displayFor(it.instrument);
             const down = q?.changePercent != null && q.changePercent < 0;
             return (
               <span key={it.instrument} style={{ display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", color: "#8b97ab" }}>{it.displayName}</span>
                 {q ? (
                   <>
-                    <span className="num" style={{ fontSize: 12, fontWeight: 700, color: "#f2f5f9" }}>{numFlex(q.ltp)}</span>
+                    <span className="num" style={{ fontSize: 12, fontWeight: 700, color: "#f2f5f9" }} title={q.streamed ? "Live WebSocket tick" : "REST quote (fallback)"}>{numFlex(q.ltp)}</span>
+                    {q.streamed && <span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--price-up)" }} title="Streaming live" />}
                     {q.changePercent != null && (
                       <span className="num" style={{ fontSize: 11, fontWeight: 700, color: down ? "var(--price-down)" : "var(--price-up)" }}>
                         {down ? "▼" : "▲"} {Math.abs(q.changePercent).toFixed(2)}%
@@ -112,8 +139,14 @@ export function StatusStrip() {
         )}
 
         <span style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <span className="hide-sm" style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "#5d6b82", whiteSpace: "nowrap" }}>
-            {err ? "live unavailable" : refreshedAt ? `refreshed ${tsec(refreshedAt)}` : "loading…"} · {g.liveUpdates ? "live" : "paused"}
+          <span className="hide-sm" style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: streamLive ? "var(--price-up)" : "#5d6b82", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5 }}>
+            {streamLive ? (
+              <><span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--price-up)" }} />STREAM LIVE · tick {fmtMarketTime(lastTickMs, tz) ?? "…"}</>
+            ) : streamState === "DEGRADED" ? (
+              <span style={{ color: "var(--action-avoid)" }}>stream degraded · REST {refreshedAt ? tsec(refreshedAt) : "…"}</span>
+            ) : (
+              <>{err ? "live unavailable" : refreshedAt ? `refreshed ${tsec(refreshedAt)}` : "loading…"} · {g.liveUpdates ? "REST" : "paused"}</>
+            )}
           </span>
           <button type="button" onClick={() => void refresh()} title="Refresh now" aria-label="Refresh indices" style={barBtn}><Icon n="refresh" size={13} /></button>
           <button type="button" onClick={() => setEditing((v) => !v)} title="Edit indices" style={{ ...barBtn, width: "auto", gap: 5, padding: "0 8px", color: editing ? "#6e93f2" : "#c3cbd9" }}>

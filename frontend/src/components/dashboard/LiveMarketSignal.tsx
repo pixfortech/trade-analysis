@@ -24,6 +24,7 @@ import { useMonitoringSession } from "@/hooks/useMonitoringSession";
 import { fmtMarketTime } from "@/lib/marketTime";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { useAnalysisSession } from "@/hooks/useAnalysisSession";
+import { useInstrumentTick, useTickStreamStatus } from "@/hooks/useTickStream";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { useKiteConnected } from "@/hooks/useKiteConnected";
 import { Icon } from "@/components/terminal/ds";
@@ -80,20 +81,33 @@ export function LiveMarketSignal() {
   // Real-time decision snapshot (single source of truth) for the strip + tabs.
   const dec = useDecision(sel && sel.quotable !== false ? sel.instrument : null, interval, riskProfile, global.liveUpdates);
 
+  // LIVE tick from the Kite→SSE relay for the selected instrument (+ India VIX).
+  // This is the PRIMARY CMP source: a fresh tick drives CMP / points-to-entry /
+  // movement / entry-zone / stop-target checks immediately, without the 5s poll.
+  const selKey = sel && sel.quotable !== false ? sel.instrument : null;
+  const liveTick = useInstrumentTick(selKey);
+  const vixTick = useInstrumentTick(cfg.defaults.vixQuoteSymbol);
+  const stream = useTickStreamStatus();
+  const tickCmp = liveTick.fresh && liveTick.tick ? liveTick.tick.ltp : null;
+  const tickMs = tickCmp != null && liveTick.tick ? liveTick.tick.tsMs : null;
+  const liveCmp = tickCmp ?? signal.data?.currentPrice ?? null;
+
   // Continuous monitoring — DERIVED over the durable session (baseline + MFE/MAE
-  // live in the provider, so they survive unmount/reload). Active until Reset,
+  // live in the provider, so they survive unmount/reload). Fed the WS tick price
+  // so movement / MFE / MAE / distance update per tick. Active until Reset,
   // instrument/timeframe/mode change, pause, or global Live OFF.
-  const mon = useMonitoringSession({ session: activeSession, signal: signal.data ?? null, decision: dec.d, chart, live: global.liveUpdates, bumpExcursion: as.bumpExcursion });
+  const mon = useMonitoringSession({ session: activeSession, signal: signal.data ?? null, decision: dec.d, chart, live: global.liveUpdates, bumpExcursion: as.bumpExcursion, liveCmp: tickCmp, tickMs });
   const tz = cfg.session.timezone;
 
   // Live-data staleness (shared by the proof strip, evaluatePlan's ENTER gate, the
-  // buzz gate and the P/L gate) — the quote hasn't updated within the config window.
-  const dataStale = mon.lastTickMs != null && Date.now() - mon.lastTickMs > cfg.stream.quoteStaleSec * 1000;
+  // buzz gate and the P/L gate). A FRESH stream tick means not stale; otherwise
+  // fall back to the poll-based freshness window.
+  const dataStale = liveTick.fresh ? false : mon.lastTickMs != null && Date.now() - mon.lastTickMs > cfg.stream.quoteStaleSec * 1000;
 
   // Locked-plan live evaluation. Stale data blocks any fresh ENTER approval here,
   // so the primary card, the entry-zone status, the P/L and the buzz all agree.
-  const evalResult = plan && signal.data ? evaluatePlan(plan, signal.data.currentPrice, signal.data, null, { continuationAtrMult: cfg.trade.continuationAtrMult, dataStale }) : null;
-  const points = plan && signal.data ? computePointsToAction(plan, signal.data.currentPrice, activeSession?.analysedCmp ?? null) : null;
+  const evalResult = plan && signal.data ? evaluatePlan(plan, liveCmp, signal.data, null, { continuationAtrMult: cfg.trade.continuationAtrMult, dataStale }) : null;
+  const points = plan && signal.data ? computePointsToAction(plan, liveCmp, activeSession?.analysedCmp ?? null) : null;
   const monitorSummary = mon.hasSession ? { analysedCmp: mon.analysedCmp ?? 0, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
 
   // P/L presentation gate. Active (green) ONLY when entry is approved AND data is
@@ -336,19 +350,24 @@ export function LiveMarketSignal() {
           {/* Monitoring proof strip — verifiable live state: status + last tick /
               candle / decision / VIX / news times + MFE/MAE. */}
           {mon.hasSession && (() => {
-            // Live status colour (§18): GREEN live · AMBER delayed source · RED
-            // interrupted · GREY paused. Entry approval is already blocked when
-            // data is stale (dataStale gate on ENTER/buzz/P/L).
+            // Live status colour (§11/§18). The WebSocket stream state wins: GREEN
+            // "STREAM LIVE" when ticks are flowing fresh · AMBER when degraded/
+            // delayed (REST fallback) · RED interrupted · GREY paused. Entry
+            // approval is already blocked when data is stale (dataStale gate).
             const s = !global.liveUpdates || !mon.active
               ? { label: "paused", color: "var(--ink-3)" }
-              : dec.status === "error"
-                ? { label: "interrupted", color: "var(--action-exit)" }
-                : dataStale
-                  ? { label: "· delayed source", color: "var(--action-avoid)" }
-                  : { label: "LIVE", color: "var(--action-enter)" };
+              : stream.state === "LIVE" && liveTick.fresh
+                ? { label: "STREAM LIVE", color: "var(--action-enter)" }
+                : stream.state === "DEGRADED"
+                  ? { label: "· stream degraded (REST fallback)", color: "var(--action-avoid)" }
+                  : dec.status === "error"
+                    ? { label: "interrupted", color: "var(--action-exit)" }
+                    : dataStale
+                      ? { label: "· delayed source", color: "var(--action-avoid)" }
+                      : { label: stream.state === "DISABLED" ? "LIVE (REST)" : "LIVE", color: "var(--action-enter)" };
             return (
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-3)", padding: "3px 4px" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 800, color: s.color }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 800, color: s.color }} title={stream.message || undefined}>
                   <span style={{ width: 6, height: 6, borderRadius: "50%", background: s.color }} />
                   Monitoring {s.label}
                 </span>
@@ -369,7 +388,7 @@ export function LiveMarketSignal() {
               approval; renders as a disabled scenario when entry isn't approved and
               is disabled entirely when the plan is void. */}
           {plan && plan.direction !== "WAIT" && (
-            <TentativePnL plan={plan} cmp={signal.data.currentPrice} lotSize={sel.lotSize} approved={pnlApproved} planVoid={planVoid} reversalRisk={reversalRisk} notApprovedReason={notApprovedReason} updatedAt={dec.refreshedAt} />
+            <TentativePnL plan={plan} cmp={liveCmp ?? signal.data.currentPrice} lotSize={sel.lotSize} approved={pnlApproved} planVoid={planVoid} reversalRisk={reversalRisk} notApprovedReason={notApprovedReason} updatedAt={tickMs ?? dec.refreshedAt} />
           )}
 
           {/* Chart — appears high; locked levels; native indicators */}
@@ -396,7 +415,7 @@ export function LiveMarketSignal() {
           </div>
 
           {/* Secondary evidence — tabbed; only the active tab renders */}
-          <EvidenceTabs d={dec.d} plan={plan} evalResult={evalResult} signal={signal.data} vix={vix} onReanalyse={() => void analyze()} />
+          <EvidenceTabs d={dec.d} plan={plan} evalResult={evalResult} signal={signal.data} vix={vixTick.fresh && vixTick.tick ? vixTick.tick.ltp : vix} onReanalyse={() => void analyze()} />
         </>
       ) : null}
 

@@ -45,10 +45,15 @@ export function useMonitoringSession(args: {
   chart: ChartDataResponse | null;
   live: boolean;
   bumpExcursion: (mfe: number, mae: number) => void;
+  /** Live CMP from the WebSocket tick (preferred over the polled signal price). */
+  liveCmp?: number | null;
+  /** Source instant (epoch ms) of the WS tick, when streaming. */
+  tickMs?: number | null;
 }): MonitoringLive {
   const { session, signal, decision, chart, live, bumpExcursion } = args;
   const plan = session?.plan ?? null;
-  const liveCmp = signal?.currentPrice ?? null;
+  // Prefer the streamed tick price when present; fall back to the polled signal.
+  const liveCmp = args.liveCmp != null ? args.liveCmp : signal?.currentPrice ?? null;
   const long = plan?.direction === "LONG";
 
   // Track MFE / MAE across ticks (direction-aware) without moving the plan.
@@ -79,8 +84,8 @@ export function useMonitoringSession(args: {
     mae = r2(session.mae);
   }
 
-  // Per-stream timestamps for the monitoring proof strip.
-  const lastTickMs = chart?.sessionOhlc?.cmp.ms ?? (signal && !Number.isNaN(Date.parse(signal.timestamp)) ? Date.parse(signal.timestamp) : null);
+  // Per-stream timestamps for the monitoring proof strip. A live WS tick time wins.
+  const lastTickMs = args.tickMs != null ? args.tickMs : chart?.sessionOhlc?.cmp.ms ?? (signal && !Number.isNaN(Date.parse(signal.timestamp)) ? Date.parse(signal.timestamp) : null);
   const lastCandleMs = chart && chart.candles.length ? (Number.isNaN(Date.parse(chart.candles[chart.candles.length - 1].t)) ? null : Date.parse(chart.candles[chart.candles.length - 1].t)) : null;
   const lastVixMs = decision?.vix.available && decision.vix.timestamp && !Number.isNaN(Date.parse(decision.vix.timestamp)) ? Date.parse(decision.vix.timestamp) : null;
   const lastNewsMs = decision && !Number.isNaN(Date.parse(decision.timestamp)) ? Date.parse(decision.timestamp) : null;

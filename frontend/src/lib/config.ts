@@ -49,6 +49,11 @@ export interface PublicConfig {
     pollingFallbackMs: number;
     quoteStaleSec: number;
     showMillis: boolean;
+    /** Whether to open the SSE tick stream (Kite WebSocket relay). */
+    wsEnabled: boolean;
+    /** A streamed tick older than this (ms) is stale → REST fallback / block fresh entry. */
+    tickStaleMs: number;
+    sseKeepaliveMs: number;
   };
   winThreshold: number;
   minEnterConfidence: number;
@@ -115,7 +120,7 @@ export const FALLBACK_PUBLIC_CONFIG: PublicConfig = {
     readOnlyNotice: "Advisory market intelligence — read-only. No order placement, modification or execution.",
   },
   session: { timezone: "Asia/Kolkata", openMinutes: 555, closeMinutes: 930, preopenMinutes: 540 },
-  stream: { tickReconnectMs: 5_000, pollingFallbackMs: 5_000, quoteStaleSec: 90, showMillis: true },
+  stream: { tickReconnectMs: 5_000, pollingFallbackMs: 5_000, quoteStaleSec: 90, showMillis: true, wsEnabled: true, tickStaleMs: 5_000, sseKeepaliveMs: 15_000 },
   winThreshold: 75,
   minEnterConfidence: 75,
   trade: {

@@ -7,6 +7,7 @@ import { accountRouter } from "./account.routes";
 import { paperTradesRouter } from "./paperTrades.routes";
 import { intelligenceRouter, newsRouter } from "./intelligence.routes";
 import { configRouter } from "./config.routes";
+import { streamRouter } from "./stream.routes";
 
 export const router = Router();
 
@@ -19,3 +20,4 @@ router.use("/paper-trades", paperTradesRouter);
 router.use("/market-intelligence", intelligenceRouter);
 router.use("/news", newsRouter);
 router.use("/config", configRouter);
+router.use("/stream", streamRouter);

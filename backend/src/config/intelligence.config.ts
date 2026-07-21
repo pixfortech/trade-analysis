@@ -293,6 +293,20 @@ export const intelConfig = {
     pollingFallbackMs: numEnv("POLLING_FALLBACK_MS", 5_000, 1000),
     quoteStaleSec: numEnv("STREAM_QUOTE_STALE_SEC", 90, 5, 3600),
     showMillis: flagEnv("MARKET_TIME_SHOW_MILLIS", true),
+    // --- Kite WebSocket ticker → SSE relay (real-time source of truth) ---
+    // Master switch. When on AND Kite is live+authenticated, the ticker becomes
+    // the CMP/index source and REST polling is the fallback only.
+    wsEnabled: flagEnv("STREAM_WS_ENABLED", true),
+    wsUrl: (process.env.KITE_WS_URL ?? "wss://ws.kite.trade").trim() || "wss://ws.kite.trade",
+    wsMode: enumEnv("STREAM_WS_MODE", "full", ["ltp", "quote", "full"] as const), // full ⇒ exchange timestamp + OHLC
+    reconnectBaseMs: numEnv("STREAM_RECONNECT_BASE_MS", 2_000, 500),
+    reconnectMaxMs: numEnv("STREAM_RECONNECT_MAX_MS", 30_000, 1000),
+    heartbeatTimeoutMs: numEnv("STREAM_HEARTBEAT_TIMEOUT_MS", 7_500, 2000), // no frame within ⇒ reconnect
+    maxSubscriptions: numEnv("STREAM_MAX_SUBSCRIPTIONS", 3000, 1, 3000),
+    // A tick older than this (by RECEIPT time) is stale → fresh entry blocked and
+    // the client falls back to REST. Finer than quoteStaleSec (the coarse gate).
+    tickStaleMs: numEnv("STREAM_TICK_STALE_MS", 5_000, 500),
+    sseKeepaliveMs: numEnv("STREAM_SSE_KEEPALIVE_MS", 15_000, 1000),
   },
   defaults: {
     topStripSymbols: symbolListEnv("TOP_STRIP_DEFAULT_SYMBOLS", DEFAULT_TOP_STRIP),
@@ -451,6 +465,11 @@ export function publicConfig() {
       pollingFallbackMs: intelConfig.stream.pollingFallbackMs,
       quoteStaleSec: intelConfig.stream.quoteStaleSec,
       showMillis: intelConfig.stream.showMillis,
+      // Client-relevant streaming settings (no secrets): whether to open the SSE
+      // tick stream, the tick freshness gate, and the SSE keepalive cadence.
+      wsEnabled: intelConfig.stream.wsEnabled,
+      tickStaleMs: intelConfig.stream.tickStaleMs,
+      sseKeepaliveMs: intelConfig.stream.sseKeepaliveMs,
     },
     winThreshold: intelConfig.decision.winThreshold,
     minEnterConfidence: intelConfig.decision.minEnterConfidence,

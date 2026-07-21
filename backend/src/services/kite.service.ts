@@ -208,12 +208,39 @@ export async function generateSession(requestToken: string): Promise<{ authentic
     throw new KiteError("Kite did not return an access token.", 502, "KITE_NO_TOKEN");
   }
   accessToken = token; // server-side only
+  notifyAuthenticated();
   return { authenticated: true };
 }
 
 /** Clear the server-side session (does not touch Kite). */
 export function logout(): void {
   accessToken = null;
+}
+
+// ---------------------------------------------------------------------
+// Streaming support. The WebSocket ticker (marketStream) needs the RAW api_key +
+// access_token to open wss://ws.kite.trade. They are handed over ONLY inside this
+// process and placed only in the wss URL — never returned to any HTTP client and
+// never logged. Returns null unless live data is on AND a token is held.
+// ---------------------------------------------------------------------
+export function getStreamCredentials(): { apiKey: string; accessToken: string } | null {
+  if (!isLiveDataEnabled() || !env.kite.apiKey || !accessToken) return null;
+  return { apiKey: env.kite.apiKey, accessToken };
+}
+
+const authListeners = new Set<() => void>();
+/** Register a callback fired when a fresh access token is obtained (login flow). */
+export function onAuthenticated(cb: () => void): void {
+  authListeners.add(cb);
+}
+function notifyAuthenticated(): void {
+  for (const cb of authListeners) {
+    try {
+      cb();
+    } catch {
+      /* a listener must never break the auth flow */
+    }
+  }
 }
 
 /** GET a live quote for one instrument, e.g. "NSE:RELIANCE". Read-only. */
