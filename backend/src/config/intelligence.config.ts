@@ -314,6 +314,11 @@ export const intelConfig = {
     candlesFromTicks: flagEnv("STREAM_CANDLES_FROM_TICKS", true),
     candleWarmMs: numEnv("STREAM_CANDLE_WARM_MS", 15_000, 1000),
     candleMaxCount: numEnv("STREAM_CANDLE_MAX_COUNT", 500, 50, 5000),
+    // Real-time decision stream: minimum interval (ms) between coalesced decision
+    // emits per session. An ACTION transition (e.g. WAIT→ENTER, hard stop) always
+    // emits immediately regardless — this only throttles no-change ticks.
+    decisionMinIntervalMs: numEnv("STREAM_DECISION_MIN_INTERVAL_MS", 250, 0, 5000),
+    decisionEnabled: flagEnv("STREAM_DECISION_ENABLED", true),
   },
   defaults: {
     topStripSymbols: symbolListEnv("TOP_STRIP_DEFAULT_SYMBOLS", DEFAULT_TOP_STRIP),
@@ -499,6 +504,8 @@ export function publicConfig() {
       wsEnabled: intelConfig.stream.wsEnabled,
       tickStaleMs: intelConfig.stream.tickStaleMs,
       sseKeepaliveMs: intelConfig.stream.sseKeepaliveMs,
+      decisionEnabled: intelConfig.stream.decisionEnabled,
+      decisionMinIntervalMs: intelConfig.stream.decisionMinIntervalMs,
     },
     winThreshold: intelConfig.decision.winThreshold,
     minEnterConfidence: intelConfig.decision.minEnterConfidence,

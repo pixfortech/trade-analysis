@@ -20,6 +20,7 @@ import { KiteTicker } from "./kiteTicker";
 import { SubscriptionManager } from "./subscriptionManager";
 import { TickStore, type StreamStatus, type StreamState } from "./tickStore";
 import * as candleService from "./candleService";
+import { onDecisionTick } from "./realtimeDecisionManager";
 import type { Tick } from "./kiteBinary";
 
 export interface TickPayload {
@@ -199,6 +200,8 @@ function handleTicks(ticks: Tick[]): void {
     // Fold the tick into the live-candle series (all intervals for this token) so
     // indicators/decision read a candle set as current as the CMP.
     candleService.onTick(tick.token, tick.ltp, tick.exchangeTimestampMs ?? now, tick.volume);
+    // Drive the real-time decision authority from the SAME tick (event-driven).
+    onDecisionTick(tick.token, now);
     const listeners = tokenListeners.get(tick.token);
     if (!listeners || listeners.size === 0) continue;
     const payload = toPayload(tick.token, { ...tick, receivedAtMs: now });

@@ -19,6 +19,7 @@ import { fmtMarketTime } from "@/lib/marketTime";
 import { useGlobalControls, exchangeOfKey, type SharedInstrument } from "@/hooks/useGlobalControls";
 import { useAnalysisSession } from "@/hooks/useAnalysisSession";
 import { useInstrumentTick, useTickStreamStatus } from "@/hooks/useTickStream";
+import { useDecisionStream, type DecisionStreamPlan } from "@/hooks/useDecisionStream";
 import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { useKiteConnected } from "@/hooks/useKiteConnected";
 import { Icon } from "@/components/terminal/ds";
@@ -109,6 +110,21 @@ export function LiveMarketSignal() {
   const evalResult = plan && signal.data ? evaluatePlan(plan, liveCmp, signal.data, null, { continuationAtrMult: cfg.trade.continuationAtrMult, dataStale: genuinelyStale, evidenceStale, prepare: cfg.trade.prepare, lateEntryMinRR: cfg.trade.lateEntryMinRR }) : null;
   const points = plan && signal.data ? computePointsToAction(plan, liveCmp, activeSession?.analysedCmp ?? null) : null;
   const monitorSummary = mon.hasSession ? { analysedCmp: mon.analysedCmp ?? 0, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
+
+  // REAL-TIME DECISION STREAM (§11–§14): the backend decision authority streams a
+  // COHERENT snapshot (CMP + indicators + evidence + win + action from the SAME
+  // tick-built candle) for the LOCKED plan. When authoritative it drives the
+  // action + notifications; the client evalResult + polls are the FALLBACK.
+  const streamPlan: DecisionStreamPlan | null =
+    plan && plan.direction !== "WAIT" && plan.entry != null && plan.safeLow != null && plan.safeHigh != null && plan.stopLoss != null && plan.targets[0] != null && plan.invalidation != null && activeSession
+      ? { direction: plan.direction, entry: plan.entry, safeLow: plan.safeLow, safeHigh: plan.safeHigh, stop: plan.stopLoss, target1: plan.targets[0]!, target2: plan.targets[1] ?? null, invalidation: plan.invalidation, atr: plan.snapshot.atr, analysedCmp: activeSession.analysedCmp, analysedAtMs: activeSession.analysedAt }
+      : null;
+  const ds = useDecisionStream({ instrument: selKey, interval, plan: streamPlan, enabled: !!streamPlan });
+  const rt = ds.authoritative ? ds.snapshot : null; // authoritative backend decision, or null → fallback
+
+  // Unified action vocabulary (backend authoritative when live, else client eval).
+  const clientAction = evalResult?.state === "ENTER_NOW" ? (evalResult.lateEntry ? "ENTER_CONTINUATION" : "ENTER") : evalResult?.state === "PREPARE" ? "PREPARE" : evalResult?.state === "REVERSAL_RISK" ? "REVERSAL_RISK" : evalResult?.state === "WAIT_PULLBACK" ? "WAIT_PULLBACK" : evalResult?.state ? "WAIT" : "";
+  const authAction = rt ? rt.action : clientAction;
 
   // PLAN-STALENESS GUIDANCE. The locked plan (Entry/SL/Targets/Safe-zone/
   // invalidation + analysed CMP/time) NEVER moves on a tick or a price threshold —
@@ -260,7 +276,8 @@ export function LiveMarketSignal() {
   const prevEnterValid = useRef(false);
   const lastEnterAlertAt = useRef<number>(0);
   useEffect(() => {
-    const enterValid = evalResult?.state === "ENTER_NOW" && !!evalResult.approved && !genuinelyStale;
+    // Backend action wins when the realtime stream is authoritative; else client eval.
+    const enterValid = (authAction === "ENTER" || authAction === "ENTER_CONTINUATION") && (rt ? rt.approved : !!evalResult?.approved) && !genuinelyStale;
     if (enterValid && !prevEnterValid.current && activeSession) {
       const now = Date.now();
       if (now - lastEnterAlertAt.current >= cfg.trade.alerts.enterCooldownMs) {
@@ -271,7 +288,7 @@ export function LiveMarketSignal() {
     }
     prevEnterValid.current = enterValid;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [evalResult?.state, evalResult?.approved, genuinelyStale, activeSession]);
+  }, [authAction, rt?.approved, evalResult?.approved, genuinelyStale, activeSession]);
 
   // GET READY notification (§2/§17): fires ONCE on the transition INTO the PREPARE
   // proximity state (per-session dedupe + config cooldown). One short sound if
@@ -279,7 +296,7 @@ export function LiveMarketSignal() {
   const prevPrepare = useRef(false);
   const lastPrepareAlertAt = useRef<number>(0);
   useEffect(() => {
-    const isPrepare = evalResult?.state === "PREPARE";
+    const isPrepare = authAction === "PREPARE";
     if (isPrepare && !prevPrepare.current && activeSession) {
       const now = Date.now();
       if (now - lastPrepareAlertAt.current >= cfg.trade.alerts.enterCooldownMs) {
@@ -290,7 +307,7 @@ export function LiveMarketSignal() {
     }
     prevPrepare.current = isPrepare;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [evalResult?.state, activeSession]);
+  }, [authAction, activeSession]);
 
   // NOTE: there is deliberately NO price-triggered auto re-analysis. A tick or a
   // price-movement threshold must never regenerate the locked Entry/SL/Targets.
@@ -411,6 +428,24 @@ export function LiveMarketSignal() {
               </div>
             );
           })()}
+
+          {/* REAL-TIME DECISION — the backend authority (§14/§16). CMP + indicators
+              + evidence + win + action from ONE coherent tick-built state. Shown
+              only when the decision stream is authoritative; else the strip below
+              is the poll fallback. */}
+          {rt && (
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-3)", padding: "4px 6px", borderRadius: "var(--radius-md)", border: "1px solid var(--action-enter-border, var(--border-2))", background: "var(--surface-sunken)" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 800, color: "var(--action-enter)" }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--action-enter)" }} /> STREAM LIVE
+              </span>
+              <span style={{ fontWeight: 800, color: "var(--ink-1)" }}>{rt.action.replace(/_/g, " ")}</span>
+              <span>· win <span className="num" style={{ fontWeight: 700 }}>{rt.winEstimate}%</span></span>
+              <span>· tick <span className="num">{fmtMarketTime(rt.freshness.tickReceivedMs, tz) ?? "—"}</span></span>
+              <span className="hide-sm">· indicators <span className="num">{fmtMarketTime(rt.freshness.indicatorCalcMs, tz) ?? "—"}</span></span>
+              <span className="hide-sm">· decision <span className="num">{fmtMarketTime(rt.freshness.decisionCalcMs, tz) ?? "—"}</span></span>
+              <span className="hide-sm">· candle {rt.freshness.formingCandle ? "FORMING" : "CLOSED"}{rt.freshness.lastClosedTsMs ? ` (last ${fmtMarketTime(rt.freshness.lastClosedTsMs, tz, false)})` : ""}</span>
+            </div>
+          )}
 
           {/* THE one primary decision strip */}
           <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} points={points} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} monitor={monitorSummary} liveCmp={liveCmp} planGuidance={planGuidance} market={market} />

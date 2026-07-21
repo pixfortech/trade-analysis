@@ -54,6 +54,10 @@ export interface PublicConfig {
     /** A streamed tick older than this (ms) is stale → REST fallback / block fresh entry. */
     tickStaleMs: number;
     sseKeepaliveMs: number;
+    /** Whether the backend real-time decision stream is enabled. */
+    decisionEnabled: boolean;
+    /** Min interval between coalesced decision emits (transitions always emit). */
+    decisionMinIntervalMs: number;
   };
   winThreshold: number;
   minEnterConfidence: number;
@@ -129,7 +133,7 @@ export const FALLBACK_PUBLIC_CONFIG: PublicConfig = {
     readOnlyNotice: "Advisory market intelligence — read-only. No order placement, modification or execution.",
   },
   session: { timezone: "Asia/Kolkata", openMinutes: 555, closeMinutes: 930, preopenMinutes: 540 },
-  stream: { tickReconnectMs: 5_000, pollingFallbackMs: 5_000, quoteStaleSec: 90, showMillis: true, wsEnabled: true, tickStaleMs: 5_000, sseKeepaliveMs: 15_000 },
+  stream: { tickReconnectMs: 5_000, pollingFallbackMs: 5_000, quoteStaleSec: 90, showMillis: true, wsEnabled: true, tickStaleMs: 5_000, sseKeepaliveMs: 15_000, decisionEnabled: true, decisionMinIntervalMs: 250 },
   winThreshold: 75,
   minEnterConfidence: 75,
   trade: {
