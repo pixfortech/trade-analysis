@@ -29,6 +29,7 @@ export function TentativePnL({
   lotSize,
   approved,
   planVoid,
+  reversalRisk,
   notApprovedReason,
   updatedAt,
 }: {
@@ -39,6 +40,8 @@ export function TentativePnL({
   approved: boolean;
   /** Locked invalidation broken → disable the preview entirely. */
   planVoid: boolean;
+  /** Breakout failed / reversal building → show "No safe fresh entry", no figures. */
+  reversalRisk?: boolean;
   /** One concise reason shown while not approved (null when approved). */
   notApprovedReason: string | null;
   updatedAt: number | null;
@@ -81,8 +84,13 @@ export function TentativePnL({
   if (!direction || !preview) return null;
   const p = preview;
 
-  // ---- PLAN VOID: disable the preview entirely (no figures) --------------
-  if (planVoid) {
+  // ---- PLAN VOID / REVERSAL RISK: no profit figures ----------------------
+  // A void plan or an active reversal must NOT keep advertising a profit estimate.
+  if (planVoid || reversalRisk) {
+    const headline = reversalRisk ? "No safe fresh entry" : "Preview disabled";
+    const fallback = reversalRisk
+      ? "Breakout failed and reversal evidence is building — no safe fresh entry."
+      : "Plan void — the locked invalidation level was broken. Re-analyse for a fresh plan.";
     return (
       <div style={{ ...card, background: "var(--surface-sunken)", opacity: 0.92 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "8px 12px", flexWrap: "wrap" }}>
@@ -90,10 +98,10 @@ export function TentativePnL({
             <span className="eyebrow" style={{ color: "var(--ink-4)" }}>Tentative P/L</span>
             <Badge />
           </span>
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--ink-4)" }}>Preview disabled</span>
+          <span style={{ fontSize: 10.5, fontWeight: 800, color: reversalRisk ? "var(--action-exit)" : "var(--ink-4)" }}>{headline}</span>
         </div>
         <div style={{ padding: "0 12px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
-          <p style={{ fontSize: 11.5, color: "var(--ink-3)", lineHeight: 1.45 }}>{notApprovedReason || "Plan void — the locked invalidation level was broken. Re-analyse for a fresh plan."}</p>
+          <p style={{ fontSize: 11.5, color: "var(--ink-3)", lineHeight: 1.45 }}>{notApprovedReason || fallback}</p>
           <p style={{ fontSize: 11, color: "var(--ink-4)", lineHeight: 1.45 }}>{HELPER_TEXT}</p>
         </div>
       </div>

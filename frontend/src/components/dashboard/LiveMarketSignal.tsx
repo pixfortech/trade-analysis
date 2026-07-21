@@ -79,28 +79,33 @@ export function LiveMarketSignal() {
 
   // Real-time decision snapshot (single source of truth) for the strip + tabs.
   const dec = useDecision(sel && sel.quotable !== false ? sel.instrument : null, interval, riskProfile, global.liveUpdates);
-  const evalResult = plan && signal.data ? evaluatePlan(plan, signal.data.currentPrice, signal.data, null) : null;
-  const points = plan && signal.data ? computePointsToAction(plan, signal.data.currentPrice, activeSession?.analysedCmp ?? null) : null;
 
   // Continuous monitoring — DERIVED over the durable session (baseline + MFE/MAE
   // live in the provider, so they survive unmount/reload). Active until Reset,
   // instrument/timeframe/mode change, pause, or global Live OFF.
   const mon = useMonitoringSession({ session: activeSession, signal: signal.data ?? null, decision: dec.d, chart, live: global.liveUpdates, bumpExcursion: as.bumpExcursion });
-  const monitorSummary = mon.hasSession ? { analysedCmp: mon.analysedCmp ?? 0, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
   const tz = cfg.session.timezone;
 
-  // Live-data staleness (shared by the proof strip, the ENTER buzz gate and the
-  // P/L approval gate) — the quote hasn't updated within the configured window.
+  // Live-data staleness (shared by the proof strip, evaluatePlan's ENTER gate, the
+  // buzz gate and the P/L gate) — the quote hasn't updated within the config window.
   const dataStale = mon.lastTickMs != null && Date.now() - mon.lastTickMs > cfg.stream.quoteStaleSec * 1000;
+
+  // Locked-plan live evaluation. Stale data blocks any fresh ENTER approval here,
+  // so the primary card, the entry-zone status, the P/L and the buzz all agree.
+  const evalResult = plan && signal.data ? evaluatePlan(plan, signal.data.currentPrice, signal.data, null, { continuationAtrMult: cfg.trade.continuationAtrMult, dataStale }) : null;
+  const points = plan && signal.data ? computePointsToAction(plan, signal.data.currentPrice, activeSession?.analysedCmp ?? null) : null;
+  const monitorSummary = mon.hasSession ? { analysedCmp: mon.analysedCmp ?? 0, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
 
   // P/L presentation gate. Active (green) ONLY when entry is approved AND data is
   // fresh; PLAN VOID when the locked invalidation is broken; otherwise a disabled
   // scenario with one concise reason (Win/setup/stale/state).
   const planVoid = evalResult?.state === "INVALIDATED";
+  const reversalRisk = evalResult?.state === "REVERSAL_RISK";
   const pnlApproved = evalResult?.state === "ENTER_NOW" && !!evalResult.approved && !dataStale;
   const notApprovedReason = useMemo<string | null>(() => {
     if (!plan || plan.direction === "WAIT" || pnlApproved) return null;
     if (planVoid) return "Plan void — the locked invalidation level was broken. Re-analyse for a fresh plan.";
+    if (reversalRisk) return `No safe fresh entry — ${evalResult?.reason ?? "breakout failed and reversal evidence is building."}`;
     const parts: string[] = [];
     const minWin = dec.d?.approval.minWin ?? cfg.winThreshold;
     if (plan.winEstimate < minWin) parts.push(`Win ${plan.winEstimate}% < required ${minWin}%`);
@@ -114,7 +119,7 @@ export function LiveMarketSignal() {
     else if (st === "WAIT_SETUP" && parts.length === 0) parts.push("no valid setup");
     if (parts.length === 0) parts.push("entry gates not satisfied");
     return `Not approved: ${parts.join("; ")}.`;
-  }, [plan, pnlApproved, planVoid, dataStale, evalResult?.state, dec.d, cfg.winThreshold]);
+  }, [plan, pnlApproved, planVoid, reversalRisk, dataStale, evalResult?.state, evalResult?.reason, dec.d, cfg.winThreshold]);
 
   const onSelect = (ins: SelectedInstrument) => {
     global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize, quotable: ins.quotable, name: ins.name });
@@ -331,13 +336,21 @@ export function LiveMarketSignal() {
           {/* Monitoring proof strip — verifiable live state: status + last tick /
               candle / decision / VIX / news times + MFE/MAE. */}
           {mon.hasSession && (() => {
-            const monState = !global.liveUpdates || !mon.active ? "paused" : dataStale ? "stale" : "live";
-            const monColor = monState === "live" ? "var(--action-enter)" : monState === "stale" ? "var(--action-avoid)" : "var(--action-wait)";
+            // Live status colour (§18): GREEN live · AMBER delayed source · RED
+            // interrupted · GREY paused. Entry approval is already blocked when
+            // data is stale (dataStale gate on ENTER/buzz/P/L).
+            const s = !global.liveUpdates || !mon.active
+              ? { label: "paused", color: "var(--ink-3)" }
+              : dec.status === "error"
+                ? { label: "interrupted", color: "var(--action-exit)" }
+                : dataStale
+                  ? { label: "· delayed source", color: "var(--action-avoid)" }
+                  : { label: "LIVE", color: "var(--action-enter)" };
             return (
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-3)", padding: "3px 4px" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 700, color: monColor }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: monColor }} />
-                  Monitoring {monState}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 800, color: s.color }}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: s.color }} />
+                  Monitoring {s.label}
                 </span>
                 <span>· tick <span className="num">{fmtMarketTime(mon.lastTickMs, tz) ?? "—"}</span></span>
                 <span>· candle <span className="num">{fmtMarketTime(mon.lastCandleMs, tz, false) ?? "—"}</span></span>
@@ -356,7 +369,7 @@ export function LiveMarketSignal() {
               approval; renders as a disabled scenario when entry isn't approved and
               is disabled entirely when the plan is void. */}
           {plan && plan.direction !== "WAIT" && (
-            <TentativePnL plan={plan} cmp={signal.data.currentPrice} lotSize={sel.lotSize} approved={pnlApproved} planVoid={planVoid} notApprovedReason={notApprovedReason} updatedAt={dec.refreshedAt} />
+            <TentativePnL plan={plan} cmp={signal.data.currentPrice} lotSize={sel.lotSize} approved={pnlApproved} planVoid={planVoid} reversalRisk={reversalRisk} notApprovedReason={notApprovedReason} updatedAt={dec.refreshedAt} />
           )}
 
           {/* Chart — appears high; locked levels; native indicators */}

@@ -50,6 +50,20 @@ function trendState(breadthScore: number): { text: string; tone: keyof typeof TO
   return { text: "Neutral", tone: "none" };
 }
 
+/** Entry-range status: distance-to-entry, in-zone, or (beyond the zone) the live
+ *  continuation / pullback / reversal verdict. Never a bare "price passed entry". */
+function entryStatusLabel(points: PointsToAction | null | undefined, approved: boolean, state: string | undefined): { text: string; tone: keyof typeof TONE } | null {
+  if (!points || points.direction === "WAIT") return null;
+  const side = points.direction === "LONG" ? "Above" : "Below";
+  if (points.entryZone === "approach") return { text: points.entryLabel, tone: "wait" }; // "5.85 pts to entry"
+  if (points.entryZone === "inside") return { text: "In entry zone", tone: approved ? "enter" : "wait" };
+  // Beyond the zone in the trade direction — verdict comes from the live eval.
+  if (state === "REVERSAL_RISK") return { text: "No entry · reversal risk", tone: "exit" };
+  if (state === "WAIT_PULLBACK") return { text: `${side} entry zone · wait for pullback`, tone: "avoid" };
+  if (state === "ENTER_NOW" && approved) return { text: `${side} entry zone · continuation valid`, tone: "enter" };
+  return { text: `${side} entry zone · wait`, tone: "wait" };
+}
+
 export function DecisionStrip({
   d, plan, evalResult, points, refreshedAt, live, onReanalyse, monitor,
 }: {
@@ -92,7 +106,9 @@ export function DecisionStrip({
   // Since-analysis movement (shown ONCE — no duplicate analysed→live block).
   const mvt = points?.movementSinceAnalysis ?? monitor?.movement ?? null;
   const mvtPct = monitor?.movementPct ?? null;
-  const entryLabel = points && points.direction !== "WAIT" ? points.entryLabel : null;
+  const mvtStr = mvt == null ? "—" : `${mvt >= 0 ? "+" : ""}${num(mvt)}${mvtPct != null ? ` (${mvt >= 0 ? "+" : ""}${mvtPct}%)` : ""}`;
+  const entryStatus = entryStatusLabel(points, hasPlan ? evalResult!.approved : false, evalResult?.state);
+  const hasBaseline = !!monitor && monitor.liveCmp != null;
   const tr = d.trend.note ? null : trendState(d.trend.breadthScore);
 
   return (
@@ -120,14 +136,23 @@ export function DecisionStrip({
           {blocker && <p style={{ fontSize: 11.5, color: "var(--ink-3)", lineHeight: 1.3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.reason}>{d.reason}</p>}
         </div>
 
-        {/* 4 CMP · 5 points-to-entry · 12 since-analysis move · freshness */}
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, fontSize: 12 }}>
+        {/* 4 Analysed CMP → Live CMP → Movement — proves the session is continuing. */}
+        {hasBaseline ? (
+          <div style={grid3}>
+            <Stat label="Analysed CMP" value={num(monitor!.analysedCmp)} tone="none" />
+            <Stat label="Live CMP" value={num(monitor!.liveCmp!)} tone="none" />
+            <Stat label="Movement" value={mvtStr} tone={mvt == null ? "none" : mvt >= 0 ? "enter" : "exit"} />
+          </div>
+        ) : (
           <span style={{ display: "inline-flex", alignItems: "baseline", gap: 5 }}>
-            <span className="eyebrow" style={{ fontSize: 8 }}>CMP</span>
-            <span className="num" style={{ fontSize: 15, fontWeight: 800, color: "var(--ink-1)" }}>{num(d.cmp)}</span>
+            <span className="eyebrow" style={{ fontSize: 8 }}>Live CMP</span>
+            <span className="num" style={{ fontSize: 16, fontWeight: 800, color: "var(--ink-1)" }}>{num(d.cmp)}</span>
           </span>
-          {entryLabel && <span style={{ fontWeight: 800, color: points!.entryZone === "inside" ? "var(--action-enter)" : "var(--action-wait)" }}>{entryLabel}</span>}
-          {mvt != null && <span style={{ color: "var(--ink-3)" }}>moved <span className="num" style={{ fontWeight: 700, color: mvt >= 0 ? "var(--price-up)" : "var(--price-down)" }}>{mvt >= 0 ? "+" : ""}{num(mvt)}{mvtPct != null ? ` (${mvt >= 0 ? "+" : ""}${mvtPct}%)` : ""}</span> since analysis</span>}
+        )}
+
+        {/* 5 Entry-range status (pts-to-entry / in-zone / continuation / reversal) · freshness */}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, fontSize: 12 }}>
+          {entryStatus && <span style={{ fontWeight: 800, color: TONE[entryStatus.tone] }}>{entryStatus.text}</span>}
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5, marginLeft: "auto", padding: "1px 7px", borderRadius: "var(--radius-pill)", border: `1px solid ${dataDegraded ? "var(--action-avoid-border)" : "var(--border-2)"}`, background: dataDegraded ? "var(--action-avoid-soft)" : "var(--surface-sunken)", fontSize: 10 }} title={candleInput?.note ? `Candles ${candleInput.note}` : undefined}>
             <span style={{ fontWeight: 800, color: "var(--ink-4)", fontSize: 8.5 }}>QUOTE</span><span style={{ fontWeight: 800, color: TONE[q.tone] }}>{q.text}</span>
             <span style={{ color: "var(--ink-4)" }}>·</span>
@@ -209,6 +234,7 @@ export function DecisionStrip({
 
 const card: React.CSSProperties = { borderRadius: "var(--radius-lg)", border: "1px solid var(--border-1)", background: "var(--surface-card)", overflow: "hidden" };
 const grid4: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 };
+const grid3: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 };
 const reBtn: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 10px", borderRadius: "var(--radius-md)", border: "1px solid var(--brand-500)", background: "var(--brand-50)", color: "var(--brand-600)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" };
 
 function Stat({ label, value, tone, small }: { label: string; value: string; tone: keyof typeof TONE; small?: boolean }) {

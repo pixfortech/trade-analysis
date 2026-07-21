@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { num } from "@/lib/format";
+import { fmtMarketTime } from "@/lib/marketTime";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
+import { usePublicConfig } from "@/hooks/usePublicConfig";
 import { IndicatorGroups } from "./MarketContext";
 import { TradeGuidance } from "./TradeGuidance";
 import type { DecisionSnapshot, NewsItem } from "@/types/api";
@@ -87,19 +89,78 @@ function Overview({ d }: { d: DecisionSnapshot }) {
   );
 }
 
+const PRIMARY_TYPES = new Set(["DIRECT_INSTRUMENT", "UNDERLYING"]);
+const SECONDARY_TYPES = new Set(["SECTOR", "BENCHMARK"]);
+
+/** Split the decision's news into the three display tiers by relevance type. */
+function partitionNews(d: DecisionSnapshot): { primary: NewsItem[]; secondary: NewsItem[]; market: NewsItem[] } {
+  const seen = new Set<string>();
+  const dedup = [...d.relevantNews, ...d.marketContext].filter((n) => {
+    const k = n.id ?? n.title;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const score = (n: NewsItem) => n.relevanceScore ?? 0;
+  const byScore = (a: NewsItem, b: NewsItem) => score(b) - score(a) || (a.ageMinutes ?? 1e9) - (b.ageMinutes ?? 1e9);
+  return {
+    primary: dedup.filter((n) => PRIMARY_TYPES.has(n.relevanceType ?? "")).sort(byScore),
+    secondary: dedup.filter((n) => SECONDARY_TYPES.has(n.relevanceType ?? "")).sort(byScore),
+    market: dedup.filter((n) => !PRIMARY_TYPES.has(n.relevanceType ?? "") && !SECONDARY_TYPES.has(n.relevanceType ?? "")).sort(byScore),
+  };
+}
+
+/**
+ * News, prioritised by what can actually move the SELECTED instrument. Primary =
+ * direct/underlying headlines for this instrument (canonically resolved on the
+ * backend, so a RELIANCE future maps to Reliance). Secondary = its sector /
+ * benchmark. Market context = broader macro/global. The selected-instrument tier
+ * ALWAYS renders first; the broader list is never shown above it.
+ */
 function NewsTab({ d }: { d: DecisionSnapshot }) {
+  const cfg = usePublicConfig();
+  const tz = cfg.session.timezone;
+  const { primary, secondary, market } = partitionNews(d);
+  const sentiment = d.newsSummary.available ? d.newsSummary.label : "n/a";
+  const latestAge = primary.length ? Math.min(...primary.map((n) => n.ageMinutes ?? Infinity)) : null;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <p style={{ fontSize: 11, color: "var(--ink-3)" }}>{d.newsDecisionImpact.directRelevantCount} directly relevant · {d.newsDecisionImpact.supportingHeadlineIds.length} supporting · {d.newsDecisionImpact.blockingHeadlineIds.length} blocking · {d.newsDecisionImpact.ignoredCount} ignored.</p>
-      {d.relevantNews.length === 0 ? <Muted text="No headlines directly relevant to this instrument affect the decision." /> : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-          {d.relevantNews.slice(0, 8).map((n, i) => <NewsRow key={n.id ?? i} n={n} impacted={d.newsDecisionImpact.supportingHeadlineIds.includes(n.id ?? "") || d.newsDecisionImpact.blockingHeadlineIds.includes(n.id ?? "")} />)}
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Summary — always instrument-first */}
+      <div style={{ borderRadius: "var(--radius-md)", border: "1px solid var(--border-1)", background: "var(--surface-sunken)", padding: "8px 10px" }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12.5, fontWeight: 800, color: "var(--ink-1)" }}>Related to {d.displayName}</span>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: sentiment === "positive" ? "var(--action-enter)" : sentiment === "negative" ? "var(--action-exit)" : "var(--ink-3)", textTransform: "capitalize" }}>{sentiment}</span>
         </div>
-      )}
-      {d.marketContext.length > 0 && (
-        <div>
-          <span className="eyebrow" style={{ display: "block", marginBottom: 5 }}>Broader market context · {d.marketContext.length}</span>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>{d.marketContext.slice(0, 5).map((n, i) => <NewsRow key={n.id ?? i} n={n} impacted={false} muted />)}</div>
+        <p style={{ fontSize: 10.5, color: "var(--ink-3)", marginTop: 2 }}>
+          {d.newsDecisionImpact.directRelevantCount} directly relevant · {secondary.length} sector/benchmark · {market.length} market context
+          {latestAge != null && latestAge < Infinity ? <> · latest relevant <span className="num">{fmtAge(latestAge)} ago</span></> : null}
+        </p>
+      </div>
+
+      {/* PRIMARY — selected instrument */}
+      <NewsTier title={`Primary — ${d.displayName}`} accent="var(--brand-600)" empty="No headlines directly relevant to this instrument yet." items={primary} tz={tz} impact={d.newsDecisionImpact} limit={5} />
+
+      {/* SECONDARY — sector / benchmark */}
+      {secondary.length > 0 && <NewsTier title="Secondary — sector / benchmark" accent="var(--ink-2)" items={secondary} tz={tz} impact={d.newsDecisionImpact} limit={4} muted />}
+
+      {/* MARKET CONTEXT — broader macro / global */}
+      {market.length > 0 && <NewsTier title="Market context" accent="var(--ink-3)" items={market} tz={tz} impact={d.newsDecisionImpact} limit={4} muted />}
+    </div>
+  );
+}
+
+function NewsTier({ title, accent, items, tz, impact, limit, empty, muted }: { title: string; accent: string; items: NewsItem[]; tz: string; impact: DecisionSnapshot["newsDecisionImpact"]; limit: number; empty?: string; muted?: boolean }) {
+  return (
+    <div>
+      <span className="eyebrow" style={{ display: "block", marginBottom: 5, color: accent }}>{title}{items.length ? ` · ${items.length}` : ""}</span>
+      {items.length === 0 ? (
+        empty ? <Muted text={empty} /> : null
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          {items.slice(0, limit).map((n, i) => (
+            <NewsRow key={n.id ?? i} n={n} tz={tz} muted={muted} impacted={impact.supportingHeadlineIds.includes(n.id ?? "") || impact.blockingHeadlineIds.includes(n.id ?? "")} />
+          ))}
         </div>
       )}
     </div>
@@ -163,21 +224,23 @@ function Mini({ label, value }: { label: string; value: string }) {
 function Muted({ text }: { text: string }) {
   return <p style={{ fontSize: 12, color: "var(--ink-3)" }}>{text}</p>;
 }
-function NewsRow({ n, impacted, muted }: { n: NewsItem; impacted: boolean; muted?: boolean }) {
+function NewsRow({ n, tz, impacted, muted }: { n: NewsItem; tz: string; impacted: boolean; muted?: boolean }) {
   const sc = n.sentiment === "positive" ? "var(--action-enter)" : n.sentiment === "negative" ? "var(--action-exit)" : "var(--ink-3)";
+  const relTone = muted ? "var(--ink-4)" : "var(--brand-600)";
+  const exact = n.publishedAt && !Number.isNaN(Date.parse(n.publishedAt)) ? fmtMarketTime(Date.parse(n.publishedAt), tz) : null;
   const inner = (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginBottom: 1 }}>
-        <span style={{ fontSize: 8.5, fontWeight: 800, textTransform: "uppercase", color: muted ? "var(--ink-4)" : "var(--brand-600)", border: `1px solid ${muted ? "var(--border-2)" : "var(--brand-500)"}`, borderRadius: "var(--radius-pill)", padding: "0 5px" }}>{REL_LABEL[n.relevanceType ?? "IRRELEVANT"]}{n.relevanceScore != null ? ` ${n.relevanceScore}` : ""}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginBottom: 2 }}>
+        <span style={{ fontSize: 8.5, fontWeight: 800, textTransform: "uppercase", color: relTone, border: `1px solid ${muted ? "var(--border-2)" : "var(--brand-500)"}`, borderRadius: "var(--radius-pill)", padding: "0 5px" }}>{REL_LABEL[n.relevanceType ?? "IRRELEVANT"]}{n.relevanceScore != null ? ` · ${n.relevanceScore}%` : ""}</span>
         <span style={{ fontSize: 8.5, fontWeight: 800, textTransform: "uppercase", color: sc }}>{n.sentiment}</span>
-        {n.impact !== "low" && <span style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", color: "var(--action-avoid)" }}>{n.impact}</span>}
-        {impacted && <span style={{ fontSize: 8.5, fontWeight: 800, color: "var(--action-enter)" }}>· affected</span>}
-        <span style={{ fontSize: 9.5, color: "var(--ink-4)", marginLeft: "auto" }}>{n.source} · {fmtAge(n.ageMinutes)}</span>
+        {n.impact !== "low" && <span style={{ fontSize: 8.5, fontWeight: 700, textTransform: "uppercase", color: "var(--action-avoid)" }}>{n.impact} impact</span>}
+        {impacted && <span style={{ fontSize: 8.5, fontWeight: 800, color: "var(--action-enter)" }}>· affects decision</span>}
       </div>
-      <p style={{ fontSize: 11.5, color: muted ? "var(--ink-3)" : "var(--ink-1)", lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{n.title}</p>
-      {n.relevanceReason && <p style={{ fontSize: 9.5, color: "var(--ink-4)" }}>{n.relevanceReason}</p>}
+      <p style={{ fontSize: 11.5, fontWeight: muted ? 500 : 600, color: muted ? "var(--ink-3)" : "var(--ink-1)", lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{n.title}</p>
+      <div style={{ fontSize: 9.5, color: "var(--ink-4)", marginTop: 1 }}>{n.source}{exact ? <> · <span className="num">{exact}</span></> : null} · {fmtAge(n.ageMinutes)} ago</div>
+      {n.relevanceReason && <p style={{ fontSize: 9.5, color: "var(--ink-4)", marginTop: 1 }}><span style={{ fontWeight: 700 }}>Why: </span>{n.relevanceReason}</p>}
     </>
   );
-  const box: React.CSSProperties = { display: "block", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-1)", background: "var(--surface-sunken)", padding: "5px 8px", textDecoration: "none" };
+  const box: React.CSSProperties = { display: "block", borderRadius: "var(--radius-sm)", border: `1px solid ${muted ? "var(--border-1)" : "var(--border-2)"}`, background: "var(--surface-sunken)", padding: "6px 8px", textDecoration: "none" };
   return n.url ? <a href={n.url} target="_blank" rel="noopener noreferrer" style={box}>{inner}</a> : <div style={box}>{inner}</div>;
 }

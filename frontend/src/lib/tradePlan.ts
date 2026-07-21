@@ -72,6 +72,7 @@ export type PlanState =
   | "WAIT_PULLBACK"
   | "WAIT_CONFIRMATION"
   | "WAIT_SETUP"
+  | "REVERSAL_RISK"
   | "AVOID"
   | "INVALIDATED"
   | "HOLD"
@@ -115,6 +116,9 @@ function r2(n: number): number {
 }
 function f(n: number | null | undefined): string {
   return n == null ? "—" : new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(n);
+}
+function cap(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 }
 
 /** Indicator confirmation checklist for a direction, evaluated at snapshot time. */
@@ -324,8 +328,12 @@ function exitSignals(live: LiveSignal | null, isLong: boolean, cmp: number | nul
  * the distances. ENTER approval needs win estimate ≥ MIN_WIN_ESTIMATE AND setup
  * strength ≥ MIN_SETUP_STRENGTH AND CMP in zone AND not invalidated.
  */
-export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: LiveSignal | null, position: PlanPosition | null): PlanEval {
+export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: LiveSignal | null, position: PlanPosition | null, opts?: { continuationAtrMult?: number; dataStale?: boolean }): PlanEval {
   const long = plan.direction === "LONG";
+  const continuationAtrMult = opts?.continuationAtrMult ?? 0.75;
+  // Critical-data staleness blocks any fresh ENTER approval (§12/§18): a locked
+  // trigger being touched is never enough when the live feed has gone stale.
+  const freshBlocked = !!opts?.dataStale;
   const dist = (lvl: number | null) => (lvl != null && cmp != null ? r2(cmp - lvl) : null);
   const ctx = { cmp, distToEntry: dist(plan.entry), distToStop: dist(plan.stopLoss), distToTarget: dist(plan.targets[0] ?? null) };
 
@@ -376,7 +384,33 @@ export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: 
       return mk({ state: "WAIT_BREAKOUT", label: long ? "Wait for breakout" : "Wait for breakdown", tone: "info", approvalLabel: "Wait for breakout", reason: `Wait until price ${long ? "breaks above" : "breaks below"} the locked entry ₹${f(plan.entry)} (${f(Math.abs(ctx.distToEntry ?? 0))} pts away).` }, ctx);
     }
     if (past) {
-      return mk({ state: "WAIT_PULLBACK", label: "Do not chase", tone: "warn", approvalLabel: "Do not chase", reason: `CMP ₹${f(cmp)} is past the safe zone (₹${f(plan.safeLow)}–₹${f(plan.safeHigh)}). Don't chase — wait for a pullback toward ₹${f(plan.entry)}.` }, ctx);
+      // CMP ran beyond the safe zone in the trade direction. Do NOT auto-reject:
+      // evaluate live continuation vs pullback vs reversal (§11–15).
+      const atr = plan.snapshot.atr;
+      const edge = (long ? plan.safeHigh : plan.safeLow) as number;
+      const beyond = long ? cmp - edge : edge - cmp; // points past the zone (>0)
+      const beyondAtr = atr != null && atr > 0 ? beyond / atr : null;
+      const rev = exitSignals(live, long, cmp); // live evidence AGAINST the trade
+      const winOk = plan.winEstimate >= MIN_WIN_ESTIMATE;
+      const strengthOk = plan.setupStrength >= MIN_SETUP_STRENGTH;
+      const dirWord = long ? "above" : "below";
+
+      // Reversal risk — the breakout is failing on live evidence.
+      if (rev.triggered >= 2) {
+        return mk({ state: "REVERSAL_RISK", label: "No entry — reversal risk", currentApproval: 0, approvalLabel: `No entry · reversal risk`, tone: "warn", reason: `Blocked: ${rev.reasons.slice(0, 2).join(" and ")}. Breakout failed ${dirWord} the zone — do not enter.` }, ctx);
+      }
+      // Overextended — trend intact but price ran too far past the zone.
+      if (beyondAtr != null && beyondAtr > continuationAtrMult) {
+        return mk({ state: "WAIT_PULLBACK", label: "Wait for pullback", currentApproval: 0, approvalLabel: `${cap(dirWord)} entry zone · wait for pullback`, tone: "warn", reason: `Price is ${beyondAtr.toFixed(2)} ATR ${dirWord} the safe entry range; remaining reward/risk is reduced. Wait for a pullback toward ₹${f(plan.entry)}.` }, ctx);
+      }
+      // Continuation valid — within the extension window, gates pass, no reversal.
+      if (winOk && strengthOk && rev.triggered === 0) {
+        if (freshBlocked) return mk({ state: "WAIT_CONFIRMATION", label: "No entry — data stale", currentApproval: 0, approvalLabel: "Blocked · data stale", tone: "warn", reason: "Continuation looks valid but live market data is stale — entry approval is blocked until a fresh quote/candle arrives." }, ctx);
+        return mk({ state: "ENTER_NOW", label: `Enter ${plan.direction} — continuation valid`, approved: true, currentApproval: Math.min(plan.winEstimate, plan.setupStrength), approvalLabel: `${cap(dirWord)} entry zone · continuation valid`, tone: long ? "bull" : "bear", reason: `Continuation valid: price extended ${beyondAtr != null ? `${beyondAtr.toFixed(2)} ATR ` : ""}${dirWord} the zone but trend and indicators remain supportive with no reversal signal. Enter with stop ₹${f(plan.stopLoss)}.` }, ctx);
+      }
+      // Past the zone but continuation not confirmed — wait.
+      const why = !winOk && !strengthOk ? `win ${plan.winEstimate}% & setup ${plan.setupStrength}% below thresholds` : !winOk ? `win ${plan.winEstimate}% < ${MIN_WIN_ESTIMATE}%` : rev.triggered > 0 ? rev.reasons[0] : `setup ${plan.setupStrength}% < ${MIN_SETUP_STRENGTH}%`;
+      return mk({ state: "WAIT_CONFIRMATION", label: "Wait — continuation unconfirmed", currentApproval: 0, approvalLabel: `${cap(dirWord)} entry zone · wait`, tone: "warn", reason: `CMP ₹${f(cmp)} is ${dirWord} the zone but continuation isn't confirmed (${why}).` }, ctx);
     }
     if (inZone) {
       // Approval requires BOTH the backend win estimate AND the locked indicator
@@ -384,6 +418,9 @@ export function evaluatePlan(plan: TradePlanSnapshot, cmp: number | null, live: 
       const winOk = plan.winEstimate >= MIN_WIN_ESTIMATE;
       const strengthOk = plan.setupStrength >= MIN_SETUP_STRENGTH;
       if (winOk && strengthOk) {
+        if (freshBlocked) {
+          return mk({ state: "WAIT_CONFIRMATION", label: "No entry — data stale", currentApproval: 0, approvalLabel: "Blocked · data stale", tone: "warn", reason: `CMP is in the locked zone and the gates pass, but live market data is stale — entry approval is blocked until a fresh quote/candle arrives.` }, ctx);
+        }
         return mk(
           {
             state: "ENTER_NOW",
