@@ -10,6 +10,7 @@
 
 import * as kite from "./kite.service";
 import { KiteError } from "./kite.service";
+import * as candleService from "./marketStream/candleService";
 import { resolveInstrumentInput, type ResolveQuery } from "./resolveInput";
 import { buildLiveSignal, type LiveSignalResult } from "./liveSignal";
 import { DEFAULT_INDICATORS, type IndicatorId } from "./indicatorEngine";
@@ -183,20 +184,30 @@ async function fetchMarketData(
 
   let candles: Candle[] | null = null;
   if (token != null) {
-    try {
-      const to = new Date();
-      const from = new Date(to.getTime() - historyWindowDays(interval) * 24 * 60 * 60 * 1000);
-      const raw = await kite.getHistorical({
-        instrumentToken: String(token),
-        interval,
-        from: fmt(from),
-        to: fmt(to),
-      });
-      const parsed = parseCandles(raw);
-      candles = parsed.length ? parsed : null;
-    } catch (err) {
-      if (err instanceof KiteError && err.code === "KITE_LOGIN_REQUIRED") throw err;
-      candles = null;
+    // Prefer the tick-built live candle series once the instrument is streaming —
+    // indicators/decision then read a candle set as current as the CMP (§4/§7).
+    const live = candleService.getLiveCandles(token, interval);
+    if (live) {
+      candles = live;
+    } else {
+      // Cold (no WebSocket ticks warm) → seed from historical REST, then serve the
+      // series on subsequent calls. Zero change when the stream isn't running.
+      try {
+        const to = new Date();
+        const from = new Date(to.getTime() - historyWindowDays(interval) * 24 * 60 * 60 * 1000);
+        const raw = await kite.getHistorical({
+          instrumentToken: String(token),
+          interval,
+          from: fmt(from),
+          to: fmt(to),
+        });
+        const parsed = parseCandles(raw);
+        candles = parsed.length ? parsed : null;
+        if (candles) candleService.seedSeries(token, interval, candles);
+      } catch (err) {
+        if (err instanceof KiteError && err.code === "KITE_LOGIN_REQUIRED") throw err;
+        candles = null;
+      }
     }
   }
   return { resolved, quote, candles, interval };

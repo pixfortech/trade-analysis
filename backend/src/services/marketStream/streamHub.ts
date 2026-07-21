@@ -19,6 +19,7 @@ import { ensureLoaded, lookupByKey, lookupByToken } from "../instruments.service
 import { KiteTicker } from "./kiteTicker";
 import { SubscriptionManager } from "./subscriptionManager";
 import { TickStore, type StreamStatus, type StreamState } from "./tickStore";
+import * as candleService from "./candleService";
 import type { Tick } from "./kiteBinary";
 
 export interface TickPayload {
@@ -89,6 +90,9 @@ export async function startStreamHub(): Promise<void> {
   ticker.on("ticks", handleTicks);
   ticker.on("connect", () => {
     everConnected = true;
+    // Re-seed candle series from REST on (re)connect so any gap is filled before
+    // tick-built candles resume (§19).
+    candleService.onReconnect();
     broadcastStatus();
   });
   ticker.on("disconnect", (d) => {
@@ -192,6 +196,9 @@ function handleTicks(ticks: Tick[]): void {
   const now = Date.now();
   for (const tick of ticks) {
     store.set(tick, now);
+    // Fold the tick into the live-candle series (all intervals for this token) so
+    // indicators/decision read a candle set as current as the CMP.
+    candleService.onTick(tick.token, tick.ltp, tick.exchangeTimestampMs ?? now, tick.volume);
     const listeners = tokenListeners.get(tick.token);
     if (!listeners || listeners.size === 0) continue;
     const payload = toPayload(tick.token, { ...tick, receivedAtMs: now });

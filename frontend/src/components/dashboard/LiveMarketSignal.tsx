@@ -4,14 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/States";
 import { useAsync } from "@/hooks/useAsync";
 import { api } from "@/lib/apiClient";
-import type { ChartDataResponse, IndicatorId, LiveSignal } from "@/types/api";
+import type { IndicatorId, LiveSignal } from "@/types/api";
 import { InstrumentSearch, type SelectedInstrument } from "./InstrumentSearch";
-import { LiveChart } from "./LiveChart";
-import { IndicatorsPanel } from "./IndicatorsPanel";
-import { OscillatorCards } from "./OscillatorCards";
-import { DEFAULT_INDICATORS, type IndicatorInstance } from "@/lib/chartIndicators";
-import { useTheme } from "@/hooks/useTheme";
-import { useLocalStorage } from "@/hooks/useLocalStorage";
 import { useAlerts } from "@/hooks/useAlerts";
 import { AlertToasts } from "./AlertToasts";
 import { ThemedSelect, InstrumentTypeSelector, type InstrumentSegment } from "@/components/ui/Inputs";
@@ -55,16 +49,12 @@ export function LiveMarketSignal() {
   const setRiskProfile = as.setRiskProfile;
   const setSegment = useCallback((v: InstrumentSegment) => as.setSegment(v), [as]);
   const active = useMemo<IndicatorId[]>(() => cfg.defaults.activeIndicators as IndicatorId[], [cfg.defaults.activeIndicators]);
-  const [chart, setChart] = useState<ChartDataResponse | null>(null);
   const signal = useAsync(api.liveSignal);
   const alerts = useAlerts();
   const prevTrend = useRef<string | null>(null);
   const [resolving, setResolving] = useState(false);
   const [resolveNote, setResolveNote] = useState<string | null>(null);
   const [vix, setVix] = useState<number | null>(null);
-  const { theme } = useTheme();
-  const [indicatorsOpen, setIndicatorsOpen] = useState(false);
-  const { value: indicators, setValue: setIndicators } = useLocalStorage<IndicatorInstance[]>("cockpit.indicators.chart.v1", DEFAULT_INDICATORS);
 
   const referenceOnly = !!sel && sel.quotable === false;
 
@@ -92,30 +82,51 @@ export function LiveMarketSignal() {
   const tickMs = tickCmp != null && liveTick.tick ? liveTick.tick.tsMs : null;
   const liveCmp = tickCmp ?? signal.data?.currentPrice ?? null;
 
-  // Continuous monitoring — DERIVED over the durable session (baseline + MFE/MAE
-  // live in the provider, so they survive unmount/reload). Fed the WS tick price
-  // so movement / MFE / MAE / distance update per tick. Active until Reset,
-  // instrument/timeframe/mode change, pause, or global Live OFF.
-  const mon = useMonitoringSession({ session: activeSession, signal: signal.data ?? null, decision: dec.d, chart, live: global.liveUpdates, bumpExcursion: as.bumpExcursion, liveCmp: tickCmp, tickMs });
+  // Continuous monitoring — DERIVED over the durable session. Fed the WS tick
+  // price so movement / MFE / MAE / distance update per tick.
+  const mon = useMonitoringSession({ session: activeSession, signal: signal.data ?? null, decision: dec.d, chart: null, live: global.liveUpdates, bumpExcursion: as.bumpExcursion, liveCmp: tickCmp, tickMs });
   const tz = cfg.session.timezone;
 
-  // Live-data staleness (shared by the proof strip, evaluatePlan's ENTER gate, the
-  // buzz gate and the P/L gate). A FRESH stream tick means not stale; otherwise
-  // fall back to the poll-based freshness window.
-  const dataStale = liveTick.fresh ? false : mon.lastTickMs != null && Date.now() - mon.lastTickMs > cfg.stream.quoteStaleSec * 1000;
+  // Unified market liveness comes from the WEBSOCKET CONNECTION state — never from
+  // an arbitrary few-second tick gap (§9/§11). A locked ENTER is blocked only when
+  // the feed is GENUINELY unavailable (stream disconnected, or no data at all for a
+  // long window), not because ticks briefly paused between trades.
+  const lastDataMs = tickMs ?? mon.lastTickMs;
+  const dataAgeMs = lastDataMs != null ? Date.now() - lastDataMs : null;
+  const genuinelyStale = stream.state === "DISCONNECTED" || (stream.state !== "LIVE" && stream.state !== "DISABLED" && dataAgeMs != null && dataAgeMs > cfg.stream.quoteStaleSec * 1000);
 
-  // Locked-plan live evaluation. Stale data blocks any fresh ENTER approval here,
-  // so the primary card, the entry-zone status, the P/L and the buzz all agree.
-  const evalResult = plan && signal.data ? evaluatePlan(plan, liveCmp, signal.data, null, { continuationAtrMult: cfg.trade.continuationAtrMult, dataStale }) : null;
+  // Locked-plan live evaluation from the CURRENT price.
+  const evalResult = plan && signal.data ? evaluatePlan(plan, liveCmp, signal.data, null, { continuationAtrMult: cfg.trade.continuationAtrMult, dataStale: genuinelyStale }) : null;
   const points = plan && signal.data ? computePointsToAction(plan, liveCmp, activeSession?.analysedCmp ?? null) : null;
   const monitorSummary = mon.hasSession ? { analysedCmp: mon.analysedCmp ?? 0, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
+
+  // RECALCULATING (§13/§20/acceptance): the live CMP has moved meaningfully past the
+  // price the CURRENT analysis was computed on. We surface "Recalculating" and
+  // trigger a debounced refresh so the analysis/recommendation catches up to the
+  // new price — the old analysis is never presented as current for the new CMP.
+  const analysisCmp = signal.data?.currentPrice ?? null;
+  const movePct = liveCmp != null && analysisCmp ? Math.abs((liveCmp - analysisCmp) / analysisCmp) * 100 : 0;
+  const recalculating = !!plan && signal.data != null && !genuinelyStale && (movePct > cfg.trade.autoRefreshMovePct || (signal.isLoading && !!signal.data));
+
+  // Unified market status (§10/§11) — ONE market state driven by the WebSocket
+  // connection, not an arbitrary tick gap. Live · Delayed (reconnecting) ·
+  // Connecting · Feed unavailable (genuine disconnect) · Paused.
+  const market: { label: string; tone: "enter" | "avoid" | "exit" | "none" } = !global.liveUpdates
+    ? { label: "Paused", tone: "none" }
+    : genuinelyStale || stream.state === "DISCONNECTED"
+      ? { label: "Feed unavailable", tone: "exit" }
+      : stream.state === "DEGRADED"
+        ? { label: "Delayed", tone: "avoid" }
+        : stream.state === "CONNECTING"
+          ? { label: "Connecting", tone: "avoid" }
+          : { label: "Live", tone: "enter" };
 
   // P/L presentation gate. Active (green) ONLY when entry is approved AND data is
   // fresh; PLAN VOID when the locked invalidation is broken; otherwise a disabled
   // scenario with one concise reason (Win/setup/stale/state).
   const planVoid = evalResult?.state === "INVALIDATED";
   const reversalRisk = evalResult?.state === "REVERSAL_RISK";
-  const pnlApproved = evalResult?.state === "ENTER_NOW" && !!evalResult.approved && !dataStale;
+  const pnlApproved = evalResult?.state === "ENTER_NOW" && !!evalResult.approved && !genuinelyStale;
   const notApprovedReason = useMemo<string | null>(() => {
     if (!plan || plan.direction === "WAIT" || pnlApproved) return null;
     if (planVoid) return "Plan void — the locked invalidation level was broken. Re-analyse for a fresh plan.";
@@ -124,7 +135,7 @@ export function LiveMarketSignal() {
     const minWin = dec.d?.approval.minWin ?? cfg.winThreshold;
     if (plan.winEstimate < minWin) parts.push(`Win ${plan.winEstimate}% < required ${minWin}%`);
     if (plan.setupStrength < MIN_SETUP_STRENGTH) parts.push(`setup ${plan.setupStrength}% < ${MIN_SETUP_STRENGTH}%`);
-    if (dataStale) parts.push("market data stale");
+    if (genuinelyStale) parts.push("market feed unavailable");
     const st = evalResult?.state;
     if (st === "AVOID") parts.push("conditions unfavourable");
     else if (st === "WAIT_BREAKOUT") parts.push("price hasn't reached the entry trigger");
@@ -133,7 +144,7 @@ export function LiveMarketSignal() {
     else if (st === "WAIT_SETUP" && parts.length === 0) parts.push("no valid setup");
     if (parts.length === 0) parts.push("entry gates not satisfied");
     return `Not approved: ${parts.join("; ")}.`;
-  }, [plan, pnlApproved, planVoid, reversalRisk, dataStale, evalResult?.state, evalResult?.reason, dec.d, cfg.winThreshold]);
+  }, [plan, pnlApproved, planVoid, reversalRisk, genuinelyStale, evalResult?.state, evalResult?.reason, dec.d, cfg.winThreshold]);
 
   const onSelect = (ins: SelectedInstrument) => {
     global.setSelectedInstrument({ instrument: ins.instrument, displayName: ins.displayName, lotSize: ins.lotSize, quotable: ins.quotable, name: ins.name });
@@ -162,18 +173,6 @@ export function LiveMarketSignal() {
     }
   }, [sel, global]);
 
-  const fetchChart = useCallback(
-    async (instrument: string) => {
-      try {
-        const c = await api.chartData({ instrument, interval, activeIndicators: active.join(",") });
-        setChart(c);
-      } catch {
-        setChart(null);
-      }
-    },
-    [interval, active],
-  );
-
   const run = useCallback(async (): Promise<LiveSignal | null> => {
     if (!sel || sel.quotable === false) return null;
     const res = await signal.run({ instrument: sel.instrument, interval, riskProfile, activeIndicators: active.join(",") });
@@ -184,9 +183,8 @@ export function LiveMarketSignal() {
       }
       prevTrend.current = dir;
     }
-    void fetchChart(sel.instrument);
     return res ?? null;
-  }, [sel, interval, riskProfile, active, signal, alerts, fetchChart]);
+  }, [sel, interval, riskProfile, active, signal, alerts]);
 
   const analyze = useCallback(async () => {
     unlockAudio(); // this click is the user gesture that enables the ENTER blip
@@ -213,7 +211,6 @@ export function LiveMarketSignal() {
     as.clearSession();
     global.setSelectedInstrument(null);
     signal.reset();
-    setChart(null);
     setVix(null);
     prevTrend.current = null;
     setResolveNote(null);
@@ -241,7 +238,7 @@ export function LiveMarketSignal() {
   const prevEnterValid = useRef(false);
   const lastEnterAlertAt = useRef<number>(0);
   useEffect(() => {
-    const enterValid = evalResult?.state === "ENTER_NOW" && !!evalResult.approved && !dataStale;
+    const enterValid = evalResult?.state === "ENTER_NOW" && !!evalResult.approved && !genuinelyStale;
     if (enterValid && !prevEnterValid.current && activeSession) {
       const now = Date.now();
       if (now - lastEnterAlertAt.current >= cfg.trade.alerts.enterCooldownMs) {
@@ -252,7 +249,22 @@ export function LiveMarketSignal() {
     }
     prevEnterValid.current = enterValid;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [evalResult?.state, evalResult?.approved, dataStale, activeSession]);
+  }, [evalResult?.state, evalResult?.approved, genuinelyStale, activeSession]);
+
+  // Controlled auto-refresh (§14): when the live tick has moved meaningfully past
+  // the price the analysis was computed on, re-run the signal + decision so the
+  // recommendation tracks the CURRENT market — debounced to a minimum interval so
+  // levels/recommendation refresh on a stable cadence, not blindly on every tick.
+  const lastAutoRefreshAt = useRef(0);
+  useEffect(() => {
+    if (!recalculating || !global.liveUpdates || signal.isLoading) return;
+    const now = Date.now();
+    if (now - lastAutoRefreshAt.current < cfg.trade.autoRefreshMinMs) return;
+    lastAutoRefreshAt.current = now;
+    void run();
+    void dec.reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recalculating, global.liveUpdates]);
 
   // Live polling (CMP/indicators) — locked plan levels are NOT recalculated here.
   useEffect(() => {
@@ -344,35 +356,21 @@ export function LiveMarketSignal() {
         <InstrumentError name={sel.displayName} message={signal.error} onRetry={() => void analyze()} onRefresh={() => void refreshCache()} onClear={() => global.setSelectedInstrument(null)} />
       ) : signal.data ? (
         <>
-          {/* OHLC — compact inline stats (reorderable, saved) */}
-          <OhlcStrip signal={signal.data} chart={chart} />
+          {/* OHLC — compact inline stats (driven by the signal; chart removed) */}
+          <OhlcStrip signal={signal.data} chart={null} />
 
-          {/* Monitoring proof strip — verifiable live state: status + last tick /
-              candle / decision / VIX / news times + MFE/MAE. */}
+          {/* Monitoring proof strip — ONE unified MARKET status (§10/§11) driven by
+              the WebSocket connection, plus same-state source timestamps. No
+              candle-stale label; the current candle is tick-built server-side. */}
           {mon.hasSession && (() => {
-            // Live status colour (§11/§18). The WebSocket stream state wins: GREEN
-            // "STREAM LIVE" when ticks are flowing fresh · AMBER when degraded/
-            // delayed (REST fallback) · RED interrupted · GREY paused. Entry
-            // approval is already blocked when data is stale (dataStale gate).
-            const s = !global.liveUpdates || !mon.active
-              ? { label: "paused", color: "var(--ink-3)" }
-              : stream.state === "LIVE" && liveTick.fresh
-                ? { label: "STREAM LIVE", color: "var(--action-enter)" }
-                : stream.state === "DEGRADED"
-                  ? { label: "· stream degraded (REST fallback)", color: "var(--action-avoid)" }
-                  : dec.status === "error"
-                    ? { label: "interrupted", color: "var(--action-exit)" }
-                    : dataStale
-                      ? { label: "· delayed source", color: "var(--action-avoid)" }
-                      : { label: stream.state === "DISABLED" ? "LIVE (REST)" : "LIVE", color: "var(--action-enter)" };
+            const color = market.tone === "enter" ? "var(--action-enter)" : market.tone === "avoid" ? "var(--action-avoid)" : market.tone === "exit" ? "var(--action-exit)" : "var(--ink-3)";
             return (
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 10.5, color: "var(--ink-3)", padding: "3px 4px" }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 800, color: s.color }} title={stream.message || undefined}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: s.color }} />
-                  Monitoring {s.label}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontWeight: 800, color }} title={stream.message || undefined}>
+                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: color }} />
+                  MARKET {market.label}
                 </span>
-                <span>· tick <span className="num">{fmtMarketTime(mon.lastTickMs, tz) ?? "—"}</span></span>
-                <span>· candle <span className="num">{fmtMarketTime(mon.lastCandleMs, tz, false) ?? "—"}</span></span>
+                <span>· tick <span className="num">{fmtMarketTime(tickMs ?? mon.lastTickMs, tz) ?? "—"}</span></span>
                 <span className="hide-sm">· decision <span className="num">{fmtMarketTime(dec.refreshedAt, tz) ?? "—"}</span></span>
                 <span className="hide-sm">· VIX <span className="num">{fmtMarketTime(mon.lastVixMs, tz, false) ?? "n/a"}</span></span>
                 <span className="hide-sm">· news <span className="num">{fmtMarketTime(mon.lastNewsMs, tz, false) ?? "n/a"}</span></span>
@@ -382,7 +380,7 @@ export function LiveMarketSignal() {
           })()}
 
           {/* THE one primary decision strip */}
-          <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} points={points} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} monitor={monitorSummary} />
+          <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} points={points} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} monitor={monitorSummary} liveCmp={liveCmp} recalculating={recalculating} market={market} />
 
           {/* Tentative P/L preview for the locked plan. Estimate — decoupled from
               approval; renders as a disabled scenario when entry isn't approved and
@@ -390,29 +388,6 @@ export function LiveMarketSignal() {
           {plan && plan.direction !== "WAIT" && (
             <TentativePnL plan={plan} cmp={liveCmp ?? signal.data.currentPrice} lotSize={sel.lotSize} approved={pnlApproved} planVoid={planVoid} reversalRisk={reversalRisk} notApprovedReason={notApprovedReason} updatedAt={tickMs ?? dec.refreshedAt} />
           )}
-
-          {/* Chart — appears high; locked levels; native indicators */}
-          <div style={{ borderRadius: "var(--radius-lg)", border: "1px solid var(--border-1)", background: "var(--surface-card)", padding: 10 }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-              <span className="eyebrow">Chart · locked levels</span>
-              <div style={{ position: "relative" }}>
-                <button type="button" onClick={() => setIndicatorsOpen((v) => !v)} style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 28, padding: "0 10px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-2)", background: "var(--surface-sunken)", color: "var(--ink-2)", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
-                  <Icon n="activity" size={13} /> Indicators ({indicators.filter((i) => i.enabled).length})
-                </button>
-                {indicatorsOpen && <IndicatorsPanel indicators={indicators} setIndicators={setIndicators} onClose={() => setIndicatorsOpen(false)} />}
-              </div>
-            </div>
-            {chart && chart.candles.length > 0 ? (
-              <>
-                <div style={{ borderRadius: "var(--radius-md)", border: "1px solid var(--border-1)", background: "var(--surface-sunken)", padding: 6 }}>
-                  <LiveChart data={chart} priceLines={plan ? planPriceLines(plan) : priceLinesFor(signal.data)} indicators={indicators} theme={theme} />
-                </div>
-                <div style={{ marginTop: 8 }}><OscillatorCards candles={chart.candles} indicators={indicators} /></div>
-              </>
-            ) : (
-              <p style={{ fontSize: 12, color: "var(--ink-3)", textAlign: "center", padding: "16px 0" }}>Chart needs Kite candles — none returned for this view yet.</p>
-            )}
-          </div>
 
           {/* Secondary evidence — tabbed; only the active tab renders */}
           <EvidenceTabs d={dec.d} plan={plan} evalResult={evalResult} signal={signal.data} vix={vixTick.fresh && vixTick.tick ? vixTick.tick.ltp : vix} onReanalyse={() => void analyze()} />
@@ -472,24 +447,3 @@ function underlyingFor(sel: SharedInstrument): string {
   return cleaned || "NIFTY";
 }
 
-const LINE = { entry: "#5b82ee", sl: "#f04438", target: "#12b76a" } as const;
-
-function priceLinesFor(s: LiveSignal): { price: number; color: string; title: string }[] {
-  const setup = s.preferredSetup === "short" ? s.shortSetup : s.longSetup;
-  const entry = setup.entryAbove ?? setup.entryBelow;
-  const lines: { price: number; color: string; title: string }[] = [];
-  if (entry != null) lines.push({ price: entry, color: LINE.entry, title: "Entry" });
-  lines.push({ price: setup.stopLoss, color: LINE.sl, title: "SL" });
-  lines.push({ price: setup.target1, color: LINE.target, title: "T1" });
-  lines.push({ price: setup.target2, color: LINE.target, title: "T2" });
-  return lines;
-}
-
-function planPriceLines(p: TradePlanSnapshot): { price: number; color: string; title: string }[] {
-  const lines: { price: number; color: string; title: string }[] = [];
-  if (p.entry != null) lines.push({ price: p.entry, color: LINE.entry, title: "Entry" });
-  if (p.stopLoss != null) lines.push({ price: p.stopLoss, color: LINE.sl, title: "SL" });
-  if (p.targets[0] != null) lines.push({ price: p.targets[0], color: LINE.target, title: "T1" });
-  if (p.targets[1] != null) lines.push({ price: p.targets[1], color: LINE.target, title: "T2" });
-  return lines;
-}

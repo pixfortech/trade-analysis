@@ -17,7 +17,6 @@ import type {
   AnalysisRequest,
   AnalysisResponse,
   BatchQuotesResponse,
-  ChartDataResponse,
   HealthResponse,
   InstrumentResolveResponse,
   InstrumentsStatus,
@@ -230,13 +229,6 @@ export const api = {
     const qs = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
     return request<LiveSignal>(`/api/analysis/live-signal?${qs.toString()}`);
-  },
-
-  // Chart data (Phase 3F) — read-only candles + indicator series.
-  chartData: (params: { instrument?: string; interval?: string; activeIndicators?: string } & Partial<ResolveParams>) => {
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) if (v != null && v !== "") qs.set(k, String(v));
-    return request<ChartDataResponse>(`/api/market/chart-data?${qs.toString()}`);
   },
 
   // Active trade monitor (Phase 3F) — read-only advisory.

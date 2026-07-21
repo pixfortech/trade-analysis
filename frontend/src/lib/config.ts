@@ -81,6 +81,10 @@ export interface TradeConfig {
     soundEnabled: boolean;
   };
   continuationAtrMult: number;
+  /** Move % past the analysis price that triggers "Recalculating" + auto-refresh. */
+  autoRefreshMovePct: number;
+  /** Minimum interval between auto-refreshes (controlled cadence). */
+  autoRefreshMinMs: number;
 }
 
 /**
@@ -129,6 +133,8 @@ export const FALLBACK_PUBLIC_CONFIG: PublicConfig = {
     costs: { enabled: false, brokeragePerOrder: 20, orderLegs: 2, taxesPctOfTurnover: 0.05 },
     alerts: { enterCooldownMs: 60_000, soundEnabled: true },
     continuationAtrMult: 0.75,
+    autoRefreshMovePct: 0.12,
+    autoRefreshMinMs: 4000,
   },
   readOnly: true,
 };
@@ -170,6 +176,8 @@ function mergeTrade(r: Partial<TradeConfig> | undefined, base: TradeConfig): Tra
     costs: { ...base.costs, ...(r.costs ?? {}) },
     alerts: { ...base.alerts, ...(r.alerts ?? {}) },
     continuationAtrMult: typeof r.continuationAtrMult === "number" ? r.continuationAtrMult : base.continuationAtrMult,
+    autoRefreshMovePct: typeof r.autoRefreshMovePct === "number" ? r.autoRefreshMovePct : base.autoRefreshMovePct,
+    autoRefreshMinMs: typeof r.autoRefreshMinMs === "number" ? r.autoRefreshMinMs : base.autoRefreshMinMs,
   };
 }
 

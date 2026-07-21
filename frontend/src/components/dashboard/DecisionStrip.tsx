@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { num, tsec } from "@/lib/format";
 import { Icon } from "@/components/terminal/ds";
-import type { DecisionSnapshot, InputState } from "@/types/api";
+import type { DecisionSnapshot } from "@/types/api";
 import type { PlanEval, PointsToAction, TradePlanSnapshot } from "@/lib/tradePlan";
 
 const TONE: Record<string, string> = { enter: "var(--action-enter)", exit: "var(--action-exit)", wait: "var(--action-wait)", avoid: "var(--action-avoid)", none: "var(--ink-3)" };
@@ -30,17 +30,6 @@ export interface MonitorSummary {
   candleState: "live" | "closed" | null;
 }
 
-/** Map a data-input freshness state to a short word + tone (source-specific). */
-function freshWord(state: InputState | undefined): { text: string; tone: keyof typeof TONE } {
-  switch (state) {
-    case "AVAILABLE_FRESH": return { text: "Live", tone: "enter" };
-    case "AVAILABLE_STALE": return { text: "Stale", tone: "avoid" };
-    case "INSUFFICIENT_DATA": return { text: "Warming", tone: "wait" };
-    case "UNAVAILABLE": return { text: "N/A", tone: "exit" };
-    default: return { text: "—", tone: "none" };
-  }
-}
-
 /** Human-readable market-trend state from the breadth score (−1..+1). */
 function trendState(breadthScore: number): { text: string; tone: keyof typeof TONE } {
   if (breadthScore >= 0.5) return { text: "Strong Bullish", tone: "enter" };
@@ -64,8 +53,13 @@ function entryStatusLabel(points: PointsToAction | null | undefined, approved: b
   return { text: `${side} entry zone · wait`, tone: "wait" };
 }
 
+export interface MarketStatus {
+  label: string;
+  tone: "enter" | "avoid" | "exit" | "none";
+}
+
 export function DecisionStrip({
-  d, plan, evalResult, points, refreshedAt, live, onReanalyse, monitor,
+  d, plan, evalResult, points, refreshedAt, live, onReanalyse, monitor, liveCmp, recalculating, market,
 }: {
   d: DecisionSnapshot | null;
   plan: TradePlanSnapshot | null;
@@ -75,6 +69,12 @@ export function DecisionStrip({
   live: boolean;
   onReanalyse: () => void;
   monitor?: MonitorSummary | null;
+  /** The single current CMP (WS tick, falling back to the decision CMP). */
+  liveCmp?: number | null;
+  /** True while the analysis is catching up to a moved price (§13/§20). */
+  recalculating?: boolean;
+  /** Unified market status (§10) — one MARKET state, not per-source freshness. */
+  market?: MarketStatus;
 }) {
   const [showDetails, setShowDetails] = useState(false);
   if (!d) {
@@ -96,19 +96,15 @@ export function DecisionStrip({
       : null;
   const blocker = d.conflicts[0] ?? d.blocking[0] ?? null;
 
-  // Source-specific freshness (never a bare "live" when a source is stale).
-  const quoteState = d.dataQuality.inputs.find((i) => i.name === "Live price")?.state;
-  const candleInput = d.dataQuality.inputs.find((i) => i.name === "Candles");
-  const q = freshWord(quoteState);
-  const c = freshWord(candleInput?.state);
-  const dataDegraded = d.dataQuality.overall !== "OK";
+  // ONE current CMP (§8): the live WS tick, falling back to the decision CMP.
+  const cmp = liveCmp ?? d.cmp;
+  // Unified market status (§10) — provided by the parent from the WS connection.
+  const mkt: MarketStatus = market ?? (d.dataQuality.overall === "OK" ? { label: "Live", tone: "enter" } : { label: "Delayed", tone: "avoid" });
 
-  // Since-analysis movement (shown ONCE — no duplicate analysed→live block).
+  // Since-analysis movement (a small auxiliary delta — NOT a competing CMP).
   const mvt = points?.movementSinceAnalysis ?? monitor?.movement ?? null;
   const mvtPct = monitor?.movementPct ?? null;
-  const mvtStr = mvt == null ? "—" : `${mvt >= 0 ? "+" : ""}${num(mvt)}${mvtPct != null ? ` (${mvt >= 0 ? "+" : ""}${mvtPct}%)` : ""}`;
   const entryStatus = entryStatusLabel(points, hasPlan ? evalResult!.approved : false, evalResult?.state);
-  const hasBaseline = !!monitor && monitor.liveCmp != null;
   const tr = d.trend.note ? null : trendState(d.trend.breadthScore);
 
   return (
@@ -118,6 +114,7 @@ export function DecisionStrip({
         <span style={{ display: "inline-flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", minWidth: 0 }}>
           <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.01em", color: tone }}>{d.action}</span>
           <span style={{ fontSize: 12, fontWeight: 700, color: d.bias === "Bullish" ? "var(--action-enter)" : d.bias === "Bearish" ? "var(--action-exit)" : "var(--ink-3)" }}>{d.bias} setup</span>
+          {recalculating && <span style={{ fontSize: 9.5, fontWeight: 800, color: "var(--action-avoid)", border: "1px solid var(--action-avoid-border)", background: "var(--action-avoid-soft)", borderRadius: "var(--radius-pill)", padding: "1px 7px", textTransform: "uppercase", letterSpacing: "0.03em" }}>Recalculating…</span>}
         </span>
         <span style={{ textAlign: "right", flexShrink: 0 }}>
           <span className="num" style={{ fontSize: 17, fontWeight: 800, color: TONE[approvalTone] }}>{approval}</span>
@@ -136,29 +133,26 @@ export function DecisionStrip({
           {blocker && <p style={{ fontSize: 11.5, color: "var(--ink-3)", lineHeight: 1.3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.reason}>{d.reason}</p>}
         </div>
 
-        {/* 4 Analysed CMP → Live CMP → Movement — proves the session is continuing. */}
-        {hasBaseline ? (
-          <div style={grid3}>
-            <Stat label="Analysed CMP" value={num(monitor!.analysedCmp)} tone="none" />
-            <Stat label="Live CMP" value={num(monitor!.liveCmp!)} tone="none" />
-            <Stat label="Movement" value={mvtStr} tone={mvt == null ? "none" : mvt >= 0 ? "enter" : "exit"} />
-          </div>
-        ) : (
-          <span style={{ display: "inline-flex", alignItems: "baseline", gap: 5 }}>
-            <span className="eyebrow" style={{ fontSize: 8 }}>Live CMP</span>
-            <span className="num" style={{ fontSize: 16, fontWeight: 800, color: "var(--ink-1)" }}>{num(d.cmp)}</span>
-          </span>
-        )}
-
-        {/* 5 Entry-range status (pts-to-entry / in-zone / continuation / reversal) · freshness */}
+        {/* 4 ONE current CMP (§8) · since-analysis delta (auxiliary) · unified MARKET status (§10) */}
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, fontSize: 12 }}>
-          {entryStatus && <span style={{ fontWeight: 800, color: TONE[entryStatus.tone] }}>{entryStatus.text}</span>}
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, marginLeft: "auto", padding: "1px 7px", borderRadius: "var(--radius-pill)", border: `1px solid ${dataDegraded ? "var(--action-avoid-border)" : "var(--border-2)"}`, background: dataDegraded ? "var(--action-avoid-soft)" : "var(--surface-sunken)", fontSize: 10 }} title={candleInput?.note ? `Candles ${candleInput.note}` : undefined}>
-            <span style={{ fontWeight: 800, color: "var(--ink-4)", fontSize: 8.5 }}>QUOTE</span><span style={{ fontWeight: 800, color: TONE[q.tone] }}>{q.text}</span>
-            <span style={{ color: "var(--ink-4)" }}>·</span>
-            <span style={{ fontWeight: 800, color: "var(--ink-4)", fontSize: 8.5 }}>CANDLE</span><span style={{ fontWeight: 800, color: TONE[c.tone] }}>{c.text}</span>
+          <span style={{ display: "inline-flex", alignItems: "baseline", gap: 5 }}>
+            <span className="eyebrow" style={{ fontSize: 8 }}>CMP</span>
+            <span className="num" style={{ fontSize: 17, fontWeight: 800, color: "var(--ink-1)" }}>{num(cmp)}</span>
+          </span>
+          {mvt != null && mvt !== 0 && <span style={{ color: "var(--ink-3)" }}>moved <span className="num" style={{ fontWeight: 700, color: mvt >= 0 ? "var(--price-up)" : "var(--price-down)" }}>{mvt >= 0 ? "+" : ""}{num(mvt)}{mvtPct != null ? ` (${mvt >= 0 ? "+" : ""}${mvtPct}%)` : ""}</span> since analysis</span>}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, marginLeft: "auto", padding: "1px 8px", borderRadius: "var(--radius-pill)", border: `1px solid ${mkt.tone === "exit" ? "var(--action-exit-border)" : mkt.tone === "avoid" ? "var(--action-avoid-border)" : "var(--border-2)"}`, background: mkt.tone === "exit" ? "var(--action-exit-soft)" : mkt.tone === "avoid" ? "var(--action-avoid-soft)" : "var(--surface-sunken)", fontSize: 10 }} title={mkt.label}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: TONE[mkt.tone] }} />
+            <span style={{ fontWeight: 800, color: "var(--ink-4)", fontSize: 8.5 }}>MARKET</span>
+            <span style={{ fontWeight: 800, color: TONE[mkt.tone] }}>{mkt.label}</span>
           </span>
         </div>
+
+        {/* 5 Entry-range status (pts-to-entry / in-zone / continuation / reversal) */}
+        {entryStatus && (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, fontSize: 12 }}>
+            <span style={{ fontWeight: 800, color: TONE[entryStatus.tone] }}>{entryStatus.text}</span>
+          </div>
+        )}
 
         {/* 6 Entry · 7 Stop · 8 Target 1 · 9 Safe zone (locked levels win) */}
         {lvl && (
@@ -234,7 +228,6 @@ export function DecisionStrip({
 
 const card: React.CSSProperties = { borderRadius: "var(--radius-lg)", border: "1px solid var(--border-1)", background: "var(--surface-card)", overflow: "hidden" };
 const grid4: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 };
-const grid3: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 };
 const reBtn: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 5, height: 26, padding: "0 10px", borderRadius: "var(--radius-md)", border: "1px solid var(--brand-500)", background: "var(--brand-50)", color: "var(--brand-600)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" };
 
 function Stat({ label, value, tone, small }: { label: string; value: string; tone: keyof typeof TONE; small?: boolean }) {

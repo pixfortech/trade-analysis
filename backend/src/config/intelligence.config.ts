@@ -307,6 +307,13 @@ export const intelConfig = {
     // the client falls back to REST. Finer than quoteStaleSec (the coarse gate).
     tickStaleMs: numEnv("STREAM_TICK_STALE_MS", 5_000, 500),
     sseKeepaliveMs: numEnv("STREAM_SSE_KEEPALIVE_MS", 15_000, 1000),
+    // Tick-built live candles: once a subscribed instrument is streaming, indicators
+    // and the decision read the tick-built candle series instead of re-fetching
+    // historical REST candles (§4/§7). REST seeds it once; ticks extend it. Falls
+    // back to REST whenever the series is cold (no tick within candleWarmMs).
+    candlesFromTicks: flagEnv("STREAM_CANDLES_FROM_TICKS", true),
+    candleWarmMs: numEnv("STREAM_CANDLE_WARM_MS", 15_000, 1000),
+    candleMaxCount: numEnv("STREAM_CANDLE_MAX_COUNT", 500, 50, 5000),
   },
   defaults: {
     topStripSymbols: symbolListEnv("TOP_STRIP_DEFAULT_SYMBOLS", DEFAULT_TOP_STRIP),
@@ -421,6 +428,12 @@ export const intelConfig = {
     // direction, how far (in ATRs) a continuation entry is still allowed before it
     // becomes "reversal risk / wait for pullback".
     continuationAtrMult: numEnv("TRADE_CONTINUATION_ATR_MULT", 0.75, 0, 5),
+    // Controlled auto-refresh: when the live tick moves this % past the price the
+    // analysis was computed on, the client shows "Recalculating" and re-runs the
+    // analysis — debounced to a minimum interval so levels refresh on a stable
+    // cadence, never blindly on every tick.
+    autoRefreshMovePct: numEnv("TRADE_AUTO_REFRESH_MOVE_PCT", 0.12, 0, 10),
+    autoRefreshMinMs: numEnv("TRADE_AUTO_REFRESH_MIN_MS", 4000, 500),
   },
 } as const;
 
@@ -495,6 +508,8 @@ export function publicConfig() {
         soundEnabled: intelConfig.trade.alerts.soundEnabled,
       },
       continuationAtrMult: intelConfig.trade.continuationAtrMult,
+      autoRefreshMovePct: intelConfig.trade.autoRefreshMovePct,
+      autoRefreshMinMs: intelConfig.trade.autoRefreshMinMs,
     },
     readOnly: true as const,
   };
