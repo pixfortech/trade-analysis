@@ -59,7 +59,7 @@ export interface MarketStatus {
 }
 
 export function DecisionStrip({
-  d, plan, evalResult, points, refreshedAt, live, onReanalyse, monitor, liveCmp, recalculating, market,
+  d, plan, evalResult, points, refreshedAt, live, onReanalyse, monitor, liveCmp, planGuidance, market,
 }: {
   d: DecisionSnapshot | null;
   plan: TradePlanSnapshot | null;
@@ -71,8 +71,9 @@ export function DecisionStrip({
   monitor?: MonitorSummary | null;
   /** The single current CMP (WS tick, falling back to the decision CMP). */
   liveCmp?: number | null;
-  /** True while the analysis is catching up to a moved price (§13/§20). */
-  recalculating?: boolean;
+  /** Locked-plan guidance: prompt an explicit Re-analyse (never auto-regenerates
+   *  levels). E.g. "Plan no longer optimal", "Fresh setup detected", "PLAN VOID". */
+  planGuidance?: { text: string; tone: "avoid" | "exit" } | null;
   /** Unified market status (§10) — one MARKET state, not per-source freshness. */
   market?: MarketStatus;
 }) {
@@ -114,7 +115,6 @@ export function DecisionStrip({
         <span style={{ display: "inline-flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", minWidth: 0 }}>
           <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-0.01em", color: tone }}>{d.action}</span>
           <span style={{ fontSize: 12, fontWeight: 700, color: d.bias === "Bullish" ? "var(--action-enter)" : d.bias === "Bearish" ? "var(--action-exit)" : "var(--ink-3)" }}>{d.bias} setup</span>
-          {recalculating && <span style={{ fontSize: 9.5, fontWeight: 800, color: "var(--action-avoid)", border: "1px solid var(--action-avoid-border)", background: "var(--action-avoid-soft)", borderRadius: "var(--radius-pill)", padding: "1px 7px", textTransform: "uppercase", letterSpacing: "0.03em" }}>Recalculating…</span>}
         </span>
         <span style={{ textAlign: "right", flexShrink: 0 }}>
           <span className="num" style={{ fontSize: 17, fontWeight: 800, color: TONE[approvalTone] }}>{approval}</span>
@@ -132,6 +132,16 @@ export function DecisionStrip({
           )}
           {blocker && <p style={{ fontSize: 11.5, color: "var(--ink-3)", lineHeight: 1.3, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={d.reason}>{d.reason}</p>}
         </div>
+
+        {/* Plan-staleness guidance — prompts an EXPLICIT Re-analyse. The locked
+            levels are NEVER auto-regenerated; only this click rebuilds them. */}
+        {planGuidance && (
+          <button type="button" onClick={onReanalyse}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, width: "100%", textAlign: "left", padding: "6px 10px", borderRadius: "var(--radius-md)", border: `1px solid ${planGuidance.tone === "exit" ? "var(--action-exit-border)" : "var(--action-avoid-border)"}`, background: planGuidance.tone === "exit" ? "var(--action-exit-soft)" : "var(--action-avoid-soft)", cursor: "pointer" }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: planGuidance.tone === "exit" ? "var(--action-exit)" : "var(--action-avoid)" }}>{planGuidance.text}</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 800, color: "var(--brand-600)", flexShrink: 0 }}><Icon n="refresh" size={12} /> Re-analyse</span>
+          </button>
+        )}
 
         {/* 4 ONE current CMP (§8) · since-analysis delta (auxiliary) · unified MARKET status (§10) */}
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, fontSize: 12 }}>
@@ -154,13 +164,17 @@ export function DecisionStrip({
           </div>
         )}
 
-        {/* 6 Entry · 7 Stop · 8 Target 1 · 9 Safe zone (locked levels win) */}
+        {/* 6 Entry · 7 Stop · 8 Target 1 · 9 Safe zone — LOCKED at Analyse; these
+            never move on a tick or price threshold, only on explicit Re-analyse. */}
         {lvl && (
-          <div style={grid4}>
-            <Stat label={hasPlan ? "🔒 Entry" : "Entry"} value={lvl.entry != null ? num(lvl.entry) : "—"} tone="none" />
-            <Stat label="Stop" value={lvl.stop != null ? num(lvl.stop) : "—"} tone="exit" />
-            <Stat label="Target 1" value={lvl.t1 != null ? num(lvl.t1) : "—"} tone="enter" />
-            <Stat label="Safe zone" value={lvl.zLo != null && lvl.zHi != null ? `${num(lvl.zLo)}–${num(lvl.zHi)}` : "—"} tone={lvl.inZone ? "enter" : "wait"} />
+          <div>
+            {hasPlan && <div className="eyebrow" style={{ fontSize: 8, color: "var(--ink-4)", marginBottom: 4 }}>🔒 Locked plan · fixed until Re-analyse</div>}
+            <div style={grid4}>
+              <Stat label={hasPlan ? "🔒 Entry" : "Entry"} value={lvl.entry != null ? num(lvl.entry) : "—"} tone="none" />
+              <Stat label="Stop" value={lvl.stop != null ? num(lvl.stop) : "—"} tone="exit" />
+              <Stat label="Target 1" value={lvl.t1 != null ? num(lvl.t1) : "—"} tone="enter" />
+              <Stat label="Safe zone" value={lvl.zLo != null && lvl.zHi != null ? `${num(lvl.zLo)}–${num(lvl.zHi)}` : "—"} tone={lvl.inZone ? "enter" : "wait"} />
+            </div>
           </div>
         )}
 

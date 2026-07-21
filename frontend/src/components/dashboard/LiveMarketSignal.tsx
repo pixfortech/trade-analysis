@@ -100,13 +100,25 @@ export function LiveMarketSignal() {
   const points = plan && signal.data ? computePointsToAction(plan, liveCmp, activeSession?.analysedCmp ?? null) : null;
   const monitorSummary = mon.hasSession ? { analysedCmp: mon.analysedCmp ?? 0, liveCmp: mon.liveCmp, movement: mon.movement, movementPct: mon.movementPct, distToTrigger: mon.distToTrigger, candleState: mon.candleState } : null;
 
-  // RECALCULATING (§13/§20/acceptance): the live CMP has moved meaningfully past the
-  // price the CURRENT analysis was computed on. We surface "Recalculating" and
-  // trigger a debounced refresh so the analysis/recommendation catches up to the
-  // new price — the old analysis is never presented as current for the new CMP.
-  const analysisCmp = signal.data?.currentPrice ?? null;
-  const movePct = liveCmp != null && analysisCmp ? Math.abs((liveCmp - analysisCmp) / analysisCmp) * 100 : 0;
-  const recalculating = !!plan && signal.data != null && !genuinelyStale && (movePct > cfg.trade.autoRefreshMovePct || (signal.isLoading && !!signal.data));
+  // PLAN-STALENESS GUIDANCE. The locked plan (Entry/SL/Targets/Safe-zone/
+  // invalidation + analysed CMP/time) NEVER moves on a tick or a price threshold —
+  // it changes ONLY on explicit Re-analyse / instrument / timeframe / mode change /
+  // accepting a fresh setup. When price has drifted far from the LOCKED analysed
+  // CMP, or the plan is void, or the backend sees a fresh setup, we PROMPT an
+  // explicit Re-analyse — we never regenerate the levels ourselves.
+  const lockedAnalysedCmp = activeSession?.analysedCmp ?? null;
+  const movePct = liveCmp != null && lockedAnalysedCmp ? Math.abs((liveCmp - lockedAnalysedCmp) / lockedAnalysedCmp) * 100 : 0;
+  const planStale = !!plan && plan.direction !== "WAIT" && movePct > cfg.trade.planStaleMovePct;
+  const planGuidance: { text: string; tone: "avoid" | "exit" } | null =
+    !plan || plan.direction === "WAIT"
+      ? null
+      : evalResult?.state === "INVALIDATED"
+        ? { text: "PLAN VOID — Re-analyse required", tone: "exit" }
+        : planStale
+          ? dec.d?.freshSetup
+            ? { text: "Fresh setup detected — Re-analyse to generate new locked levels", tone: "avoid" }
+            : { text: "Plan no longer optimal — Re-analyse recommended", tone: "avoid" }
+          : null;
 
   // Unified market status (§10/§11) — ONE market state driven by the WebSocket
   // connection, not an arbitrary tick gap. Live · Delayed (reconnecting) ·
@@ -251,20 +263,12 @@ export function LiveMarketSignal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [evalResult?.state, evalResult?.approved, genuinelyStale, activeSession]);
 
-  // Controlled auto-refresh (§14): when the live tick has moved meaningfully past
-  // the price the analysis was computed on, re-run the signal + decision so the
-  // recommendation tracks the CURRENT market — debounced to a minimum interval so
-  // levels/recommendation refresh on a stable cadence, not blindly on every tick.
-  const lastAutoRefreshAt = useRef(0);
-  useEffect(() => {
-    if (!recalculating || !global.liveUpdates || signal.isLoading) return;
-    const now = Date.now();
-    if (now - lastAutoRefreshAt.current < cfg.trade.autoRefreshMinMs) return;
-    lastAutoRefreshAt.current = now;
-    void run();
-    void dec.reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recalculating, global.liveUpdates]);
+  // NOTE: there is deliberately NO price-triggered auto re-analysis. A tick or a
+  // price-movement threshold must never regenerate the locked Entry/SL/Targets.
+  // The live approval/action/points/continuation/reversal recompute every tick
+  // against the LOCKED plan; the locked levels change only on explicit Re-analyse
+  // (or instrument / timeframe / mode change). Below, price drift only PROMPTS a
+  // Re-analyse via planGuidance — it never rewrites the plan.
 
   // Live polling (CMP/indicators) — locked plan levels are NOT recalculated here.
   useEffect(() => {
@@ -380,7 +384,7 @@ export function LiveMarketSignal() {
           })()}
 
           {/* THE one primary decision strip */}
-          <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} points={points} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} monitor={monitorSummary} liveCmp={liveCmp} recalculating={recalculating} market={market} />
+          <DecisionStrip d={dec.d} plan={plan} evalResult={evalResult} points={points} refreshedAt={dec.refreshedAt} live={global.liveUpdates} onReanalyse={() => void analyze()} monitor={monitorSummary} liveCmp={liveCmp} planGuidance={planGuidance} market={market} />
 
           {/* Tentative P/L preview for the locked plan. Estimate — decoupled from
               approval; renders as a disabled scenario when entry isn't approved and

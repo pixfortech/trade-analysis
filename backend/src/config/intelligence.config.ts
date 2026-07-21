@@ -428,12 +428,12 @@ export const intelConfig = {
     // direction, how far (in ATRs) a continuation entry is still allowed before it
     // becomes "reversal risk / wait for pullback".
     continuationAtrMult: numEnv("TRADE_CONTINUATION_ATR_MULT", 0.75, 0, 5),
-    // Controlled auto-refresh: when the live tick moves this % past the price the
-    // analysis was computed on, the client shows "Recalculating" and re-runs the
-    // analysis — debounced to a minimum interval so levels refresh on a stable
-    // cadence, never blindly on every tick.
-    autoRefreshMovePct: numEnv("TRADE_AUTO_REFRESH_MOVE_PCT", 0.12, 0, 10),
-    autoRefreshMinMs: numEnv("TRADE_AUTO_REFRESH_MIN_MS", 4000, 500),
+    // Plan-staleness HINT threshold. When the live tick has moved this % past the
+    // analysed price, the locked levels are flagged "Plan no longer optimal —
+    // Re-analyse recommended". This NEVER moves the locked Entry/SL/Targets or
+    // auto-regenerates the plan — it only prompts an explicit Re-analyse. The
+    // live approval/action still recompute every tick against the LOCKED plan.
+    planStaleMovePct: numEnv("TRADE_PLAN_STALE_MOVE_PCT", 0.35, 0, 20),
   },
 } as const;
 
@@ -508,8 +508,7 @@ export function publicConfig() {
         soundEnabled: intelConfig.trade.alerts.soundEnabled,
       },
       continuationAtrMult: intelConfig.trade.continuationAtrMult,
-      autoRefreshMovePct: intelConfig.trade.autoRefreshMovePct,
-      autoRefreshMinMs: intelConfig.trade.autoRefreshMinMs,
+      planStaleMovePct: intelConfig.trade.planStaleMovePct,
     },
     readOnly: true as const,
   };
