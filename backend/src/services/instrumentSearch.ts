@@ -10,6 +10,13 @@
 // =====================================================================
 
 import type { Instrument } from "./instruments.service";
+import { tzDateKey } from "./sessionOhlc";
+
+// NSE derivative expiries are Indian-market TRADING DATES (Asia/Kolkata). Expiry
+// comparisons use this timezone so a UTC-midnight boundary never flips which
+// contract counts as expired. (This is the exchange's date semantics, independent
+// of the app's display timezone.)
+const MARKET_TZ = "Asia/Kolkata";
 
 // Exchanges Kite Connect can quote/serve for retail. Anything else (e.g. NSEIX /
 // GIFT NIFTY, or other special segments) is excluded from search so the app
@@ -164,9 +171,15 @@ export interface GroupedSearchFilters {
 /**
  * Zerodha-like grouped search. Pure over `list`. Parses the free-text query,
  * filters, ranks (exact symbol/name first; equity & index before F&O; nearest
- * expiry next), and groups by UI segment.
+ * non-expired expiry next), and groups by UI segment.
+ *
+ * Time-deterministic: the "as of" instant is INJECTABLE via `opts.now` (epoch ms;
+ * defaults to the real clock) so expiry ranking is unit-testable with fixed dates.
+ * `opts.timezone` overrides the market timezone used for the expiry date compare.
  */
-export function groupedSearch(list: Instrument[], filters: GroupedSearchFilters): SearchGroups {
+export function groupedSearch(list: Instrument[], filters: GroupedSearchFilters, opts?: { now?: number; timezone?: string }): SearchGroups {
+  const nowMs = opts?.now ?? Date.now();
+  const tz = opts?.timezone ?? MARKET_TZ;
   const parsed = parseQuery(filters.q ?? "");
   const text = (filters.underlying ?? parsed.text ?? "").trim().toUpperCase();
   const segFilter = (filters.segment ?? "all").toLowerCase();
@@ -214,8 +227,8 @@ export function groupedSearch(list: Instrument[], filters: GroupedSearchFilters)
     // equity & indices rank above derivatives by default
     if (uiSegment === "equity") score -= 8;
     else if (uiSegment === "indices") score -= 6;
-    // nearest expiry first for F&O
-    if (ins.expiry) score += expiryRank(ins.expiry);
+    // nearest NON-EXPIRED expiry first for F&O
+    if (ins.expiry) score += expiryRank(ins.expiry, nowMs, tz);
 
     scored.push({ r: toResult(ins), score });
   }
@@ -236,11 +249,28 @@ export function groupedSearch(list: Instrument[], filters: GroupedSearchFilters)
   return groups;
 }
 
-/** Days-from-today as a small positive number for ranking (expired → large). */
-function expiryRank(iso: string): number {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return 50;
-  const days = Math.round((t - Date.now()) / 86_400_000);
-  if (days < 0) return 1000 + Math.abs(days); // de-prioritise past
-  return days;
+/**
+ * Ranking weight for an expiry: nearest non-expired first (0 = expires today, the
+ * last trading day, still valid). Compared as Indian-market TRADING DATES so a
+ * contract stays valid THROUGH its expiry date and only rolls over the next
+ * market day — UTC-midnight boundaries never change the verdict. Expired contracts
+ * get a large weight so they rank last (never selected as the nearest).
+ */
+function expiryRank(iso: string, nowMs: number, tz: string): number {
+  const expiryKey = (iso || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiryKey)) return 50; // unknown/no structured expiry
+  const days = marketDayDiff(expiryKey, tzDateKey(nowMs, tz));
+  if (Number.isNaN(days)) return 50;
+  if (days < 0) return 1000 + Math.abs(days); // expired (before today's market date)
+  return days; // 0 = expires today → still the nearest valid contract
+}
+
+/** Whole-day difference between two YYYY-MM-DD market dates (expiry − today).
+ *  Both are treated as calendar dates (parsed at UTC midnight so the fixed offset
+ *  cancels), giving an exact integer day count with no timezone drift. */
+function marketDayDiff(expiryKey: string, todayKey: string): number {
+  const e = Date.parse(`${expiryKey}T00:00:00Z`);
+  const t = Date.parse(`${todayKey}T00:00:00Z`);
+  if (Number.isNaN(e) || Number.isNaN(t)) return NaN;
+  return Math.round((e - t) / 86_400_000);
 }

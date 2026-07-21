@@ -18,6 +18,47 @@ const CSV = [
 
 const LIST: Instrument[] = parseInstrumentsCsv(CSV);
 
+// ---------------------------------------------------------------------------
+// Deterministic expiry-boundary fixture. Expiry ranking is time-injected via
+// `opts.now`, so these are stable regardless of the machine/system date. Three
+// expiries per family (an expired May, a June, a following July) around fixed
+// as-of dates prove the rollover logic instead of freezing an old expectation.
+// ---------------------------------------------------------------------------
+const EXP_MAY = "2026-05-28"; // expired relative to the June/July as-of dates
+const EXP_JUN = "2026-06-25";
+const EXP_JUL = "2026-07-30";
+
+function futRow(token: number, under: string, mon: string, expiry: string, lot: number): string {
+  return `${token},${token},${under}26${mon}FUT,${under},0,${expiry},0,0.05,${lot},FUT,NFO-FUT,NFO`;
+}
+const EXPIRY_LIST: Instrument[] = parseInstrumentsCsv(
+  [
+    "instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,strike,tick_size,lot_size,instrument_type,segment,exchange",
+    ...[
+      { u: "MIDCPNIFTY", lot: 75 },
+      { u: "NIFTY", lot: 50 },
+      { u: "BANKNIFTY", lot: 15 },
+      { u: "RELIANCE", lot: 250 },
+    ].flatMap(({ u, lot }, i) => [
+      futRow(9000 + i * 3 + 0, u, "MAY", EXP_MAY, lot),
+      futRow(9000 + i * 3 + 1, u, "JUN", EXP_JUN, lot),
+      futRow(9000 + i * 3 + 2, u, "JUL", EXP_JUL, lot),
+    ]),
+  ].join("\n"),
+);
+
+// As-of instants (epoch ms). Chosen so their Asia/Kolkata market date is clear.
+const ASOF_BEFORE_JUN = Date.UTC(2026, 5, 10, 5, 0, 0); // 2026-06-10 10:30 IST — before June expiry
+const ASOF_ON_JUN = Date.UTC(2026, 5, 25, 5, 0, 0); // 2026-06-25 10:30 IST — June expiry day, market hours
+const ASOF_AFTER_JUN = Date.UTC(2026, 5, 26, 5, 0, 0); // 2026-06-26 10:30 IST — day after June expiry
+const ASOF_TZ_BOUNDARY = Date.UTC(2026, 5, 25, 20, 0, 0); // 2026-06-25 20:00 UTC = 2026-06-26 01:30 IST
+
+/** Nearest (first-ranked) future tradingsymbol for an underlying at a fixed as-of. */
+function nearestFut(under: string, now: number): string | undefined {
+  const g = groupedSearch(EXPIRY_LIST, { q: under, segment: "futures" }, { now });
+  return g.futures.filter((f) => f.name === under)[0]?.tradingsymbol; // isolate the family (NIFTY ⊂ BANKNIFTY/MIDCPNIFTY text)
+}
+
 test("classify: equity, index, future, option", () => {
   const by = (sym: string) => LIST.find((i) => i.tradingsymbol === sym)!;
   assert.equal(classify(by("RELIANCE")).uiSegment, "equity");
@@ -52,8 +93,9 @@ test("search RELIANCE groups equity first and includes its future", () => {
   assert.ok(g.futures.some((r) => r.tradingsymbol === "RELIANCE26JUNFUT"));
 });
 
-test("search MIDCPNIFTY returns futures (nearest expiry first)", () => {
-  const g = groupedSearch(LIST, { q: "MIDCPNIFTY" });
+test("search MIDCPNIFTY returns futures (nearest non-expired expiry first)", () => {
+  // As-of a fixed date BEFORE the June expiry → June is the nearest valid contract.
+  const g = groupedSearch(LIST, { q: "MIDCPNIFTY" }, { now: ASOF_BEFORE_JUN });
   assert.equal(g.futures[0].tradingsymbol, "MIDCPNIFTY26JUNFUT");
   assert.equal(g.futures.length, 2);
 });
@@ -88,4 +130,50 @@ test("no match → all groups empty", () => {
 test("limitPerGroup caps each group", () => {
   const g = groupedSearch(LIST, { q: "NIFTY", segment: "options", limitPerGroup: 1 });
   assert.ok(g.options.length <= 1);
+});
+
+// ---------------------------------------------------------------------------
+// Expiry-boundary coverage — deterministic via injected as-of dates (§5 A–G).
+// ---------------------------------------------------------------------------
+
+test("expiry A: before expiry, the nearest current (June) contract is selected", () => {
+  assert.equal(nearestFut("MIDCPNIFTY", ASOF_BEFORE_JUN), "MIDCPNIFTY26JUNFUT");
+});
+
+test("expiry B: on the expiry date (market hours) the contract is still valid — last trading day", () => {
+  assert.equal(nearestFut("MIDCPNIFTY", ASOF_ON_JUN), "MIDCPNIFTY26JUNFUT");
+});
+
+test("expiry C: the market day after expiry rolls over to the next (July) contract", () => {
+  assert.equal(nearestFut("MIDCPNIFTY", ASOF_AFTER_JUN), "MIDCPNIFTY26JULFUT");
+});
+
+test("expiry D: an expired contract is NEVER selected as the nearest", () => {
+  for (const now of [ASOF_BEFORE_JUN, ASOF_ON_JUN, ASOF_AFTER_JUN, ASOF_TZ_BOUNDARY]) {
+    assert.notEqual(nearestFut("MIDCPNIFTY", now), "MIDCPNIFTY26MAYFUT");
+  }
+});
+
+test("expiry E: with multiple expiries the earliest valid non-expired is first; expired ranks last", () => {
+  const g = groupedSearch(EXPIRY_LIST, { q: "MIDCPNIFTY", segment: "futures" }, { now: ASOF_BEFORE_JUN });
+  const order = g.futures.filter((f) => f.name === "MIDCPNIFTY").map((f) => f.tradingsymbol);
+  assert.deepEqual(order, ["MIDCPNIFTY26JUNFUT", "MIDCPNIFTY26JULFUT", "MIDCPNIFTY26MAYFUT"]);
+});
+
+test("expiry F: MIDCPNIFTY rolls June → July across its expiry", () => {
+  assert.equal(nearestFut("MIDCPNIFTY", ASOF_BEFORE_JUN), "MIDCPNIFTY26JUNFUT");
+  assert.equal(nearestFut("MIDCPNIFTY", ASOF_AFTER_JUN), "MIDCPNIFTY26JULFUT");
+});
+
+test("expiry G: the same resolver rolls over for NIFTY, BANKNIFTY and stock (RELIANCE) futures", () => {
+  for (const under of ["NIFTY", "BANKNIFTY", "RELIANCE"]) {
+    assert.equal(nearestFut(under, ASOF_BEFORE_JUN), `${under}26JUNFUT`, `${under}: before expiry → June`);
+    assert.equal(nearestFut(under, ASOF_AFTER_JUN), `${under}26JULFUT`, `${under}: after expiry → July`);
+  }
+});
+
+test("expiry TZ: expiry uses the Asia/Kolkata market date, not UTC midnight", () => {
+  // 2026-06-25 20:00 UTC is already 2026-06-26 in IST → June is expired, July is
+  // nearest. A naive UTC-date compare would wrongly keep June selected.
+  assert.equal(nearestFut("MIDCPNIFTY", ASOF_TZ_BOUNDARY), "MIDCPNIFTY26JULFUT");
 });
